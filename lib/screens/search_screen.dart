@@ -158,12 +158,11 @@ class _SearchScreenState extends State<SearchScreen> {
       localeId: _selectedLocale,
       listenFor: const Duration(seconds: 30),
       pauseFor: const Duration(seconds: 3),
-      // ignore: deprecated_member_use
-      partialResults: true,
-      // ignore: deprecated_member_use
-      cancelOnError: true,
-      // ignore: deprecated_member_use
-      listenMode: ListenMode.search,
+      listenOptions: SpeechListenOptions(
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: ListenMode.search,
+      ),
     );
   }
 

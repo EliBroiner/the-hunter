@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 /// שירות OCR - חילוץ טקסט מתמונות באמצעות Google ML Kit
 /// תומך בעברית ואנגלית עם אופטימיזציה לביצועים
