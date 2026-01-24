@@ -3,9 +3,10 @@ import 'package:isar/isar.dart';
 part 'file_metadata.g.dart';
 
 /// מודל מטאדאטה של קובץ - מאחסן מידע על קבצים שנסרקו
-@collection
+@Collection()
 class FileMetadata {
-  Id id = Isar.autoIncrement;
+  @Id()
+  int id = 0;
 
   /// נתיב מלא לקובץ
   @Index()
@@ -30,7 +31,7 @@ class FileMetadata {
   late DateTime addedAt;
 
   /// טקסט שחולץ מהקובץ (לחיפוש מהיר)
-  @Index(type: IndexType.value)
+  @Index()
   String? extractedText;
 
   /// תגיות לסיווג הקובץ

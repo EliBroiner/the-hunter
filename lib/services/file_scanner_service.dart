@@ -211,7 +211,7 @@ class FileScannerService {
     }
 
     // שמירה למסד הנתונים (wipe & replace)
-    await _databaseService.replaceAllFiles(allFiles);
+    _databaseService.replaceAllFiles(allFiles);
 
     return ScanResult(
       success: true,
@@ -251,7 +251,7 @@ class FileScannerService {
     int totalFilesScanned = 0;
 
     // שליפת כל הנתיבים הקיימים במסד
-    final existingPaths = await _databaseService.getAllPaths();
+    final existingPaths = _databaseService.getAllPaths();
 
     for (final source in sources) {
       currentSource++;
@@ -277,7 +277,7 @@ class FileScannerService {
 
     // הוספת קבצים חדשים למסד
     if (allNewFiles.isNotEmpty) {
-      await _databaseService.saveFiles(allNewFiles);
+      _databaseService.saveFiles(allNewFiles);
     }
 
     // ניקוי קבצים מיושנים
@@ -308,7 +308,7 @@ class FileScannerService {
       if (!_isSupportedExtension(extension)) return null;
 
       // בדיקה אם הקובץ כבר קיים במסד
-      final existing = await _databaseService.getFileByPath(filePath);
+      final existing = _databaseService.getFileByPath(filePath);
       if (existing != null) return existing;
 
       final stat = await file.stat();
@@ -320,14 +320,14 @@ class FileScannerService {
       );
 
       // שמירה למסד
-      await _databaseService.saveFile(metadata);
+      _databaseService.saveFile(metadata);
 
       // הרצת OCR אם זו תמונה
       if (imageExtensions.contains(extension)) {
         final extractedText = await _ocrService.extractText(filePath);
         metadata.extractedText = extractedText;
         metadata.isIndexed = true;
-        await _databaseService.updateFile(metadata);
+        _databaseService.updateFile(metadata);
       }
 
       return metadata;
@@ -370,7 +370,7 @@ class FileScannerService {
     }
 
     final files = await _scanDirectory(downloadSource.path);
-    await _databaseService.replaceAllFiles(files);
+    _databaseService.replaceAllFiles(files);
 
     return ScanResult(
       success: true,
@@ -384,7 +384,7 @@ class FileScannerService {
     Function(int current, int total)? onProgress,
   }) async {
     try {
-      final pendingFiles = await _databaseService.getPendingImageFiles();
+      final pendingFiles = _databaseService.getPendingImageFiles();
       
       if (pendingFiles.isEmpty) {
         return ProcessResult(
@@ -405,7 +405,7 @@ class FileScannerService {
 
         file.extractedText = extractedText;
         file.isIndexed = true;
-        await _databaseService.updateFile(file);
+        _databaseService.updateFile(file);
 
         filesProcessed++;
         if (extractedText.isNotEmpty) filesWithText++;

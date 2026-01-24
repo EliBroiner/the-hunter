@@ -245,8 +245,8 @@ class _SearchScreenState extends State<SearchScreen> {
             action: SnackBarAction(
               label: 'הסר',
               textColor: Colors.white,
-              onPressed: () async {
-                await _databaseService.deleteFile(file.id);
+              onPressed: () {
+                _databaseService.deleteFile(file.id);
                 _updateSearchStream(); // רענון לאחר מחיקה
               },
             ),

@@ -228,9 +228,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   /// טוען את הקבצים מהמסד
-  Future<void> _loadFiles() async {
-    final files = await _databaseService.getAllFiles();
-    final count = await _databaseService.getFilesCount();
+  void _loadFiles() {
+    final files = _databaseService.getAllFiles();
+    final count = _databaseService.getFilesCount();
     setState(() {
       _files = files;
       _totalFiles = count;
@@ -255,7 +255,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
 
     if (result.success) {
-      await _loadFiles();
+      _loadFiles();
       setState(() => _scannedSources = result.scannedSources);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -296,7 +296,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
 
     if (result.success) {
-      await _loadFiles();
+      _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -364,8 +364,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
 
     if (confirmed == true) {
-      await _databaseService.clearAll();
-      await _loadFiles();
+      _databaseService.clearAll();
+      _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('כל הנתונים נמחקו')),
@@ -635,9 +635,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
       ),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline, size: 20),
-        onPressed: () async {
-          await _databaseService.deleteFile(file.id);
-          await _loadFiles();
+        onPressed: () {
+          _databaseService.deleteFile(file.id);
+          _loadFiles();
         },
       ),
       onTap: hasText ? () => _showExtractedText(file) : null,
