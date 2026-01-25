@@ -12,8 +12,19 @@ allprojects {
     
     // Set extra properties that plugins read
     extra["compileSdkVersion"] = sdkVersion
-    extra["targetSdkVersion"] = sdkVersion
+    extra["targetSdkVersion"] = sdkVersion  
     extra["minSdkVersion"] = 24
+    
+    // Force SDK on all library plugins including isar_flutter_libs
+    plugins.withType<LibraryPlugin> {
+        extensions.configure<LibraryExtension> {
+            compileSdk = sdkVersion
+            defaultConfig {
+                minSdk = 24
+                targetSdk = sdkVersion
+            }
+        }
+    }
 }
 
 val newBuildDir: Directory =
@@ -30,15 +41,15 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// Force compileSdk on library plugins (like isar_flutter_libs) - runs when plugin is applied
-subprojects {
-    plugins.withType<LibraryPlugin> {
-        extensions.configure<LibraryExtension> {
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
+}
+
+// Use gradle.projectsEvaluated to force SDK after all projects are evaluated
+gradle.projectsEvaluated {
+    subprojects {
+        extensions.findByType<LibraryExtension>()?.apply {
             compileSdk = sdkVersion
         }
     }
-}
-
-tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
 }
