@@ -574,9 +574,56 @@ class _ScannerScreenState extends State<ScannerScreen> {
             style: TextStyle(color: Colors.grey),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 24),
+          // כפתור אבחון
+          OutlinedButton.icon(
+            onPressed: _showDiagnostics,
+            icon: const Icon(Icons.bug_report),
+            label: const Text('בדיקת תיקיות'),
+          ),
         ],
       ),
     );
+  }
+  
+  /// מציג מידע אבחוני על התיקיות
+  Future<void> _showDiagnostics() async {
+    final sources = _fileScannerService.getScanSources();
+    final results = <String>[];
+    
+    for (final source in sources) {
+      final exists = await _fileScannerService.directoryExists(source.path);
+      results.add('${source.name}: ${exists ? "✓ קיים" : "✗ לא נמצא"}\n${source.path}');
+    }
+    
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('אבחון תיקיות'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('נתיב בסיס: ${_fileScannerService.basePath}'),
+                const Divider(),
+                ...results.map((r) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(r, style: const TextStyle(fontSize: 12)),
+                )),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('סגור'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Widget _buildFileItem(FileMetadata file) {

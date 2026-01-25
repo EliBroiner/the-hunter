@@ -594,6 +594,7 @@ class _SearchScreenState extends State<SearchScreen> {
   /// בונה מצב ריק
   Widget _buildEmptyState() {
     final hasSearchQuery = _searchController.text.isNotEmpty;
+    final dbCount = _databaseService.getFilesCount();
     
     return Center(
       child: Padding(
@@ -609,7 +610,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                hasSearchQuery ? Icons.search_off : Icons.manage_search,
+                hasSearchQuery ? Icons.search_off : (dbCount == 0 ? Icons.folder_off : Icons.manage_search),
                 size: 80,
                 color: hasSearchQuery 
                     ? Colors.grey.withValues(alpha: 0.6)
@@ -622,7 +623,7 @@ class _SearchScreenState extends State<SearchScreen> {
             Text(
               hasSearchQuery 
                   ? 'לא נמצאו תוצאות' 
-                  : 'The Hunter מוכן...',
+                  : (dbCount == 0 ? 'אין קבצים במסד' : 'The Hunter מוכן...'),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 color: hasSearchQuery ? Colors.grey : null,
                 fontWeight: FontWeight.bold,
@@ -635,12 +636,26 @@ class _SearchScreenState extends State<SearchScreen> {
             Text(
               hasSearchQuery
                   ? 'נסה לחפש משהו אחר או שנה את הפילטר'
-                  : 'חפש קבלות, צילומי מסך או מסמכים',
+                  : (dbCount == 0 
+                      ? 'עבור לטאב סריקה ולחץ "סרוק הכל"' 
+                      : 'חפש קבלות, צילומי מסך או מסמכים'),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Colors.grey,
               ),
               textAlign: TextAlign.center,
             ),
+            
+            // מידע על מסד הנתונים
+            if (!hasSearchQuery)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text(
+                  'קבצים במסד: $dbCount',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey,
+                  ),
+                ),
+              ),
             
             // דוגמאות חיפוש
             if (!hasSearchQuery) ...[
