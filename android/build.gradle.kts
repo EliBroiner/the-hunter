@@ -1,10 +1,10 @@
-// Global configuration for plugins
+// Global configuration for plugins - FORCING SDK 36
 extra.apply {
-    set("compileSdkVersion", 35)
-    set("targetSdkVersion", 35)
+    set("compileSdkVersion", 36)
+    set("targetSdkVersion", 36)
     set("minSdkVersion", 24)
-    set("flutter.compileSdkVersion", 35)
-    set("flutter.targetSdkVersion", 35)
+    set("flutter.compileSdkVersion", 36)
+    set("flutter.targetSdkVersion", 36)
     set("flutter.minSdkVersion", 24)
 }
 
