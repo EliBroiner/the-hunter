@@ -76,15 +76,42 @@ class DatabaseService {
 
   /// מוחק את כל הקבצים ומכניס חדשים (wipe & replace)
   void replaceAllFiles(List<FileMetadata> files) {
-    isar.write((isar) {
-      isar.fileMetadatas.clear();
-      isar.fileMetadatas.putAll(files);
-    });
+    print('[DB] replaceAllFiles called with ${files.length} files');
+    try {
+      isar.write((isar) {
+        final beforeCount = isar.fileMetadatas.count();
+        print('[DB] Before clear: $beforeCount files');
+        
+        isar.fileMetadatas.clear();
+        print('[DB] After clear, before putAll');
+        
+        // שמירה בקבוצות קטנות למניעת timeout
+        const batchSize = 1000;
+        for (var i = 0; i < files.length; i += batchSize) {
+          final end = (i + batchSize < files.length) ? i + batchSize : files.length;
+          final batch = files.sublist(i, end);
+          isar.fileMetadatas.putAll(batch);
+          print('[DB] Saved batch ${i ~/ batchSize + 1}: ${batch.length} files');
+        }
+        
+        final afterCount = isar.fileMetadatas.count();
+        print('[DB] After putAll: $afterCount files');
+      });
+      
+      // וידוא שהשמירה הצליחה
+      final finalCount = isar.fileMetadatas.count();
+      print('[DB] Final count after transaction: $finalCount files');
+    } catch (e, stack) {
+      print('[DB] ERROR in replaceAllFiles: $e');
+      print('[DB] Stack: $stack');
+    }
   }
 
   /// מחזיר את כל הקבצים
   List<FileMetadata> getAllFiles() {
-    return isar.fileMetadatas.where().findAll();
+    final files = isar.fileMetadatas.where().findAll();
+    print('[DB] getAllFiles returning ${files.length} files');
+    return files;
   }
 
   /// מחזיר קבצים לפי סיומת

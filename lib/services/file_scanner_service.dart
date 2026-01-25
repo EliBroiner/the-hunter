@@ -211,7 +211,13 @@ class FileScannerService {
     }
 
     // שמירה למסד הנתונים (wipe & replace)
+    print('[SCAN] Total files to save: ${allFiles.length}');
+    print('[SCAN] First 3 files: ${allFiles.take(3).map((f) => f.name).toList()}');
     _databaseService.replaceAllFiles(allFiles);
+    
+    // וידוא שהשמירה הצליחה
+    final savedCount = _databaseService.getFilesCount();
+    print('[SCAN] Files in DB after save: $savedCount');
 
     return ScanResult(
       success: true,
