@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.thehunter.the_hunter"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
