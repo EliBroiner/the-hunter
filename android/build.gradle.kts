@@ -1,3 +1,13 @@
+// Global configuration for plugins
+extra.apply {
+    set("compileSdkVersion", 35)
+    set("targetSdkVersion", 35)
+    set("minSdkVersion", 24)
+    set("flutter.compileSdkVersion", 35)
+    set("flutter.targetSdkVersion", 35)
+    set("flutter.minSdkVersion", 24)
+}
+
 allprojects {
     repositories {
         google()
