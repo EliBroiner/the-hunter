@@ -1,3 +1,5 @@
+import com.android.build.gradle.LibraryExtension
+
 // הגדרות SDK גלובליות שFlutter plugins קוראים
 extra.apply {
     set("compileSdkVersion", 35)
@@ -9,6 +11,13 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+    
+    // כפה SDK 35 על כל ספריות Android (plugins כמו isar)
+    plugins.withId("com.android.library") {
+        extensions.configure<LibraryExtension> {
+            compileSdk = 35
+        }
     }
 }
 
@@ -28,13 +37,4 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
-}
-
-// כפה SDK 35 על כל ספריות Android (plugins כמו isar)
-subprojects {
-    pluginManager.withPlugin("com.android.library") {
-        extensions.configure<com.android.build.gradle.LibraryExtension> {
-            compileSdk = 35
-        }
-    }
 }
