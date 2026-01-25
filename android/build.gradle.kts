@@ -21,14 +21,21 @@ subprojects {
 
 // כפה SDK 35 על כל הפרויקטים המשניים (plugins)
 subprojects {
-    afterEvaluate {
-        if (project.hasProperty("android")) {
-            val android = project.extensions.findByName("android")
-            if (android is com.android.build.gradle.BaseExtension) {
-                android.compileSdkVersion(35)
-                android.defaultConfig {
-                    targetSdk = 35
-                }
+    // For Android Libraries (like plugins)
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.gradle.LibraryExtension> {
+            compileSdk = 35
+            defaultConfig {
+                targetSdk = 35
+            }
+        }
+    }
+    // For the App itself
+    plugins.withId("com.android.application") {
+        extensions.configure<com.android.build.gradle.internal.dsl.BaseAppModuleExtension> {
+            compileSdk = 35
+            defaultConfig {
+                targetSdk = 35
             }
         }
     }
