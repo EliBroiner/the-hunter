@@ -89,10 +89,35 @@ class TheHunterApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
+          seedColor: const Color(0xFF6366F1), // אינדיגו מודרני
           brightness: Brightness.dark,
+          surface: const Color(0xFF0F0F23), // רקע כהה יותר
+          primary: const Color(0xFF818CF8), // סגול בהיר
+          secondary: const Color(0xFF34D399), // ירוק מנטה
         ),
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF0F0F23),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+        ),
+        cardTheme: CardTheme(
+          color: const Color(0xFF1E1E3F),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: const Color(0xFF1E1E3F),
+          indicatorColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: const Color(0xFF6366F1),
+          foregroundColor: Colors.white,
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
       ),
       home: const MainScreen(),
     );
@@ -161,18 +186,51 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Column(
         children: [
-          // באנר סריקה אוטומטית
+          // באנר סריקה אוטומטית - מודרני
           if (_showScanBanner)
-            MaterialBanner(
-              content: Text(_scanMessage),
-              leading: const Icon(Icons.sync, color: Colors.green),
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              actions: [
-                TextButton(
-                  onPressed: () => setState(() => _showScanBanner = false),
-                  child: const Text('סגור'),
+            Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                    Theme.of(context).colorScheme.secondary.withValues(alpha: 0.2),
+                  ],
                 ),
-              ],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.secondary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _scanMessage,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => setState(() => _showScanBanner = false),
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
             ),
           // המסך הנוכחי - IndexedStack שומר את המצב של כל הטאבים
           Expanded(
@@ -188,32 +246,89 @@ class _MainScreenState extends State<MainScreen> {
           if (_showLogPanel) _buildLogPanel(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          LogService.instance.clear(); // ניקוי לוגים במעבר טאב
-          setState(() => _currentIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.search),
-            selectedIcon: Icon(Icons.search),
-            label: 'חיפוש',
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E3F),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildNavItem(0, Icons.search, Icons.search, 'חיפוש'),
+                _buildNavItem(1, Icons.radar_outlined, Icons.radar, 'סריקה'),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.folder_copy_outlined),
-            selectedIcon: Icon(Icons.folder_copy),
-            label: 'סריקה',
-          ),
-        ],
+        ),
       ),
-      // כפתור צף להצגת לוגים
+      // כפתור צף להצגת לוגים - מוסתר בברירת מחדל
       floatingActionButtonLocation: FloatingActionButtonLocation.miniStartFloat,
       floatingActionButton: FloatingActionButton.small(
         heroTag: 'logs',
         onPressed: () => setState(() => _showLogPanel = !_showLogPanel),
-        backgroundColor: _showLogPanel ? Colors.red : Colors.grey.shade800,
-        child: Icon(_showLogPanel ? Icons.close : Icons.bug_report, size: 20),
+        backgroundColor: _showLogPanel ? Colors.red : Colors.grey.shade800.withValues(alpha: 0.5),
+        child: Icon(_showLogPanel ? Icons.close : Icons.bug_report, size: 18),
+      ),
+    );
+  }
+  
+  /// בונה פריט ניווט מודרני
+  Widget _buildNavItem(int index, IconData icon, IconData selectedIcon, String label) {
+    final isSelected = _currentIndex == index;
+    final theme = Theme.of(context);
+    
+    return GestureDetector(
+      onTap: () {
+        LogService.instance.clear();
+        setState(() => _currentIndex = index);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(
+          horizontal: isSelected ? 20 : 16,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          gradient: isSelected 
+              ? LinearGradient(
+                  colors: [
+                    theme.colorScheme.primary.withValues(alpha: 0.3),
+                    theme.colorScheme.secondary.withValues(alpha: 0.3),
+                  ],
+                )
+              : null,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? selectedIcon : icon,
+              color: isSelected ? theme.colorScheme.primary : Colors.grey,
+              size: 22,
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -471,209 +586,381 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('The Hunter'),
-        centerTitle: true,
-        actions: [
-          if (_files.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _clearDatabase,
-              tooltip: 'מחק הכל',
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            // Header מודרני
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                theme.colorScheme.primary,
+                                theme.colorScheme.secondary,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(Icons.radar, color: Colors.white, size: 28),
+                        ),
+                        const SizedBox(width: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'The Hunter',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'סורק קבצים חכם',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // כרטיסי סטטיסטיקות
+                    Row(
+                      children: [
+                        Expanded(child: _buildModernStatCard(
+                          icon: Icons.folder_copy,
+                          value: _totalFiles.toString(),
+                          label: 'קבצים',
+                          color: theme.colorScheme.primary,
+                        )),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildModernStatCard(
+                          icon: Icons.storage,
+                          value: _calculateTotalSize(),
+                          label: 'גודל',
+                          color: theme.colorScheme.secondary,
+                        )),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildModernStatCard(
+                          icon: Icons.source,
+                          value: _scannedSources.where((s) => s.exists).length.toString(),
+                          label: 'מקורות',
+                          color: Colors.orange,
+                        )),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-        ],
+            
+            // כפתורי פעולה
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildActionButton(
+                        icon: Icons.search,
+                        label: _isScanning ? _scanningStatus : 'סרוק הכל',
+                        isLoading: _isScanning,
+                        onPressed: (_isScanning || _isProcessing) ? null : _scanAllFolders,
+                        isPrimary: true,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildActionButton(
+                        icon: Icons.text_snippet,
+                        label: _isProcessing ? _processingStatus : 'OCR',
+                        isLoading: _isProcessing,
+                        onPressed: (_isScanning || _isProcessing) ? null : _processFiles,
+                        isPrimary: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            
+            // כרטיס מקורות שנסרקו
+            if (_scannedSources.isNotEmpty)
+              SliverToBoxAdapter(child: _buildScannedSourcesCard()),
+            
+            // הודעת שגיאה
+            if (_errorMessage != null)
+              SliverToBoxAdapter(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(_errorMessage!)),
+                    ],
+                  ),
+                ),
+              ),
+            
+            // רשימת קבצים או מצב ריק
+            if (_files.isEmpty)
+              SliverFillRemaining(child: _buildEmptyState())
+            else
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => _buildFileItem(_files[index]),
+                    childCount: _files.length,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
-      body: Column(
-        children: [
-          // כרטיס סטטיסטיקות
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildStatItem(Icons.folder, 'קבצים', _totalFiles.toString()),
-                  _buildStatItem(
-                    Icons.storage,
-                    'גודל כולל',
-                    _calculateTotalSize(),
-                  ),
-                  _buildStatItem(
-                    Icons.source,
-                    'מקורות',
-                    _scannedSources.where((s) => s.exists).length.toString(),
-                  ),
-                ],
-              ),
+    );
+  }
+  
+  /// בונה כפתור פעולה מודרני
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required bool isLoading,
+    required VoidCallback? onPressed,
+    required bool isPrimary,
+  }) {
+    final theme = Theme.of(context);
+    
+    return Material(
+      color: isPrimary 
+          ? theme.colorScheme.primary 
+          : theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: isPrimary ? null : Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.3),
             ),
           ),
-          
-          // כרטיס מקורות שנסרקו
-          if (_scannedSources.isNotEmpty)
-            _buildScannedSourcesCard(),
-          
-          // הודעת שגיאה
-          if (_errorMessage != null)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.red),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(_errorMessage!)),
-                ],
-              ),
-            ),
-          
-          // רשימת קבצים
-          Expanded(
-            child: _files.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    itemCount: _files.length,
-                    itemBuilder: (context, index) {
-                      final file = _files[index];
-                      return _buildFileItem(file);
-                    },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (isLoading)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: isPrimary ? Colors.white : theme.colorScheme.primary,
                   ),
+                )
+              else
+                Icon(icon, size: 20, color: isPrimary ? Colors.white : theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isPrimary ? Colors.white : theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+  
+  /// בונה כרטיס סטטיסטיקה מודרני
+  Widget _buildModernStatCard({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
         children: [
-          // כפתור עיבוד OCR
-          FloatingActionButton.extended(
-            heroTag: 'process',
-            onPressed: (_isProcessing || _isScanning) ? null : _processFiles,
-            icon: _isProcessing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.text_snippet),
-            label: Text(_isProcessing ? _processingStatus : 'עבד תמונות (OCR)'),
-            backgroundColor: Theme.of(context).colorScheme.secondary,
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-          const SizedBox(height: 12),
-          // כפתור סריקה
-          FloatingActionButton.extended(
-            heroTag: 'scan',
-            onPressed: (_isScanning || _isProcessing) ? null : _scanAllFolders,
-            icon: _isScanning
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.search),
-            label: Text(_isScanning ? _scanningStatus : 'סרוק הכל'),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade400,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(IconData icon, String label, String value) {
-    return Column(
-      children: [
-        Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(height: 8),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        Text(value, style: Theme.of(context).textTheme.titleLarge),
-      ],
-    );
-  }
-
-  /// בונה כרטיס מקורות שנסרקו
+  // הוסר: כפתור מחיקה מסוכן
+  // _clearDatabase() עדיין קיים אבל לא נגיש מה-UI
+  
+  /// בונה כרטיס מקורות שנסרקו - מודרני
   Widget _buildScannedSourcesCard() {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    final theme = Theme.of(context);
+    final availableSources = _scannedSources.where((s) => s.exists).toList();
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
+      ),
       child: ExpansionTile(
-        leading: const Icon(Icons.folder_special),
-        title: const Text('מקורות שנסרקו'),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(Icons.folder_special, color: theme.colorScheme.primary, size: 20),
+        ),
+        title: const Text('מקורות שנסרקו', style: TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
-          '${_scannedSources.where((s) => s.exists).length} תיקיות נמצאו',
-          style: Theme.of(context).textTheme.bodySmall,
+          '${availableSources.length} תיקיות פעילות',
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
         ),
         children: _scannedSources.map((source) => _buildSourceItem(source)).toList(),
       ),
     );
   }
 
-  /// בונה פריט מקור בודד
+  /// בונה פריט מקור בודד - מודרני
   Widget _buildSourceItem(ScanSource source) {
-    return ListTile(
-      dense: true,
-      leading: Icon(
-        source.exists ? Icons.check_circle : Icons.cancel,
-        color: source.exists ? Colors.green : Colors.grey,
-        size: 20,
+    final theme = Theme.of(context);
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: source.exists 
+            ? theme.colorScheme.secondary.withValues(alpha: 0.1)
+            : Colors.grey.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
       ),
-      title: Text(
-        source.name,
-        style: TextStyle(
-          color: source.exists ? null : Colors.grey,
-        ),
-      ),
-      subtitle: Text(
-        source.exists 
-            ? '${source.filesFound} קבצים נמצאו'
-            : 'לא נמצא',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: source.exists ? Colors.green : Colors.grey,
-        ),
-      ),
-      trailing: source.exists 
-          ? Text(
-              source.filesFound.toString(),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            )
-          : null,
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
           Icon(
-            Icons.folder_open,
-            size: 80,
-            color: Colors.grey.withValues(alpha: 0.5),
+            source.exists ? Icons.check_circle : Icons.cancel,
+            color: source.exists ? theme.colorScheme.secondary : Colors.grey,
+            size: 18,
           ),
-          const SizedBox(height: 16),
-          Text(
-            'אין קבצים במסד הנתונים',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.grey,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              source.name,
+              style: TextStyle(
+                color: source.exists ? Colors.white : Colors.grey,
+                fontWeight: source.exists ? FontWeight.w500 : FontWeight.normal,
+              ),
+            ),
+          ),
+          if (source.exists)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondary.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${source.filesFound}',
+                style: TextStyle(
+                  color: theme.colorScheme.secondary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'לחץ על "סרוק הכל" כדי לסרוק תמונות ו-PDF מכל התיקיות',
-            style: TextStyle(color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          // כפתור אבחון
-          OutlinedButton.icon(
-            onPressed: _showDiagnostics,
-            icon: const Icon(Icons.bug_report),
-            label: const Text('בדיקת תיקיות'),
-          ),
+              ),
+            ),
         ],
+      ),
+    );
+  }
+  
+  Widget _buildEmptyState() {
+    final theme = Theme.of(context);
+    
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.primary.withValues(alpha: 0.2),
+                    theme.colorScheme.secondary.withValues(alpha: 0.2),
+                  ],
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.radar,
+                size: 64,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'מוכן לסריקה',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'לחץ על "סרוק הכל" למעלה כדי למצוא\nתמונות, וידאו ומסמכים',
+              style: TextStyle(color: Colors.grey.shade400),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -719,70 +1006,126 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Widget _buildFileItem(FileMetadata file) {
+    final theme = Theme.of(context);
     final hasText = file.extractedText != null && file.extractedText!.isNotEmpty;
+    final color = _getExtensionColor(file.extension);
     
-    return ListTile(
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            backgroundColor: _getExtensionColor(file.extension),
-            child: Text(
-              file.extension.isEmpty ? '?' : file.extension.substring(0, file.extension.length > 3 ? 3 : file.extension.length).toUpperCase(),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ),
-          // אינדיקטור אם נמצא טקסט
-          if (hasText)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: 14,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.black, width: 1.5),
-                ),
-                child: const Icon(Icons.check, size: 10, color: Colors.white),
-              ),
-            ),
-        ],
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasText 
+              ? theme.colorScheme.secondary.withValues(alpha: 0.3)
+              : Colors.transparent,
+        ),
       ),
-      title: Text(
-        file.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${file.readableSize} • ${_formatDate(file.lastModified)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (hasText)
-            Text(
-              file.extractedText!.length > 50 
-                  ? '${file.extractedText!.substring(0, 50)}...' 
-                  : file.extractedText!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey,
-                    fontStyle: FontStyle.italic,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: hasText ? () => _showExtractedText(file) : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // אייקון סוג קובץ
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+                  child: Center(
+                    child: Text(
+                      file.extension.isEmpty 
+                          ? '?' 
+                          : file.extension.substring(0, file.extension.length > 3 ? 3 : file.extension.length).toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // פרטי קובץ
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        file.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.storage, size: 12, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text(
+                            file.readableSize,
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.access_time, size: 12, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text(
+                            _formatDate(file.lastModified),
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                      if (hasText) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.text_snippet, size: 12, color: theme.colorScheme.secondary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                file.extractedText!.replaceAll('\n', ' ').length > 40 
+                                    ? '${file.extractedText!.replaceAll('\n', ' ').substring(0, 40)}...' 
+                                    : file.extractedText!.replaceAll('\n', ' '),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.secondary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // אייקון טקסט נמצא
+                if (hasText)
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.secondary.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.check,
+                      size: 14,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+              ],
             ),
-        ],
+          ),
+        ),
       ),
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline, size: 20),
-        onPressed: () {
-          _databaseService.deleteFile(file.id);
-          _loadFiles();
-        },
-      ),
-      onTap: hasText ? () => _showExtractedText(file) : null,
     );
   }
 
