@@ -1,3 +1,6 @@
+import com.android.build.gradle.LibraryExtension
+import com.android.build.gradle.LibraryPlugin
+
 // Force SDK 35 for all projects including plugins like isar_flutter_libs
 val sdkVersion = 35
 
@@ -27,10 +30,10 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// Force compileSdk on library plugins (like isar_flutter_libs)
+// Force compileSdk on library plugins (like isar_flutter_libs) - runs when plugin is applied
 subprojects {
-    afterEvaluate {
-        extensions.findByType(com.android.build.gradle.LibraryExtension::class.java)?.apply {
+    plugins.withType<LibraryPlugin> {
+        extensions.configure<LibraryExtension> {
             compileSdk = sdkVersion
         }
     }
