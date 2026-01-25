@@ -6,12 +6,14 @@ import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
 import 'services/permission_service.dart';
+import 'services/settings_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // אתחול מסד הנתונים
+  // אתחול מסד הנתונים והגדרות
   await DatabaseService.instance.init();
+  await SettingsService.instance.init();
   
   runApp(const TheHunterApp());
 }

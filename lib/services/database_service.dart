@@ -345,6 +345,7 @@ class DatabaseService {
     required String query,
     SearchFilter filter = SearchFilter.all,
     DateTime? startDate,
+    DateTime? endDate,
   }) {
     return isar.fileMetadatas
         .where()
@@ -354,6 +355,7 @@ class DatabaseService {
               query: query,
               filter: filter,
               startDate: startDate,
+              endDate: endDate,
             ));
   }
 
@@ -362,6 +364,7 @@ class DatabaseService {
     required String query,
     required SearchFilter filter,
     DateTime? startDate,
+    DateTime? endDate,
   }) {
     var results = files;
 
@@ -384,10 +387,20 @@ class DatabaseService {
         break;
     }
 
+    // סינון לפי טווח תאריכים
     if (startDate != null) {
       results = results.where((f) => 
           f.lastModified.isAfter(startDate) || 
           f.lastModified.isAtSameMomentAs(startDate)
+      ).toList();
+    }
+    
+    if (endDate != null) {
+      // מוסיף יום אחד לסוף הטווח כדי לכלול את היום הזה
+      final endOfDay = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+      results = results.where((f) => 
+          f.lastModified.isBefore(endOfDay) || 
+          f.lastModified.isAtSameMomentAs(endOfDay)
       ).toList();
     }
 

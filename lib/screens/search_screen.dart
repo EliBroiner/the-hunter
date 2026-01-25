@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../services/database_service.dart';
 import '../services/permission_service.dart';
+import '../services/settings_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -31,6 +32,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final _searchController = TextEditingController();
   final _databaseService = DatabaseService.instance;
   final _permissionService = PermissionService.instance;
+  final _settingsService = SettingsService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
   Timer? _debounceTimer;
@@ -38,6 +40,9 @@ class _SearchScreenState extends State<SearchScreen> {
   // Stream לחיפוש ריאקטיבי
   Stream<List<FileMetadata>>? _searchStream;
   String _currentQuery = '';
+  
+  // טווח תאריכים לסינון
+  DateTimeRange? _selectedDateRange;
   
   // חיפוש קולי
   final SpeechToText _speechToText = SpeechToText();
@@ -82,7 +87,11 @@ class _SearchScreenState extends State<SearchScreen> {
   /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים
   void _updateSearchStream() {
     final query = _currentQuery;
-    final startDate = parseTimeQuery(query);
+    
+    // תאריך התחלה מהשאילתה או מטווח התאריכים שנבחר
+    final queryStartDate = parseTimeQuery(query);
+    final startDate = _selectedDateRange?.start ?? queryStartDate;
+    final endDate = _selectedDateRange?.end;
     
     // המרת פילטר מקומי לפילטר של DatabaseService
     SearchFilter dbFilter = SearchFilter.all;
@@ -95,6 +104,7 @@ class _SearchScreenState extends State<SearchScreen> {
         query: query,
         filter: dbFilter,
         startDate: startDate,
+        endDate: endDate,
       ).map((results) => _applyLocalFilter(results));
     });
   }
@@ -334,6 +344,101 @@ class _SearchScreenState extends State<SearchScreen> {
     return clean.trim();
   }
 
+  /// פותח בורר טווח תאריכים
+  Future<void> _showDateRangePicker() async {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final firstDate = DateTime(2020, 1, 1);
+    
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: firstDate,
+      lastDate: now,
+      initialDateRange: _selectedDateRange,
+      locale: const Locale('he', 'IL'),
+      builder: (context, child) {
+        return Theme(
+          data: theme.copyWith(
+            colorScheme: theme.colorScheme.copyWith(
+              primary: theme.colorScheme.primary,
+              onPrimary: Colors.white,
+              surface: const Color(0xFF1E1E3F),
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: const Color(0xFF0F0F23),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      setState(() => _selectedDateRange = picked);
+      _updateSearchStream();
+    }
+  }
+  
+  /// מנקה טווח תאריכים
+  void _clearDateRange() {
+    setState(() => _selectedDateRange = null);
+    _updateSearchStream();
+  }
+  
+  /// מציג הודעת שדרוג לפרימיום
+  void _showPremiumUpgradeMessage(String feature) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E3F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.amber, Colors.orange],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.star, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('שדרג לפרימיום'),
+          ],
+        ),
+        content: Text(
+          'פיצ\'ר "$feature" זמין רק למשתמשי פרימיום.\n\nשדרג עכשיו כדי ליהנות מכל היכולות המתקדמות!',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('אחר כך'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // TODO: פתיחת מסך שדרוג
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('שדרג עכשיו'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// פורמט טווח תאריכים לתצוגה
+  String _formatDateRange(DateTimeRange range) {
+    final start = '${range.start.day}/${range.start.month}/${range.start.year}';
+    final end = '${range.end.day}/${range.end.month}/${range.end.year}';
+    return '$start - $end';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -346,6 +451,12 @@ class _SearchScreenState extends State<SearchScreen> {
             // כותרת וחיפוש
             _buildSearchHeader(),
             
+            // בורר טווח תאריכים
+            _buildDateRangePicker(),
+            
+            // באנר חיפוש AI חכם (פרימיום)
+            _buildSmartAISearchBanner(),
+            
             // צ'יפים לסינון מהיר
             _buildFilterChips(),
             
@@ -354,6 +465,172 @@ class _SearchScreenState extends State<SearchScreen> {
               child: _buildResults(),
             ),
           ],
+        ),
+      ),
+    );
+  }
+  
+  /// בונה בורר טווח תאריכים
+  Widget _buildDateRangePicker() {
+    final theme = Theme.of(context);
+    final hasDateRange = _selectedDateRange != null;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      child: GestureDetector(
+        onTap: _showDateRangePicker,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasDateRange 
+                  ? theme.colorScheme.secondary 
+                  : theme.colorScheme.primary.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.calendar_today,
+                size: 18,
+                color: hasDateRange 
+                    ? theme.colorScheme.secondary 
+                    : theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  hasDateRange 
+                      ? _formatDateRange(_selectedDateRange!)
+                      : 'כל הזמנים',
+                  style: TextStyle(
+                    color: hasDateRange ? Colors.white : Colors.grey.shade400,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              if (hasDateRange)
+                GestureDetector(
+                  onTap: _clearDateRange,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, size: 14, color: Colors.white70),
+                  ),
+                )
+              else
+                Icon(
+                  Icons.arrow_drop_down,
+                  color: theme.colorScheme.primary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// בונה באנר חיפוש AI חכם
+  Widget _buildSmartAISearchBanner() {
+    final theme = Theme.of(context);
+    final isPremium = _settingsService.isPremium;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      child: GestureDetector(
+        onTap: () {
+          if (!isPremium) {
+            _showPremiumUpgradeMessage('חיפוש AI חכם');
+          } else {
+            // TODO: הפעלת חיפוש AI
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: isPremium
+                ? LinearGradient(
+                    colors: [
+                      theme.colorScheme.primary.withValues(alpha: 0.3),
+                      theme.colorScheme.secondary.withValues(alpha: 0.3),
+                    ],
+                  )
+                : null,
+            color: isPremium ? null : theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isPremium 
+                  ? Colors.transparent 
+                  : Colors.amber.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Colors.purple, Colors.blue],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'חיפוש AI חכם',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    Text(
+                      'חפש בשפה טבעית עם בינה מלאכותית',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_left,
+                color: isPremium ? theme.colorScheme.primary : Colors.amber,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -539,32 +816,69 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// בונה כפתור מיקרופון לחיפוש קולי
   Widget _buildMicrophoneButton() {
+    final isPremium = _settingsService.isPremium;
+    
     return GestureDetector(
-      onLongPress: _toggleLocale, // לחיצה ארוכה להחלפת שפה
-      child: IconButton(
-        icon: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: _isListening
-              ? Icon(
-                  Icons.mic,
-                  key: const ValueKey('mic_on'),
-                  color: Colors.red,
-                )
-              : Icon(
-                  Icons.mic_none,
-                  key: const ValueKey('mic_off'),
-                  color: Theme.of(context).colorScheme.primary,
+      onLongPress: isPremium ? _toggleLocale : null, // לחיצה ארוכה להחלפת שפה
+      child: Stack(
+        children: [
+          IconButton(
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _isListening
+                  ? Icon(
+                      Icons.mic,
+                      key: const ValueKey('mic_on'),
+                      color: Colors.red,
+                    )
+                  : Icon(
+                      Icons.mic_none,
+                      key: const ValueKey('mic_off'),
+                      color: isPremium 
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey,
+                    ),
+            ),
+            onPressed: () {
+              if (!isPremium) {
+                _showPremiumUpgradeMessage('חיפוש קולי');
+              } else if (_isListening) {
+                _stopListening();
+              } else {
+                _startListening();
+              }
+            },
+            tooltip: isPremium
+                ? (_isListening ? 'הפסק הקלטה' : 'חיפוש קולי (לחיצה ארוכה להחלפת שפה)')
+                : 'חיפוש קולי (פרימיום)',
+            style: IconButton.styleFrom(
+              backgroundColor: _isListening
+                  ? Colors.red.withValues(alpha: 0.1)
+                  : null,
+            ),
+          ),
+          // תג PRO למשתמשים לא פרימיום
+          if (!isPremium)
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
                 ),
-        ),
-        onPressed: _isListening ? _stopListening : _startListening,
-        tooltip: _isListening
-            ? 'הפסק הקלטה'
-            : 'חיפוש קולי (לחיצה ארוכה להחלפת שפה)',
-        style: IconButton.styleFrom(
-          backgroundColor: _isListening
-              ? Colors.red.withValues(alpha: 0.1)
-              : null,
-        ),
+                child: const Text(
+                  'PRO',
+                  style: TextStyle(
+                    fontSize: 7,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
