@@ -32,3 +32,24 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+subprojects {
+    // Inject variables directly so Groovy plugins can see them as "project.compileSdkVersion"
+    extra["compileSdkVersion"] = 36
+    extra["targetSdkVersion"] = 36
+    extra["minSdkVersion"] = 24
+    extra["flutter.compileSdkVersion"] = 36
+    extra["flutter.targetSdkVersion"] = 36
+    
+    // Also try to force the Android Extension directly if it exists
+    plugins.whenPluginAdded {
+        if (this is com.android.build.gradle.LibraryPlugin) {
+            extensions.configure<com.android.build.gradle.LibraryExtension> {
+                compileSdk = 36
+                defaultConfig {
+                    targetSdk = 36
+                }
+            }
+        }
+    }
+}
