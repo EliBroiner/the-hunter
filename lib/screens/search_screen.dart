@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../services/database_service.dart';
 import '../services/permission_service.dart';
+import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
 enum LocalFilter {
@@ -389,6 +390,22 @@ class _SearchScreenState extends State<SearchScreen> {
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
+              ),
+              const Spacer(),
+              // כפתור הגדרות
+              IconButton(
+                icon: Icon(
+                  Icons.settings,
+                  color: theme.colorScheme.primary,
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsScreen(),
+                    ),
+                  );
+                },
+                tooltip: 'הגדרות',
               ),
             ],
           ),
