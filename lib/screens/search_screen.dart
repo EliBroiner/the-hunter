@@ -853,23 +853,56 @@ class _SearchScreenState extends State<SearchScreen> {
       color = Colors.green;
     } else {
       switch (extension.toLowerCase()) {
-        case 'pdf':
-          icon = Icons.picture_as_pdf;
-          color = Colors.red;
-          break;
+        // תמונות
         case 'jpg':
         case 'jpeg':
         case 'png':
         case 'gif':
         case 'webp':
         case 'bmp':
+        case 'heic':
+        case 'heif':
           icon = Icons.image;
           color = Colors.purple;
+          break;
+        // וידאו
+        case 'mp4':
+        case 'mov':
+        case 'avi':
+        case 'mkv':
+        case 'webm':
+        case '3gp':
+          icon = Icons.video_file;
+          color = Colors.pink;
+          break;
+        // מסמכים
+        case 'pdf':
+          icon = Icons.picture_as_pdf;
+          color = Colors.red;
           break;
         case 'doc':
         case 'docx':
           icon = Icons.description;
           color = Colors.blue;
+          break;
+        case 'xls':
+        case 'xlsx':
+          icon = Icons.table_chart;
+          color = Colors.green;
+          break;
+        case 'txt':
+        case 'rtf':
+          icon = Icons.article;
+          color = Colors.orange;
+          break;
+        // אודיו
+        case 'mp3':
+        case 'wav':
+        case 'm4a':
+        case 'ogg':
+        case 'aac':
+          icon = Icons.audio_file;
+          color = Colors.teal;
           break;
         default:
           icon = Icons.insert_drive_file;

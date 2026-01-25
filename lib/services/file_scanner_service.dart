@@ -36,13 +36,24 @@ class FileScannerService {
   final OCRService _ocrService;
 
   /// סיומות תמונות נתמכות
-  static const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+  static const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic', 'heif'];
   
-  /// סיומות PDF
-  static const pdfExtensions = ['pdf'];
+  /// סיומות וידאו
+  static const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'];
+  
+  /// סיומות מסמכים
+  static const documentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'rtf'];
+  
+  /// סיומות אודיו
+  static const audioExtensions = ['mp3', 'wav', 'm4a', 'ogg', 'aac'];
   
   /// כל הסיומות הנתמכות לסריקה
-  static const supportedExtensions = [...imageExtensions, ...pdfExtensions];
+  static const supportedExtensions = [
+    ...imageExtensions, 
+    ...videoExtensions, 
+    ...documentExtensions,
+    ...audioExtensions,
+  ];
 
   FileScannerService._({
     DatabaseService? databaseService,
@@ -128,6 +139,7 @@ class FileScannerService {
   Future<List<FileMetadata>> _scanDirectory(String path) async {
     final files = <FileMetadata>[];
     final directory = Directory(path);
+    int skipped = 0;
     
     if (!await directory.exists()) return files;
 
@@ -138,8 +150,11 @@ class FileScannerService {
             final fileName = entity.uri.pathSegments.last;
             final extension = _extractExtension(fileName);
             
-            // סינון לפי סיומת - רק תמונות ו-PDF
-            if (!_isSupportedExtension(extension)) continue;
+            // סינון לפי סיומת - רק קבצים נתמכים
+            if (!_isSupportedExtension(extension)) {
+              skipped++;
+              continue;
+            }
             
             final stat = await entity.stat();
             final file = FileMetadata.fromFile(
@@ -157,6 +172,8 @@ class FileScannerService {
     } catch (_) {
       // שגיאה בסריקת תיקייה - ממשיכים הלאה
     }
+    
+    if (skipped > 0) appLog('SCAN: Skipped $skipped unsupported files in $path');
     
     return files;
   }
