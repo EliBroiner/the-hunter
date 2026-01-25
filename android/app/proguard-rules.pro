@@ -5,8 +5,15 @@
 -keep class io.flutter.view.** { *; }
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
+-dontwarn io.flutter.embedding.**
+
+# Google Play Core - תיקון missing classes עבור R8
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
 
 # ML Kit - תיקון missing class warnings עבור R8
+-dontwarn com.google.mlkit.**
+-keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.vision.text.**
 -keep class com.google.mlkit.vision.text.** { *; }
 
