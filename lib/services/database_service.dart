@@ -175,6 +175,77 @@ class DatabaseService {
         .toList();
   }
 
+  /// מילון מילים נרדפות עברית-אנגלית
+  static const Map<String, List<String>> _synonyms = {
+    // ביטוח
+    'ביטוח': ['insurance', 'policy', 'פוליסה'],
+    'insurance': ['ביטוח', 'פוליסה', 'policy'],
+    'פוליסה': ['policy', 'ביטוח', 'insurance'],
+    
+    // כסף/תשלום
+    'חשבונית': ['invoice', 'receipt', 'קבלה', 'bill'],
+    'invoice': ['חשבונית', 'קבלה', 'receipt', 'bill'],
+    'קבלה': ['receipt', 'חשבונית', 'invoice'],
+    'receipt': ['קבלה', 'חשבונית', 'invoice'],
+    'תשלום': ['payment', 'pay', 'חיוב'],
+    'payment': ['תשלום', 'pay', 'חיוב'],
+    
+    // בנק
+    'בנק': ['bank', 'banking'],
+    'bank': ['בנק', 'banking'],
+    
+    // רכב
+    'רכב': ['car', 'vehicle', 'auto'],
+    'car': ['רכב', 'vehicle', 'auto'],
+    'רישיון': ['license', 'licence'],
+    'license': ['רישיון', 'licence'],
+    
+    // בריאות
+    'רפואי': ['medical', 'health', 'רפואה'],
+    'medical': ['רפואי', 'health', 'רפואה'],
+    'בריאות': ['health', 'medical'],
+    'health': ['בריאות', 'רפואי', 'medical'],
+    
+    // מסמכים
+    'חוזה': ['contract', 'agreement', 'הסכם'],
+    'contract': ['חוזה', 'agreement', 'הסכם'],
+    'הסכם': ['agreement', 'contract', 'חוזה'],
+    'agreement': ['הסכם', 'contract', 'חוזה'],
+    'מסמך': ['document', 'doc', 'file'],
+    'document': ['מסמך', 'doc', 'file'],
+    
+    // עבודה
+    'משכורת': ['salary', 'payslip', 'תלוש'],
+    'salary': ['משכורת', 'payslip', 'תלוש'],
+    'תלוש': ['payslip', 'משכורת', 'salary'],
+    
+    // דירה
+    'דירה': ['apartment', 'flat', 'שכירות'],
+    'apartment': ['דירה', 'flat', 'שכירות'],
+    'שכירות': ['rent', 'rental', 'דירה'],
+    'rent': ['שכירות', 'rental', 'דירה'],
+  };
+
+  /// מרחיב שאילתת חיפוש עם מילים נרדפות
+  List<String> _expandQuery(String query) {
+    final terms = <String>{query.toLowerCase()};
+    
+    // מוסיף מילים נרדפות
+    final synonymList = _synonyms[query.toLowerCase()];
+    if (synonymList != null) terms.addAll(synonymList);
+    
+    // גם לכל מילה בנפרד אם יש רווחים
+    for (final word in query.toLowerCase().split(' ')) {
+      if (word.isNotEmpty) {
+        terms.add(word);
+        final wordSynonyms = _synonyms[word];
+        if (wordSynonyms != null) terms.addAll(wordSynonyms);
+      }
+    }
+    
+    return terms.toList();
+  }
+
   /// חיפוש מתקדם - מחפש בשם הקובץ או בטקסט שחולץ
   List<FileMetadata> search({
     required String query,
@@ -211,23 +282,35 @@ class DatabaseService {
       ).toList();
     }
 
-    // סינון לפי שאילתת חיפוש
+    // סינון לפי שאילתת חיפוש עם מילים נרדפות
     if (query.isNotEmpty) {
-      final cleanQuery = _removeTimeTerms(query).toLowerCase();
+      final cleanQuery = _removeTimeTerms(query);
       
       if (cleanQuery.isNotEmpty) {
-        var filtered = results.where((f) =>
-            f.name.toLowerCase().contains(cleanQuery) ||
-            (f.extractedText?.toLowerCase().contains(cleanQuery) ?? false)
-        ).toList();
+        // הרחבת השאילתה עם מילים נרדפות
+        final searchTerms = _expandQuery(cleanQuery);
+        appLog('SEARCH: "$cleanQuery" -> ${searchTerms.join(", ")}');
         
-        // Fuzzy Search
+        var filtered = results.where((f) {
+          final name = f.name.toLowerCase();
+          final text = f.extractedText?.toLowerCase() ?? '';
+          
+          // מחפש כל אחת מהמילים (OR)
+          return searchTerms.any((term) =>
+              name.contains(term) || text.contains(term)
+          );
+        }).toList();
+        
+        // Fuzzy Search אם לא נמצא כלום
         if (filtered.isEmpty) {
-          filtered = results.where((f) =>
-              f.name.toLowerCase().startsWith(cleanQuery) ||
-              _wordsStartWith(f.name, cleanQuery) ||
-              _wordsStartWith(f.extractedText ?? '', cleanQuery)
-          ).toList();
+          filtered = results.where((f) {
+            final name = f.name.toLowerCase();
+            final text = f.extractedText?.toLowerCase() ?? '';
+            
+            return searchTerms.any((term) =>
+                _wordsStartWith(name, term) || _wordsStartWith(text, term)
+            );
+          }).toList();
         }
         
         results = filtered;
@@ -340,6 +423,25 @@ class DatabaseService {
         .where()
         .findAll()
         .where((f) => !f.isIndexed && imageExtensions.contains(f.extension.toLowerCase()))
+        .toList();
+  }
+
+  /// מחזיר קבצי טקסט ו-PDF שטרם עברו אינדוקס
+  List<FileMetadata> getPendingTextFiles() {
+    const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf'];
+    return isar.fileMetadatas
+        .where()
+        .findAll()
+        .where((f) => !f.isIndexed && textExtensions.contains(f.extension.toLowerCase()))
+        .toList();
+  }
+
+  /// מחזיר את כל הקבצים שטרם עברו אינדוקס (תמונות + טקסט)
+  List<FileMetadata> getAllPendingFiles() {
+    return isar.fileMetadatas
+        .where()
+        .findAll()
+        .where((f) => !f.isIndexed)
         .toList();
   }
 

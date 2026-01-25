@@ -4,6 +4,7 @@ import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
+import 'text_extraction_service.dart';
 
 /// מקור סריקה - מייצג תיקייה לסריקה
 class ScanSource {
@@ -34,9 +35,13 @@ class FileScannerService {
   final DatabaseService _databaseService;
   final PermissionService _permissionService;
   final OCRService _ocrService;
+  final TextExtractionService _textExtractionService;
 
-  /// סיומות תמונות נתמכות
+  /// סיומות תמונות נתמכות (לסריקת OCR)
   static const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic', 'heif'];
+  
+  /// סיומות טקסט נתמכות (לחילוץ טקסט ישיר)
+  static const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf'];
   
   /// סיומות וידאו
   static const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'];
@@ -59,9 +64,11 @@ class FileScannerService {
     DatabaseService? databaseService,
     PermissionService? permissionService,
     OCRService? ocrService,
+    TextExtractionService? textExtractionService,
   })  : _databaseService = databaseService ?? DatabaseService.instance,
         _permissionService = permissionService ?? PermissionService.instance,
-        _ocrService = ocrService ?? OCRService.instance;
+        _ocrService = ocrService ?? OCRService.instance,
+        _textExtractionService = textExtractionService ?? TextExtractionService.instance;
 
   /// מחזיר את ה-singleton של השירות
   static FileScannerService get instance {
@@ -403,14 +410,17 @@ class FileScannerService {
     );
   }
 
-  /// מעבד קבצי תמונות שטרם עברו אינדוקס (חילוץ טקסט OCR)
+  /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
   }) async {
     try {
-      final pendingFiles = _databaseService.getPendingImageFiles();
+      // קבלת כל הקבצים שטרם עובדו
+      final pendingImages = _databaseService.getPendingImageFiles();
+      final pendingTextFiles = _databaseService.getPendingTextFiles();
+      final totalPending = pendingImages.length + pendingTextFiles.length;
       
-      if (pendingFiles.isEmpty) {
+      if (totalPending == 0) {
         return ProcessResult(
           success: true,
           filesProcessed: 0,
@@ -419,11 +429,14 @@ class FileScannerService {
         );
       }
 
+      appLog('PROCESS: ${pendingImages.length} images, ${pendingTextFiles.length} text files');
+
       int filesProcessed = 0;
       int filesWithText = 0;
 
-      for (final file in pendingFiles) {
-        onProgress?.call(filesProcessed + 1, pendingFiles.length);
+      // עיבוד תמונות עם OCR
+      for (final file in pendingImages) {
+        onProgress?.call(filesProcessed + 1, totalPending);
 
         final extractedText = await _ocrService.extractText(file.path);
 
@@ -435,6 +448,22 @@ class FileScannerService {
         if (extractedText.isNotEmpty) filesWithText++;
       }
 
+      // עיבוד קבצי טקסט ו-PDF
+      for (final file in pendingTextFiles) {
+        onProgress?.call(filesProcessed + 1, totalPending);
+
+        final extractedText = await _textExtractionService.extractText(file.path);
+
+        file.extractedText = extractedText;
+        file.isIndexed = true;
+        _databaseService.updateFile(file);
+
+        filesProcessed++;
+        if (extractedText.isNotEmpty) filesWithText++;
+      }
+
+      appLog('PROCESS: Done - $filesProcessed files, $filesWithText with text');
+
       return ProcessResult(
         success: true,
         filesProcessed: filesProcessed,
@@ -442,6 +471,7 @@ class FileScannerService {
         message: 'עובדו $filesProcessed קבצים, נמצא טקסט ב-$filesWithText קבצים',
       );
     } catch (e) {
+      appLog('PROCESS ERROR: $e');
       return ProcessResult(
         success: false,
         filesProcessed: 0,
