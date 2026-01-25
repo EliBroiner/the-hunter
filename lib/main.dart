@@ -110,11 +110,6 @@ class _MainScreenState extends State<MainScreen> {
   bool _showScanBanner = false;
   String _scanMessage = '';
 
-  final _screens = const [
-    SearchScreen(),
-    ScannerScreen(),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -176,8 +171,16 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ],
             ),
-          // המסך הנוכחי
-          Expanded(child: _screens[_currentIndex]),
+          // המסך הנוכחי - IndexedStack שומר את המצב של כל הטאבים
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: const [
+                SearchScreen(),
+                ScannerScreen(),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
