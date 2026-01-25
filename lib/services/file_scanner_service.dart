@@ -1,6 +1,7 @@
 import 'dart:io';
 import '../models/file_metadata.dart';
 import 'database_service.dart';
+import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
 
@@ -211,13 +212,13 @@ class FileScannerService {
     }
 
     // שמירה למסד הנתונים (wipe & replace)
-    print('[SCAN] Total files to save: ${allFiles.length}');
-    print('[SCAN] First 3 files: ${allFiles.take(3).map((f) => f.name).toList()}');
+    appLog('SCAN: Total files: ${allFiles.length}');
+    if (allFiles.isNotEmpty)
+      appLog('SCAN: First file: ${allFiles.first.name}');
     _databaseService.replaceAllFiles(allFiles);
     
-    // וידוא שהשמירה הצליחה
     final savedCount = _databaseService.getFilesCount();
-    print('[SCAN] Files in DB after save: $savedCount');
+    appLog('SCAN: DB count after save: $savedCount');
 
     return ScanResult(
       success: true,

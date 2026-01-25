@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
+import 'log_service.dart';
 
 /// פילטרים לחיפוש
 enum SearchFilter {
@@ -76,15 +77,13 @@ class DatabaseService {
 
   /// מוחק את כל הקבצים ומכניס חדשים (wipe & replace)
   Future<void> replaceAllFilesAsync(List<FileMetadata> files) async {
-    print('[DB] replaceAllFilesAsync called with ${files.length} files');
+    appLog('DB: replaceAllFilesAsync - ${files.length} files');
     try {
-      // מחיקת כל הקבצים הקיימים
       isar.write((isar) {
         isar.fileMetadatas.clear();
       });
-      print('[DB] Cleared all files');
+      appLog('DB: Cleared all files');
       
-      // שמירה בקבוצות קטנות
       const batchSize = 500;
       int totalSaved = 0;
       
@@ -97,47 +96,48 @@ class DatabaseService {
         });
         
         totalSaved += batch.length;
-        print('[DB] Saved batch: $totalSaved / ${files.length}');
+        if (totalSaved % 2000 == 0 || totalSaved == files.length)
+          appLog('DB: Saved $totalSaved / ${files.length}');
       }
       
       final finalCount = isar.fileMetadatas.count();
-      print('[DB] Final count: $finalCount files');
-    } catch (e, stack) {
-      print('[DB] ERROR: $e');
-      print('[DB] Stack: $stack');
+      appLog('DB: Final count: $finalCount');
+    } catch (e) {
+      appLog('DB ERROR: $e');
     }
   }
   
   /// מוחק את כל הקבצים ומכניס חדשים (wipe & replace) - סינכרוני
   void replaceAllFiles(List<FileMetadata> files) {
-    print('[DB] replaceAllFiles called with ${files.length} files');
+    appLog('DB: replaceAllFiles - ${files.length} files');
     try {
-      // מחיקה ושמירה בטרנזקציות נפרדות
       isar.write((isar) {
         isar.fileMetadatas.clear();
       });
       
-      // שמירה בקבוצות
       const batchSize = 500;
+      int saved = 0;
       for (var i = 0; i < files.length; i += batchSize) {
         final end = (i + batchSize < files.length) ? i + batchSize : files.length;
         final batch = files.sublist(i, end);
         isar.write((isar) {
           isar.fileMetadatas.putAll(batch);
         });
-        print('[DB] Saved ${i + batch.length} / ${files.length}');
+        saved += batch.length;
+        if (saved % 2000 == 0 || saved == files.length)
+          appLog('DB: Saved $saved / ${files.length}');
       }
       
-      print('[DB] Final count: ${isar.fileMetadatas.count()}');
-    } catch (e, stack) {
-      print('[DB] ERROR: $e\n$stack');
+      appLog('DB: Final count: ${isar.fileMetadatas.count()}');
+    } catch (e) {
+      appLog('DB ERROR: $e');
     }
   }
 
   /// מחזיר את כל הקבצים
   List<FileMetadata> getAllFiles() {
     final files = isar.fileMetadatas.where().findAll();
-    print('[DB] getAllFiles returning ${files.length} files');
+    appLog('DB: getAllFiles -> ${files.length}');
     return files;
   }
 

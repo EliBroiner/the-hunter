@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'models/file_metadata.dart';
 import 'screens/search_screen.dart';
 import 'services/database_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
+import 'services/log_service.dart';
 import 'services/permission_service.dart';
 
 void main() async {
@@ -109,6 +111,7 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   bool _showScanBanner = false;
   String _scanMessage = '';
+  bool _showLogPanel = false;
 
   @override
   void initState() {
@@ -181,11 +184,16 @@ class _MainScreenState extends State<MainScreen> {
               ],
             ),
           ),
+          // פאנל לוגים
+          if (_showLogPanel) _buildLogPanel(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        onDestinationSelected: (index) {
+          LogService.instance.clear(); // ניקוי לוגים במעבר טאב
+          setState(() => _currentIndex = index);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.search),
@@ -196,6 +204,90 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.folder_copy_outlined),
             selectedIcon: Icon(Icons.folder_copy),
             label: 'סריקה',
+          ),
+        ],
+      ),
+      // כפתור צף להצגת לוגים
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniStartFloat,
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'logs',
+        onPressed: () => setState(() => _showLogPanel = !_showLogPanel),
+        backgroundColor: _showLogPanel ? Colors.red : Colors.grey.shade800,
+        child: Icon(_showLogPanel ? Icons.close : Icons.bug_report, size: 20),
+      ),
+    );
+  }
+  
+  /// בונה פאנל לוגים
+  Widget _buildLogPanel() {
+    return Container(
+      height: 150,
+      color: Colors.black87,
+      child: Column(
+        children: [
+          // כותרת
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: Colors.grey.shade900,
+            child: Row(
+              children: [
+                const Icon(Icons.terminal, size: 16, color: Colors.green),
+                const SizedBox(width: 8),
+                const Text('לוגים', style: TextStyle(color: Colors.white, fontSize: 12)),
+                const Spacer(),
+                // כפתור העתקה
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 16, color: Colors.white70),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: LogService.instance.getAllLogs()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('לוגים הועתקו'), duration: Duration(seconds: 1)),
+                    );
+                  },
+                ),
+                // כפתור ניקוי
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 16, color: Colors.white70),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () {
+                    LogService.instance.clear();
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+          // תוכן הלוגים
+          Expanded(
+            child: ValueListenableBuilder<List<String>>(
+              valueListenable: LogService.instance.logsNotifier,
+              builder: (context, logs, _) {
+                if (logs.isEmpty) {
+                  return const Center(
+                    child: Text('אין לוגים', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  );
+                }
+                return ListView.builder(
+                  reverse: true,
+                  padding: const EdgeInsets.all(8),
+                  itemCount: logs.length,
+                  itemBuilder: (context, index) {
+                    final log = logs[logs.length - 1 - index];
+                    return Text(
+                      log,
+                      style: TextStyle(
+                        color: log.contains('ERROR') ? Colors.red : Colors.green.shade300,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
