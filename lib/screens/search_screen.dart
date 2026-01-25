@@ -554,6 +554,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// בונה את אזור התוצאות
   Widget _buildResults() {
+    final theme = Theme.of(context);
+    
     return StreamBuilder<List<FileMetadata>>(
       stream: _searchStream,
       builder: (context, snapshot) {

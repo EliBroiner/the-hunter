@@ -6,7 +6,7 @@ part 'file_metadata.g.dart';
 @Collection()
 class FileMetadata {
   @Id()
-  int id = Isar.autoIncrement; // חשוב! ב-Isar v4 צריך autoIncrement ולא 0
+  int id = 0; // Isar v4: id=0 יגרום ל-auto-increment בזמן שמירה
 
   /// נתיב מלא לקובץ
   @Index()
