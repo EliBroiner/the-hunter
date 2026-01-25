@@ -33,6 +33,23 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
  
+      - name: Patch isar_flutter_libs SDK version
+        run: |
+          # Find and patch isar_flutter_libs build.gradle to use SDK 36
+          ISAR_PATH=$(find ~/.pub-cache -name "isar_flutter_libs*" -type d | head -1)
+          if [ -n "$ISAR_PATH" ]; then
+            GRADLE_FILE="$ISAR_PATH/android/build.gradle"
+            if [ -f "$GRADLE_FILE" ]; then
+              echo "Patching $GRADLE_FILE"
+              sed -i 's/compileSdkVersion 30/compileSdkVersion 36/g' "$GRADLE_FILE"
+              sed -i 's/compileSdk 30/compileSdk 36/g' "$GRADLE_FILE"
+              sed -i "s/compileSdkVersion = 30/compileSdkVersion = 36/g" "$GRADLE_FILE"
+              sed -i "s/compileSdk = 30/compileSdk = 36/g" "$GRADLE_FILE"
+              echo "Patched contents:"
+              grep -n "compileSdk" "$GRADLE_FILE" || true
+            fi
+          fi
+ 
       - name: Build APK (Release)
         run: flutter build apk --release
  
