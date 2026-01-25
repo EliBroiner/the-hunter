@@ -24,3 +24,10 @@ plugins {
 }
 
 include(":app")
+
+// Force SDK 36 on all projects BEFORE they are configured
+gradle.beforeProject {
+    extra["compileSdkVersion"] = 36
+    extra["targetSdkVersion"] = 36
+    extra["minSdkVersion"] = 24
+}
