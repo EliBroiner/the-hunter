@@ -1,8 +1,8 @@
 import com.android.build.gradle.LibraryExtension
 import com.android.build.gradle.LibraryPlugin
 
-// Force SDK 35 for all projects including plugins like isar_flutter_libs
-val sdkVersion = 35
+// Force SDK 36 for all projects (required by path_provider_android & speech_to_text)
+val sdkVersion = 36
 
 allprojects {
     repositories {
