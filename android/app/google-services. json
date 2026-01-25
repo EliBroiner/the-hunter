@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "152360418969",
+    "project_id": "the-hunter-c60d5",
+    "storage_bucket": "the-hunter-c60d5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:152360418969:android:d914a7230e97b86ab38208",
+        "android_client_info": {
+          "package_name": "com.thehunter.the_hunter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfFcuum-jLIiRxcitBnnuTw-67nux4liA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
