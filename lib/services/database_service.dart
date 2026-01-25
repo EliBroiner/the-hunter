@@ -63,6 +63,7 @@ class DatabaseService {
 
   /// שומר קובץ בודד למסד - Isar v4: סינכרוני
   void saveFile(FileMetadata file) {
+    file.generateId(); // יצירת ID ייחודי לפני שמירה
     isar.write((isar) {
       isar.fileMetadatas.put(file);
     });
@@ -70,6 +71,9 @@ class DatabaseService {
 
   /// שומר מספר קבצים למסד
   void saveFiles(List<FileMetadata> files) {
+    for (final file in files) {
+      file.generateId(); // יצירת ID ייחודי לכל קובץ
+    }
     isar.write((isar) {
       isar.fileMetadatas.putAll(files);
     });
@@ -78,6 +82,12 @@ class DatabaseService {
   /// מוחק את כל הקבצים ומכניס חדשים (wipe & replace)
   Future<void> replaceAllFilesAsync(List<FileMetadata> files) async {
     appLog('DB: replaceAllFilesAsync - ${files.length} files');
+    
+    // יצירת IDs ייחודיים לכל הקבצים
+    for (final file in files) {
+      file.generateId();
+    }
+    
     try {
       isar.write((isar) {
         isar.fileMetadatas.clear();
@@ -110,6 +120,12 @@ class DatabaseService {
   /// מוחק את כל הקבצים ומכניס חדשים (wipe & replace) - סינכרוני
   void replaceAllFiles(List<FileMetadata> files) {
     appLog('DB: replaceAllFiles - ${files.length} files');
+    
+    // יצירת IDs ייחודיים לכל הקבצים
+    for (final file in files) {
+      file.generateId();
+    }
+    
     try {
       isar.write((isar) {
         isar.fileMetadatas.clear();
@@ -329,6 +345,7 @@ class DatabaseService {
 
   /// מעדכן קובץ במסד
   void updateFile(FileMetadata file) {
+    file.generateId(); // וודא שיש ID ייחודי
     isar.write((isar) {
       isar.fileMetadatas.put(file);
     });

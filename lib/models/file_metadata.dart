@@ -6,7 +6,13 @@ part 'file_metadata.g.dart';
 @Collection()
 class FileMetadata {
   @Id()
-  int id = 0; // Isar v4: id=0 יגרום ל-auto-increment בזמן שמירה
+  int id = 0; // יוגדר לפי hash של הנתיב לפני שמירה
+  
+  /// יוצר ID ייחודי מהנתיב - מבטיח שכל קובץ יקבל ID שונה
+  void generateId() {
+    if (id == 0 && path.isNotEmpty)
+      id = path.hashCode.abs(); // hashCode יכול להיות שלילי, אז abs()
+  }
 
   /// נתיב מלא לקובץ
   @Index()
