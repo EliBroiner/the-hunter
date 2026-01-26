@@ -422,11 +422,38 @@ class DatabaseService {
         }
         
         results = filtered;
+        
+        // מיון לפי רלוונטיות: שם קובץ תואם קודם, תוכן אח"כ
+        results = _sortByRelevance(results, cleanQuery);
+        return results;
       }
     }
 
+    // אם אין שאילתה - מיון לפי תאריך בלבד
     results.sort((a, b) => b.lastModified.compareTo(a.lastModified));
     return results;
+  }
+  
+  /// מיון לפי רלוונטיות: שם קובץ תואם קודם, תוכן אח"כ
+  List<FileMetadata> _sortByRelevance(List<FileMetadata> files, String query) {
+    // חלוקה לשתי קבוצות: התאמה בשם / התאמה בתוכן בלבד
+    final nameMatches = <FileMetadata>[];
+    final contentOnlyMatches = <FileMetadata>[];
+    
+    for (final file in files) {
+      if (file.name.toLowerCase().contains(query)) {
+        nameMatches.add(file);
+      } else {
+        contentOnlyMatches.add(file);
+      }
+    }
+    
+    // מיון פנימי לפי תאריך (חדש קודם)
+    nameMatches.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+    contentOnlyMatches.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+    
+    // איחוד: שם קודם, תוכן אח"כ
+    return [...nameMatches, ...contentOnlyMatches];
   }
 
   /// מחזיר קבצי תמונות שטרם עברו אינדוקס
