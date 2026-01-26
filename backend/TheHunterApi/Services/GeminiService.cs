@@ -150,6 +150,13 @@ public class GeminiService
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
 
+            // לוג מפורט של התשובה מ-Gemini API
+            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            Console.WriteLine($"📡 GEMINI API RAW RESPONSE (Status: {response.StatusCode}):");
+            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            Console.WriteLine(responseBody);
+            Console.WriteLine("═══════════════════════════════════════════════════════════");
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, responseBody);
@@ -242,13 +249,23 @@ public class GeminiService
             }
 
             // לוג של התשובה הגולמית - קריטי לדיבאגינג
-            Console.WriteLine($"🔍 Raw Gemini Response: {rawText}");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
+            Console.WriteLine("🔍 EXTRACTED TEXT FROM GEMINI:");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
+            Console.WriteLine(rawText);
+            Console.WriteLine($"   [Length: {rawText.Length} chars]");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
             _logger.LogDebug("Raw Gemini response: {RawText}", rawText);
 
             // ניקוי וסניטציה של ה-JSON
             var cleanJson = SanitizeJsonResponse(rawText);
             
-            Console.WriteLine($"✅ Sanitized JSON: {cleanJson}");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
+            Console.WriteLine("✅ SANITIZED JSON (ready for parsing):");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
+            Console.WriteLine(cleanJson);
+            Console.WriteLine($"   [Length: {cleanJson.Length} chars]");
+            Console.WriteLine("───────────────────────────────────────────────────────────");
             _logger.LogInformation("Sanitized intent JSON: {Intent}", cleanJson);
 
             var intent = JsonSerializer.Deserialize<SearchIntent>(cleanJson, _jsonOptions);
@@ -263,7 +280,12 @@ public class GeminiService
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse Gemini response as JSON");
-            Console.WriteLine($"❌ JSON Parse Error: {ex.Message}");
+            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            Console.WriteLine("❌ JSON PARSE ERROR:");
+            Console.WriteLine($"   Message: {ex.Message}");
+            Console.WriteLine($"   Path: {ex.Path}");
+            Console.WriteLine($"   Line: {ex.LineNumber}");
+            Console.WriteLine("═══════════════════════════════════════════════════════════");
             return GeminiResult<SearchIntent>.Failure($"JSON parse error: {ex.Message}");
         }
     }
