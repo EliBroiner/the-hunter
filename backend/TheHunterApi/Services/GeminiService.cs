@@ -195,8 +195,9 @@ public class GeminiService
             },
             GenerationConfig = new GenerationConfig
             {
-                Temperature = 0.1,  // נמוך לתוצאות עקביות
-                MaxOutputTokens = 500
+                Temperature = 0.1,  // נמוך לתוצאות עקביות ומדויקות
+                MaxOutputTokens = 3000,  // מוגדל כדי למנוע חיתוך של התשובה
+                ResponseMimeType = "application/json"  // רמז למודל להחזיר JSON תקין
             }
         };
     }
@@ -346,6 +347,7 @@ public class GenerationConfig
 {
     public double Temperature { get; set; }
     public int MaxOutputTokens { get; set; }
+    public string? ResponseMimeType { get; set; }
 }
 
 public class GeminiResponse
