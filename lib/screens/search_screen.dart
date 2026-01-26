@@ -944,6 +944,7 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 itemCount: results.length,
                 itemBuilder: (context, index) {
                   final file = results[index];
