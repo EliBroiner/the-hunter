@@ -38,9 +38,10 @@ dependencies:
   # PDF Text Extraction - חילוץ טקסט מ-PDF
   syncfusion_flutter_pdf: ^27.1.58
   
-  # Firebase - אימות משתמשים
+  # Firebase - אימות משתמשים וגיבוי
   firebase_core: ^3.13.0
   firebase_auth: ^5.5.4
+  firebase_storage: ^12.4.4
   
   # Google Sign In - התחברות עם Google
   google_sign_in: ^6.2.2
