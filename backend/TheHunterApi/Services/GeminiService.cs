@@ -15,7 +15,7 @@ public class GeminiService
     private readonly ILogger<GeminiService> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    private const string GeminiModel = "gemini-3-pro-preview";
+    private const string GeminiModel = "gemini-3-flash-preview";
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
