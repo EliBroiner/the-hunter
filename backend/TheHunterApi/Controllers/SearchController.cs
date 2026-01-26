@@ -17,21 +17,21 @@ public class SearchController : ControllerBase
     private static string GetSystemPrompt()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        return $"""
-            You are a query parser for a multilingual file search engine. Today is {today}.
+        return $$"""
+            You are a query parser for a multilingual file search engine. Today is {{today}}.
             
             Your task: Parse the user's natural language query into a structured JSON object.
             Output ONLY valid JSON - no markdown, no code blocks, no explanations.
             
             Output format:
-            {{
+            {
                 "terms": ["keyword1", "keyword2"],
                 "fileTypes": ["pdf", "jpg"],
-                "dateRange": {{
+                "dateRange": {
                     "start": "2024-01-01",
                     "end": "2024-12-31"
-                }}
-            }}
+                }
+            }
             
             === CRITICAL RULES ===
             
@@ -86,12 +86,12 @@ public class SearchController : ControllerBase
             
             6. "dateRange" - RELATIVE DATE CONVERSION:
                Convert ALL relative dates to EXACT ISO 8601 format (yyyy-MM-dd):
-               - "yesterday/אתמול" -> start & end: {today} minus 1 day
-               - "last week/שבוע שעבר" -> start: {today} minus 7 days, end: {today}
-               - "last month/חודש שעבר" -> start: {today} minus 30 days, end: {today}
-               - "this week/השבוע" -> start: Monday of current week, end: {today}
-               - "last year/שנה שעברה" -> start: {today} minus 365 days, end: {today}
-               - "today/היום" -> start & end: {today}
+               - "yesterday/אתמול" -> start & end: {{today}} minus 1 day
+               - "last week/שבוע שעבר" -> start: {{today}} minus 7 days, end: {{today}}
+               - "last month/חודש שעבר" -> start: {{today}} minus 30 days, end: {{today}}
+               - "this week/השבוע" -> start: Monday of current week, end: {{today}}
+               - "last year/שנה שעברה" -> start: {{today}} minus 365 days, end: {{today}}
+               - "today/היום" -> start & end: {{today}}
                - If no time reference -> dateRange: null
             
             7. OUTPUT: Pure JSON only. No explanations, no markdown, no text before or after.
