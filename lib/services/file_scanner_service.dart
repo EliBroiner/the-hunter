@@ -108,9 +108,10 @@ class FileScannerService {
         ScanSource(name: 'DCIM', path: '$base/DCIM', exists: false),
         ScanSource(name: 'Screenshots', path: '$base/DCIM/Screenshots', exists: false),
         ScanSource(name: 'Pictures', path: '$base/Pictures', exists: false),
-        ScanSource(name: 'WhatsApp Media', path: '$base/Android/media/com.whatsapp/WhatsApp/Media', exists: false),
-        ScanSource(name: 'WhatsApp Images', path: '$base/WhatsApp/Media/WhatsApp Images', exists: false),
-        ScanSource(name: 'Telegram', path: '$base/Telegram', exists: false),
+        // TODO: Messaging apps disabled temporarily for faster development
+        // ScanSource(name: 'WhatsApp Media', path: '$base/Android/media/com.whatsapp/WhatsApp/Media', exists: false),
+        // ScanSource(name: 'WhatsApp Images', path: '$base/WhatsApp/Media/WhatsApp Images', exists: false),
+        // ScanSource(name: 'Telegram', path: '$base/Telegram', exists: false),
       ];
     } else {
       // Linux / macOS / Windows
@@ -142,11 +143,26 @@ class FileScannerService {
     return supportedExtensions.contains(extension.toLowerCase());
   }
 
+  /// גודל מינימלי לקובץ (15KB) - מסנן אייקונים קטנים ונכסים
+  static const int _minFileSizeBytes = 15 * 1024;
+  
+  /// נתיבי cache/junk לסינון
+  static const List<String> _junkPathPatterns = [
+    '/cache/',
+    '/.thumbnails/',
+    '/log/',
+    '/Cache/',
+    '/Thumbnails/',
+  ];
+
   /// סורק תיקייה בודדת באופן רקורסיבי
   Future<List<FileMetadata>> _scanDirectory(String path) async {
     final files = <FileMetadata>[];
     final directory = Directory(path);
     int skipped = 0;
+    int skippedHidden = 0;
+    int skippedCache = 0;
+    int skippedSmall = 0;
     
     if (!await directory.exists()) return files;
 
@@ -155,17 +171,37 @@ class FileScannerService {
         if (entity is File) {
           try {
             final fileName = entity.uri.pathSegments.last;
+            final filePath = entity.path;
             final extension = _extractExtension(fileName);
             
-            // סינון לפי סיומת - רק קבצים נתמכים
+            // 1. סינון קבצים נסתרים (מתחילים בנקודה)
+            if (fileName.startsWith('.')) {
+              skippedHidden++;
+              continue;
+            }
+            
+            // 2. סינון נתיבי cache/junk
+            if (_isJunkPath(filePath)) {
+              skippedCache++;
+              continue;
+            }
+            
+            // 3. סינון לפי סיומת - רק קבצים נתמכים
             if (!_isSupportedExtension(extension)) {
               skipped++;
               continue;
             }
             
             final stat = await entity.stat();
+            
+            // 4. סינון קבצים קטנים מדי (פחות מ-15KB)
+            if (stat.size < _minFileSizeBytes) {
+              skippedSmall++;
+              continue;
+            }
+            
             final file = FileMetadata.fromFile(
-              path: entity.path,
+              path: filePath,
               name: fileName,
               size: stat.size,
               lastModified: stat.modified,
@@ -180,9 +216,23 @@ class FileScannerService {
       // שגיאה בסריקת תיקייה - ממשיכים הלאה
     }
     
-    if (skipped > 0) appLog('SCAN: Skipped $skipped unsupported files in $path');
+    final totalSkipped = skipped + skippedHidden + skippedCache + skippedSmall;
+    if (totalSkipped > 0) {
+      appLog('SCAN: Skipped in $path: $skipped unsupported, $skippedHidden hidden, $skippedCache cache, $skippedSmall small');
+    }
     
     return files;
+  }
+  
+  /// בודק אם הנתיב הוא נתיב cache/junk
+  bool _isJunkPath(String path) {
+    final lowerPath = path.toLowerCase();
+    for (final pattern in _junkPathPatterns) {
+      if (lowerPath.contains(pattern.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// מחלץ סיומת מהשם

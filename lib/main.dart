@@ -1,17 +1,34 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
+import 'screens/subscription_screen.dart';
+import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
 import 'services/permission_service.dart';
+import 'services/settings_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // אתחול מסד הנתונים
+  // אתחול Firebase
+  await Firebase.initializeApp();
+  
+  // אתחול RevenueCat
+  await Purchases.setLogLevel(LogLevel.debug);
+  await Purchases.configure(
+    PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
+  );
+  
+  // אתחול מסד הנתונים והגדרות
   await DatabaseService.instance.init();
+  await SettingsService.instance.init();
   
   runApp(const TheHunterApp());
 }
@@ -174,7 +191,41 @@ class TheHunterApp extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
-      home: const MainScreen(),
+      home: const AuthWrapper(),
+      routes: {
+        '/subscription': (context) => const SubscriptionScreen(),
+      },
+    );
+  }
+}
+
+/// עוטף אימות - מחליט איזה מסך להציג לפי מצב ההתחברות
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: AuthService.instance.authStateChanges,
+      builder: (context, snapshot) {
+        // טעינה - מציג מסך טעינה
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0F0F23),
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        // אם יש משתמש מחובר - הצג את המסך הראשי
+        if (snapshot.hasData && snapshot.data != null) {
+          return const MainScreen();
+        }
+
+        // אם אין משתמש - הצג מסך התחברות
+        return const LoginScreen();
+      },
     );
   }
 }
