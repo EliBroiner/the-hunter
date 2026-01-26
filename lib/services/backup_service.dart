@@ -750,13 +750,13 @@ class BackupService {
 
   /// ממיר JSON ל-FileMetadata
   FileMetadata _jsonToFile(Map<String, dynamic> json) {
-    return FileMetadata(
-      name: json['name'] ?? '',
-      path: json['path'] ?? '',
-      extension: json['extension'] ?? '',
-      size: json['size'] ?? 0,
-      lastModified: DateTime.tryParse(json['lastModified'] ?? '') ?? DateTime.now(),
-    )
+    return FileMetadata()
+      ..path = json['path'] ?? ''
+      ..name = json['name'] ?? ''
+      ..extension = json['extension'] ?? ''
+      ..size = json['size'] ?? 0
+      ..lastModified = DateTime.tryParse(json['lastModified'] ?? '') ?? DateTime.now()
+      ..addedAt = DateTime.now()
       ..extractedText = json['extractedText']
       ..isIndexed = json['isIndexed'] ?? false;
   }
