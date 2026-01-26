@@ -108,10 +108,10 @@ class FileScannerService {
         ScanSource(name: 'DCIM', path: '$base/DCIM', exists: false),
         ScanSource(name: 'Screenshots', path: '$base/DCIM/Screenshots', exists: false),
         ScanSource(name: 'Pictures', path: '$base/Pictures', exists: false),
-        // TODO: WhatsApp paths disabled temporarily for faster development
+        // TODO: Messaging apps disabled temporarily for faster development
         // ScanSource(name: 'WhatsApp Media', path: '$base/Android/media/com.whatsapp/WhatsApp/Media', exists: false),
         // ScanSource(name: 'WhatsApp Images', path: '$base/WhatsApp/Media/WhatsApp Images', exists: false),
-        ScanSource(name: 'Telegram', path: '$base/Telegram', exists: false),
+        // ScanSource(name: 'Telegram', path: '$base/Telegram', exists: false),
       ];
     } else {
       // Linux / macOS / Windows
