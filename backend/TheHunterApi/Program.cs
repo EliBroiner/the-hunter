@@ -1,12 +1,16 @@
+using TheHunterApi.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // קריאת PORT מ-environment variables (ברירת מחדל: 8080 עבור Cloud Run)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // קריאת GEMINI_API_KEY מ-environment variables
-var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") 
-    ?? throw new InvalidOperationException("GEMINI_API_KEY environment variable is not set");
+var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+if (string.IsNullOrEmpty(geminiApiKey))
+{
+    Console.WriteLine("⚠️ WARNING: GEMINI_API_KEY is not set. AI search will not work.");
+}
 
 // הגדרת Services
 builder.Services.AddControllers();
@@ -39,28 +43,39 @@ builder.Services.AddHttpClient("GeminiApi", client =>
     client.DefaultRequestHeaders.Add("Accept", "application/json");
 });
 
-// שמירת ה-API key ב-Configuration לשימוש ב-Controllers
+// רישום GeminiConfig כ-Singleton
 builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
+
+// רישום GeminiService
+builder.Services.AddScoped<GeminiService>();
 
 var app = builder.Build();
 
-// Swagger UI (גם ב-Production עבור בדיקות)
+// Root endpoint
+app.MapGet("/", () => new { 
+    status = "OK", 
+    message = "The Hunter API is running!",
+    version = "1.0",
+    time = DateTime.UtcNow 
+});
+
+// Swagger UI
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "The Hunter API v1");
-    options.RoutePrefix = string.Empty; // Swagger בנתיב הראשי
+    options.RoutePrefix = "swagger";
 });
 
 app.UseCors();
 app.UseAuthorization();
 app.MapControllers();
 
-// Health check endpoint עבור Cloud Run
+// Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
 Console.WriteLine($"🚀 The Hunter API is running on port {port}");
-app.Run();
+app.Run($"http://0.0.0.0:{port}");
 
 /// <summary>
 /// הגדרות Gemini API

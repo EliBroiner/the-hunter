@@ -1,6 +1,11 @@
 import com.android.build.gradle.LibraryExtension
 import com.android.build.gradle.LibraryPlugin
 
+plugins {
+    // Google Services - Firebase
+    id("com.google.gms.google-services") version "4.4.2" apply false
+}
+
 // Force SDK 36 for all projects
 val sdkVersion = 36
 
