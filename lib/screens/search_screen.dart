@@ -177,26 +177,40 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
   
-  /// חיפוש היברידי - קודם מנסה Smart Search, אז fallback לרגיל
+  /// חיפוש היברידי - כרגע משתמש בחיפוש רגיל, Smart Search יופעל רק בלחיצה על כפתור
+  /// (כדי לא לשלוח המון בקשות יקרות ל-API בכל הקלדה)
   Future<void> _performHybridSearch(String query) async {
-    appLog('HybridSearch: Starting for query: "$query"');
+    // כרגע - חיפוש רגיל בלבד בהקלדה
+    // Smart Search יופעל רק בלחיצה על כפתור ייעודי
+    _performSimpleSearch(query);
+  }
+  
+  /// מבצע חיפוש חכם עם Gemini API - נקרא רק בלחיצה על כפתור
+  Future<void> _performSmartSearch(String query) async {
+    if (query.trim().length < 2) {
+      _performSimpleSearch(query);
+      return;
+    }
     
-    // שלב A: קבלת כל הקבצים מהמסד (Stream ריאקטיבי)
-    final baseStream = _databaseService.isar.fileMetadatas
-        .where()
-        .watch(fireImmediately: true);
+    appLog('SmartSearch: Starting for query: "$query"');
     
-    // שלב B: ניסיון לקבל SearchIntent מה-API
+    // ניסיון לקבל SearchIntent מה-API
     SearchIntent? intent;
     try {
       intent = await _smartSearchService.parseSearchQuery(query);
     } catch (e) {
-      appLog('HybridSearch: API call failed - $e');
+      appLog('SmartSearch: API call failed - $e');
     }
     
     if (intent != null && intent.hasContent) {
       // Smart Search הצליח - משתמשים בפילטר החכם
-      appLog('HybridSearch: Using Smart Search with intent: $intent');
+      appLog('SmartSearch: Using Smart Search with intent: $intent');
+      
+      // קבלת Stream של כל הקבצים ממסד הנתונים
+      final baseStream = _databaseService.watchSearch(
+        query: '', // לא מסננים לפי טקסט - הפילטר החכם יעשה את זה
+        filter: SearchFilter.all,
+      );
       
       setState(() {
         _isSmartSearchActive = true;
@@ -210,7 +224,7 @@ class _SearchScreenState extends State<SearchScreen> {
       });
     } else {
       // Fallback לחיפוש רגיל
-      appLog('HybridSearch: Falling back to simple search');
+      appLog('SmartSearch: Falling back to simple search');
       _performSimpleSearch(query);
     }
   }

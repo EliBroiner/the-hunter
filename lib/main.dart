@@ -112,7 +112,7 @@ class AutoScanManager {
     try {
       onStatusUpdate?.call('סריקה מלאה...');
       
-      final result = await FileScannerService.instance.scanAllFolders();
+      final result = await FileScannerService.instance.scanAllSources();
       onScanComplete?.call(result);
       
       if (result.success) {
