@@ -4,9 +4,12 @@ var builder = WebApplication.CreateBuilder(args);
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-// קריאת GEMINI_API_KEY מ-environment variables
-var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") 
-    ?? throw new InvalidOperationException("GEMINI_API_KEY environment variable is not set");
+// קריאת GEMINI_API_KEY מ-environment variables (אופציונלי - יתריע אם חסר)
+var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+if (string.IsNullOrEmpty(geminiApiKey))
+{
+    Console.WriteLine("⚠️ WARNING: GEMINI_API_KEY is not set. AI search will not work.");
+}
 
 // הגדרת Services
 builder.Services.AddControllers();

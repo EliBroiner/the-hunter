@@ -61,6 +61,15 @@ public class SearchController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Query cannot be empty" });
         }
 
+        if (string.IsNullOrEmpty(_geminiConfig.ApiKey))
+        {
+            return StatusCode(503, new ErrorResponse 
+            { 
+                Error = "AI service not configured",
+                Details = "GEMINI_API_KEY environment variable is not set"
+            });
+        }
+
         _logger.LogInformation("Processing search intent for query: {Query}", request.Query);
 
         try
