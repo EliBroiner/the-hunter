@@ -21,11 +21,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _backupProgress = 0;
   BackupInfo? _backupInfo;
   bool _loadingBackupInfo = false;
+  bool _autoBackupEnabled = true;
 
   @override
   void initState() {
     super.initState();
     _loadBackupInfo();
+    _loadAutoBackupSetting();
   }
 
   Future<void> _loadBackupInfo() async {
@@ -43,6 +45,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _loadingBackupInfo = false);
+    }
+  }
+  
+  Future<void> _loadAutoBackupSetting() async {
+    final enabled = await _backupService.isAutoBackupEnabled();
+    if (mounted) {
+      setState(() => _autoBackupEnabled = enabled);
     }
   }
 
@@ -86,8 +95,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildBackupTile(context, theme, isPremium),
                 if (isPremium && _backupInfo != null)
                   _buildRestoreTile(context, theme),
+                if (isPremium)
+                  _buildAutoBackupTile(context, theme),
               ],
             ),
+            if (isPremium && _backupInfo != null)
+              _buildBackupInfoCard(theme),
             const SizedBox(height: 16),
             
             // הגדרות כלליות
@@ -417,6 +430,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// מציג הודעת פרימיום נדרש
   void _showPremiumRequired() {
     Navigator.pushNamed(context, '/subscription');
+  }
+  
+  /// בונה כרטיס גיבוי אוטומטי
+  Widget _buildAutoBackupTile(BuildContext context, ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SwitchListTile(
+        secondary: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.schedule, color: Colors.green, size: 20),
+        ),
+        title: const Text(
+          'גיבוי אוטומטי',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          _autoBackupEnabled ? 'פעיל - כל 24 שעות' : 'כבוי',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        value: _autoBackupEnabled,
+        onChanged: (value) async {
+          setState(() => _autoBackupEnabled = value);
+          await _backupService.setAutoBackupEnabled(value);
+        },
+      ),
+    );
+  }
+  
+  /// בונה כרטיס מידע על הגיבוי
+  Widget _buildBackupInfoCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade900.withValues(alpha: 0.3),
+            Colors.purple.shade900.withValues(alpha: 0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cloud_done, color: Colors.green, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'גיבוי אחרון',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildInfoChip(Icons.calendar_today, _backupInfo!.formattedDate),
+              const SizedBox(width: 8),
+              _buildInfoChip(Icons.folder, '${_backupInfo!.filesCount} קבצים'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildInfoChip(Icons.storage, _backupInfo!.formattedSize),
+              const SizedBox(width: 8),
+              if (_backupInfo!.filesWithText > 0)
+                _buildInfoChip(Icons.text_fields, '${_backupInfo!.filesWithText} עם טקסט'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildInfoChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 11, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
   }
 
   /// מציג הודעה שהפיצ'ר בפיתוח

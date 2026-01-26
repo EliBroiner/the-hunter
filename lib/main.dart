@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -7,6 +9,7 @@ import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'services/auth_service.dart';
+import 'services/backup_service.dart';
 import 'services/database_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
@@ -55,6 +58,9 @@ class AutoScanManager {
   
   /// callback לעדכון סטטוס
   Function(String status)? onStatusUpdate;
+  
+  /// callback כשנמצא גיבוי קיים (בהתקנה ראשונה)
+  Function(BackupInfo backupInfo)? onBackupFound;
 
   bool get isScanning => _isScanning;
   bool get isProcessing => _isProcessing;
@@ -77,9 +83,53 @@ class AutoScanManager {
     _isScanning = true;
 
     try {
+      final isFirstRun = DatabaseService.instance.getFilesCount() == 0;
+      final backupService = BackupService.instance;
+      
+      // בהתקנה ראשונה - בדוק אם יש גיבוי קיים
+      if (isFirstRun && backupService.hasUser) {
+        onStatusUpdate?.call('בודק גיבוי קיים...');
+        
+        final backupInfo = await backupService.getBackupInfo();
+        if (backupInfo != null && backupInfo.filesCount > 0) {
+          appLog('AutoScan: Found backup with ${backupInfo.filesCount} files!');
+          
+          // סריקה עם שחזור חכם מגיבוי!
+          onStatusUpdate?.call('משחזר מגיבוי...');
+          
+          final result = await FileScannerService.instance.scanWithBackupRestore(
+            onStatus: (status) => onStatusUpdate?.call(status),
+            getBackupData: () => _getBackupData(),
+          );
+          
+          onScanComplete?.call(result);
+          
+          if (result.skippedOcrCount > 0) {
+            appLog('AutoScan: Saved OCR on ${result.skippedOcrCount} files from backup!');
+          }
+          
+          // עיבוד קבצים שלא היו בגיבוי
+          final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+          if (pendingCount > 0) {
+            _isScanning = false;
+            _isProcessing = true;
+            onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים חדשים...');
+            
+            final processResult = await FileScannerService.instance.processPendingFiles();
+            onProcessComplete?.call(processResult);
+          }
+          
+          onStatusUpdate?.call('');
+          
+          // גיבוי אוטומטי לאחר סיום
+          _runAutoBackupIfNeeded();
+          return;
+        }
+      }
+      
+      // סריקה רגילה (לא התקנה ראשונה או אין גיבוי)
       onStatusUpdate?.call('סורק תיקיות...');
       
-      // סריקה חכמה - רק קבצים חדשים
       final result = await FileScannerService.instance.scanNewFilesOnly(
         runCleanup: true,
       );
@@ -95,12 +145,45 @@ class AutoScanManager {
         final processResult = await FileScannerService.instance.processPendingFiles();
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
+        
+        // גיבוי אוטומטי לאחר סיום עיבוד
+        _runAutoBackupIfNeeded();
       } else {
         onStatusUpdate?.call('');
+        // גיבוי אוטומטי גם אם לא היו קבצים חדשים
+        _runAutoBackupIfNeeded();
       }
     } finally {
       _isScanning = false;
       _isProcessing = false;
+    }
+  }
+  
+  /// מחזיר את נתוני הגיבוי מהענן
+  Future<Map<String, dynamic>?> _getBackupData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+      
+      final ref = FirebaseStorage.instance.ref('backups/${user.uid}/database_backup.json');
+      final data = await ref.getData();
+      
+      if (data == null) return null;
+      
+      final jsonString = utf8.decode(data);
+      return jsonDecode(jsonString) as Map<String, dynamic>;
+    } catch (e) {
+      appLog('AutoScan: Failed to get backup data - $e');
+      return null;
+    }
+  }
+  
+  /// מריץ גיבוי אוטומטי אם צריך
+  Future<void> _runAutoBackupIfNeeded() async {
+    try {
+      await BackupService.instance.runAutoBackupIfNeeded();
+    } catch (e) {
+      appLog('AutoScan: Auto backup failed - $e');
     }
   }
 
