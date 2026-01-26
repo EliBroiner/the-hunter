@@ -461,8 +461,12 @@ class FileScannerService {
   }
 
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
+  /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
+    int batchSize = 3,  // כמה קבצים לעבד בכל פעם
+    int delayBetweenBatchesMs = 500,  // השהיה בין אצוות (מילישניות)
+    int delayBetweenFilesMs = 100,  // השהיה בין קבצים (מילישניות)
   }) async {
     try {
       // קבלת כל הקבצים שטרם עובדו
@@ -479,37 +483,75 @@ class FileScannerService {
         );
       }
 
-      appLog('PROCESS: ${pendingImages.length} images, ${pendingTextFiles.length} text files');
+      appLog('PROCESS: ${pendingImages.length} images, ${pendingTextFiles.length} text files (batch: $batchSize)');
 
       int filesProcessed = 0;
       int filesWithText = 0;
+      int batchCount = 0;
 
-      // עיבוד תמונות עם OCR
+      // עיבוד תמונות עם OCR - בקצב מבוקר
       for (final file in pendingImages) {
         onProgress?.call(filesProcessed + 1, totalPending);
 
-        final extractedText = await _ocrService.extractText(file.path);
+        try {
+          final extractedText = await _ocrService.extractText(file.path);
 
-        file.extractedText = extractedText;
-        file.isIndexed = true;
-        _databaseService.updateFile(file);
+          file.extractedText = extractedText;
+          file.isIndexed = true;
+          _databaseService.updateFile(file);
 
-        filesProcessed++;
-        if (extractedText.isNotEmpty) filesWithText++;
+          filesProcessed++;
+          if (extractedText.isNotEmpty) filesWithText++;
+        } catch (e) {
+          // סימון הקובץ כמעובד גם אם נכשל - כדי לא לנסות שוב ושוב
+          file.isIndexed = true;
+          file.extractedText = '';
+          _databaseService.updateFile(file);
+          filesProcessed++;
+          appLog('PROCESS: Failed to process ${file.name}: $e');
+        }
+
+        batchCount++;
+        
+        // השהיה קצרה בין קבצים כדי לתת ל-UI לנשום
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
+        
+        // השהיה ארוכה יותר בין אצוות
+        if (batchCount >= batchSize) {
+          batchCount = 0;
+          await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
+        }
       }
 
-      // עיבוד קבצי טקסט ו-PDF
+      // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
         onProgress?.call(filesProcessed + 1, totalPending);
 
-        final extractedText = await _textExtractionService.extractText(file.path);
+        try {
+          final extractedText = await _textExtractionService.extractText(file.path);
 
-        file.extractedText = extractedText;
-        file.isIndexed = true;
-        _databaseService.updateFile(file);
+          file.extractedText = extractedText;
+          file.isIndexed = true;
+          _databaseService.updateFile(file);
 
-        filesProcessed++;
-        if (extractedText.isNotEmpty) filesWithText++;
+          filesProcessed++;
+          if (extractedText.isNotEmpty) filesWithText++;
+        } catch (e) {
+          file.isIndexed = true;
+          file.extractedText = '';
+          _databaseService.updateFile(file);
+          filesProcessed++;
+          appLog('PROCESS: Failed to process ${file.name}: $e');
+        }
+
+        batchCount++;
+        
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
+        
+        if (batchCount >= batchSize) {
+          batchCount = 0;
+          await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
+        }
       }
 
       appLog('PROCESS: Done - $filesProcessed files, $filesWithText with text');

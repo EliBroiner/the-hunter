@@ -571,6 +571,8 @@ class _MainScreenState extends State<MainScreen> {
   bool _showStatus = false;
   bool _isFirstScan = true;
   bool _showLogPanel = false;
+  bool _showFirstTimeMessage = false;
+  int _pendingFilesCount = 0;
 
   @override
   void initState() {
@@ -586,6 +588,18 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final dbCount = DatabaseService.instance.getFilesCount();
       _isFirstScan = dbCount == 0;
+      
+      // בדיקת קבצים ממתינים
+      _pendingFilesCount = DatabaseService.instance.getAllPendingFiles().length;
+      
+      // הצגת הודעה בהפעלה ראשונה או אם יש הרבה קבצים ממתינים
+      if (_isFirstScan || _pendingFilesCount > 20) {
+        setState(() => _showFirstTimeMessage = true);
+        // הסתרת ההודעה אחרי 8 שניות
+        Future.delayed(const Duration(seconds: 8), () {
+          if (mounted) setState(() => _showFirstTimeMessage = false);
+        });
+      }
       
       final manager = AutoScanManager.instance;
       
@@ -619,14 +633,13 @@ class _MainScreenState extends State<MainScreen> {
         
         setState(() {
           _isFirstScan = false;
+          _showFirstTimeMessage = false;
         });
       };
       
       manager.onNewFileFound = (path) {
-        if (!mounted) return;
-        
-        final fileName = path.split('/').last;
-        _showSnackBar('קובץ חדש: $fileName');
+        // לא מציג הודעה על כל קובץ חדש - מייגע
+        appLog('New file found: $path');
       };
       
       // הרצת אתחול - כולל בקשת הרשאות
@@ -659,8 +672,12 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Column(
         children: [
-          // סטטוס סריקה (רק כשפעיל)
-          if (_showStatus)
+          // הודעה ראשונית על עיבוד ברקע
+          if (_showFirstTimeMessage)
+            _buildFirstTimeMessageBanner(theme),
+          
+          // סטטוס סריקה (רק כשפעיל) - יותר עדין
+          if (_showStatus && !_showFirstTimeMessage)
             _buildStatusBar(theme),
           
           // מסך חיפוש
@@ -679,6 +696,65 @@ class _MainScreenState extends State<MainScreen> {
         onPressed: () => setState(() => _showLogPanel = !_showLogPanel),
         backgroundColor: _showLogPanel ? Colors.red : Colors.grey.shade800.withValues(alpha: 0.5),
         child: Icon(_showLogPanel ? Icons.close : Icons.bug_report, size: 18),
+      ),
+    );
+  }
+  
+  /// בונה באנר הודעה ראשונית
+  Widget _buildFirstTimeMessageBanner(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade900.withValues(alpha: 0.9),
+            Colors.purple.shade900.withValues(alpha: 0.9),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.info_outline, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'מעבד קבצים ברקע',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    'זה עשוי לקחת זמן ולא יפריע לשימוש באפליקציה',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+              onPressed: () => setState(() => _showFirstTimeMessage = false),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ],
+        ),
       ),
     );
   }
