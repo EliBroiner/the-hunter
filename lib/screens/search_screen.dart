@@ -376,6 +376,438 @@ class _SearchScreenState extends State<SearchScreen> {
       text: 'Shared from The Hunter: ${file.name}',
     );
   }
+  
+  /// מוחק קובץ מהמכשיר ומהמסד
+  Future<void> _deleteFile(FileMetadata file) async {
+    // בדיקה אם הקובץ קיים
+    final deviceFile = File(file.path);
+    final fileExists = await deviceFile.exists();
+    
+    if (!fileExists) {
+      // הקובץ לא קיים - נמחק רק מהמסד
+      _databaseService.deleteFile(file.id);
+      _updateSearchStream();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('הקובץ כבר נמחק מהמכשיר'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    
+    try {
+      // מחיקת הקובץ מהמכשיר
+      await deviceFile.delete();
+      
+      // מחיקה מהמסד
+      _databaseService.deleteFile(file.id);
+      _updateSearchStream();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('הקובץ "${file.name}" נמחק בהצלחה')),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה במחיקת הקובץ: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+  
+  /// מציג דיאלוג אישור מחיקה
+  Future<void> _showDeleteConfirmation(FileMetadata file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E3F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            SizedBox(width: 12),
+            Text('מחיקת קובץ'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('האם אתה בטוח שברצונך למחוק את הקובץ?'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.insert_drive_file, color: Colors.red, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      file.name,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'פעולה זו לא ניתנת לביטול!',
+              style: TextStyle(color: Colors.red.shade300, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('ביטול'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('מחק'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await _deleteFile(file);
+    }
+  }
+  
+  /// מציג פרטי קובץ
+  void _showFileDetails(FileMetadata file) {
+    final theme = Theme.of(context);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ידית למשיכה
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade600,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // כותרת
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.info_outline,
+                    color: theme.colorScheme.primary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'פרטי קובץ',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // פרטים
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F23),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildDetailRow('שם', file.name, Icons.insert_drive_file),
+                  const Divider(height: 20, color: Colors.white12),
+                  _buildDetailRow('סוג', file.extension.toUpperCase(), Icons.category),
+                  const Divider(height: 20, color: Colors.white12),
+                  _buildDetailRow('גודל', file.readableSize, Icons.data_usage),
+                  const Divider(height: 20, color: Colors.white12),
+                  _buildDetailRow('תאריך שינוי', _formatDate(file.lastModified), Icons.calendar_today),
+                  const Divider(height: 20, color: Colors.white12),
+                  _buildDetailRow('נתיב', file.path, Icons.folder_open, isPath: true),
+                  if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
+                    const Divider(height: 20, color: Colors.white12),
+                    _buildDetailRow(
+                      'טקסט מחולץ', 
+                      '${file.extractedText!.length} תווים',
+                      Icons.text_snippet,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // כפתור סגירה
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('סגור'),
+              ),
+            ),
+            
+            SizedBox(height: MediaQuery.of(context).padding.bottom),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// בונה שורת פרט
+  Widget _buildDetailRow(String label, String value, IconData icon, {bool isPath = false}) {
+    return Row(
+      crossAxisAlignment: isPath ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18, color: Colors.grey.shade500),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 13),
+            textDirection: _isHebrew(value) ? TextDirection.rtl : TextDirection.ltr,
+            maxLines: isPath ? 3 : 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  /// מציג תפריט פעולות לקובץ
+  void _showFileActionsSheet(FileMetadata file) {
+    final theme = Theme.of(context);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ידית למשיכה
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade600,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // שם הקובץ
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _getFileColor(file.extension).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        file.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        file.readableSize,
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // פעולות
+            _buildActionTile(
+              icon: Icons.open_in_new,
+              title: 'פתח',
+              subtitle: 'פתח עם אפליקציה מתאימה',
+              color: theme.colorScheme.primary,
+              onTap: () {
+                Navigator.of(context).pop();
+                _openFile(file);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildActionTile(
+              icon: Icons.share,
+              title: 'שתף',
+              subtitle: 'שלח לאפליקציה אחרת',
+              color: Colors.blue,
+              onTap: () {
+                Navigator.of(context).pop();
+                _shareFile(file);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildActionTile(
+              icon: Icons.info_outline,
+              title: 'פרטים',
+              subtitle: 'הצג מידע על הקובץ',
+              color: Colors.teal,
+              onTap: () {
+                Navigator.of(context).pop();
+                _showFileDetails(file);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildActionTile(
+              icon: Icons.delete_outline,
+              title: 'מחק',
+              subtitle: 'מחק את הקובץ לצמיתות',
+              color: Colors.red,
+              onTap: () {
+                Navigator.of(context).pop();
+                _showDeleteConfirmation(file);
+              },
+            ),
+            
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// בונה פריט פעולה
+  Widget _buildActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_left, color: Colors.grey.shade600),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   /// מחלץ שם התיקייה מהנתיב
   String _getFolderName(String path) {
@@ -1296,6 +1728,7 @@ class _SearchScreenState extends State<SearchScreen> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _openFile(file),
+          onLongPress: () => _showFileActionsSheet(file),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1377,15 +1810,15 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                     
-                    // כפתור שיתוף
+                    // כפתור תפריט פעולות
                     IconButton(
                       icon: Icon(
-                        Icons.share_rounded,
+                        Icons.more_vert,
                         size: 20,
                         color: theme.colorScheme.primary,
                       ),
-                      onPressed: () => _shareFile(file),
-                      tooltip: 'שתף',
+                      onPressed: () => _showFileActionsSheet(file),
+                      tooltip: 'אפשרויות נוספות',
                     ),
                   ],
                 ),
