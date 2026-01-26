@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
@@ -300,6 +301,17 @@ class TheHunterApp extends StatelessWidget {
     return MaterialApp(
       title: 'The Hunter',
       debugShowCheckedModeBanner: false,
+      // תמיכה בעברית ולוקליזציה
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('he', 'IL'), // עברית
+        Locale('en', 'US'), // אנגלית
+      ],
+      locale: const Locale('he', 'IL'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6366F1),

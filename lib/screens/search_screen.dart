@@ -21,8 +21,7 @@ enum LocalFilter {
   all,
   images,
   pdfs,
-  whatsapp,
-  withText,
+  withText,  // קבצים עם טקסט מחולץ (OCR)
 }
 
 /// מסך חיפוש - מסך ראשי לחיפוש קבצים
@@ -372,11 +371,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// מחיל פילטר מקומי על התוצאות
   List<FileMetadata> _applyLocalFilter(List<FileMetadata> results) {
-    if (_selectedFilter == LocalFilter.whatsapp) {
-      return results.where((f) => 
-        f.path.toLowerCase().contains('whatsapp')
-      ).toList();
-    }
+    // כרגע אין פילטרים מקומיים נוספים - הפילטרים מטופלים ב-DatabaseService
     return results;
   }
 
@@ -1030,34 +1025,38 @@ class _SearchScreenState extends State<SearchScreen> {
         _searchController.text.isEmpty && 
         _recentSearches.isNotEmpty;
     
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F23),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // כותרת וחיפוש
-            _buildSearchHeader(),
-            
-            // חיפושים אחרונים (כשהשדה בפוקוס וריק)
-            if (showRecentSearches)
-              _buildRecentSearches(),
-            
-            // בורר טווח תאריכים
-            if (!showRecentSearches)
-              _buildDateRangePicker(),
-            
-            // באנר חיפוש AI חכם (פרימיום)
-            if (!showRecentSearches)
-              _buildSmartAISearchBanner(),
-            
-            // צ'יפים לסינון מהיר
-            _buildFilterChips(),
-            
-            // תוצאות או מצב ריק
-            Expanded(
-              child: _buildResults(),
-            ),
-          ],
+    return GestureDetector(
+      // סגירת מקלדת בלחיצה מחוץ לשדה הטקסט
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0F0F23),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // כותרת וחיפוש
+              _buildSearchHeader(),
+              
+              // חיפושים אחרונים (כשהשדה בפוקוס וריק)
+              if (showRecentSearches)
+                _buildRecentSearches(),
+              
+              // בורר טווח תאריכים
+              if (!showRecentSearches)
+                _buildDateRangePicker(),
+              
+              // באנר חיפוש חכם (פרימיום)
+              if (!showRecentSearches)
+                _buildSmartAISearchBanner(),
+              
+              // צ'יפים לסינון מהיר
+              _buildFilterChips(),
+              
+              // תוצאות או מצב ריק
+              Expanded(
+                child: _buildResults(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1223,19 +1222,46 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// בונה באנר חיפוש AI חכם
+  /// בונה באנר חיפוש חכם
   Widget _buildSmartAISearchBanner() {
     final theme = Theme.of(context);
     final isPremium = _settingsService.isPremium;
+    final hasQuery = _currentQuery.trim().length >= 2;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: GestureDetector(
         onTap: () {
           if (!isPremium) {
-            _showPremiumUpgradeMessage('חיפוש AI חכם');
+            _showPremiumUpgradeMessage('חיפוש חכם');
+          } else if (hasQuery) {
+            // הפעלת חיפוש חכם עם ה-query הנוכחי
+            _performSmartSearch(_currentQuery);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text('מבצע חיפוש חכם...'),
+                  ],
+                ),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           } else {
-            // TODO: הפעלת חיפוש AI
+            // אין query - הצג הודעה
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('הקלד לפחות 2 תווים כדי להפעיל חיפוש חכם'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           }
         },
         child: Container(
@@ -1277,7 +1303,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         const Text(
-                          'חיפוש AI חכם',
+                          'חיפוש חכם',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
@@ -1301,10 +1327,30 @@ class _SearchScreenState extends State<SearchScreen> {
                             ),
                           ),
                         ],
+                        if (_isSmartSearchActive) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'פעיל',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     Text(
-                      'חפש בשפה טבעית עם בינה מלאכותית',
+                      isPremium 
+                          ? 'לחץ כדי לחפש בשפה טבעית עם AI'
+                          : 'חפש בשפה טבעית עם בינה מלאכותית',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade400,
@@ -1446,8 +1492,6 @@ class _SearchScreenState extends State<SearchScreen> {
           _buildModernFilterChip('תמונות', LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
           _buildModernFilterChip('PDF', LocalFilter.pdfs, Icons.picture_as_pdf),
-          const SizedBox(width: 10),
-          _buildModernFilterChip('WhatsApp', LocalFilter.whatsapp, Icons.chat_bubble),
           const SizedBox(width: 10),
           _buildModernFilterChip('עם טקסט', LocalFilter.withText, Icons.text_snippet),
         ],

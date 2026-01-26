@@ -47,14 +47,14 @@ class SettingsScreen extends StatelessWidget {
                   icon: Icons.language,
                   title: 'שפה',
                   subtitle: 'עברית',
-                  onTap: () {},
+                  onTap: () => _showComingSoon(context, 'בחירת שפה'),
                 ),
                 _buildSettingsTile(
                   context,
                   icon: Icons.dark_mode,
                   title: 'מצב כהה',
-                  subtitle: 'פעיל',
-                  onTap: () {},
+                  subtitle: 'פעיל תמיד',
+                  onTap: () => _showComingSoon(context, 'מצב בהיר'),
                 ),
               ],
             ),
@@ -68,15 +68,15 @@ class SettingsScreen extends StatelessWidget {
                   context,
                   icon: Icons.folder,
                   title: 'תיקיות לסריקה',
-                  subtitle: 'בחר תיקיות',
-                  onTap: () {},
+                  subtitle: 'Downloads, DCIM, Documents',
+                  onTap: () => _showComingSoon(context, 'בחירת תיקיות'),
                 ),
                 _buildSettingsTile(
                   context,
                   icon: Icons.text_fields,
                   title: 'חילוץ טקסט (OCR)',
-                  subtitle: 'פעיל',
-                  onTap: () {},
+                  subtitle: 'פעיל אוטומטית',
+                  onTap: () => _showComingSoon(context, 'הגדרות OCR'),
                 ),
               ],
             ),
@@ -101,6 +101,24 @@ class SettingsScreen extends StatelessWidget {
             _buildLogoutButton(context, theme),
           ],
         ),
+      ),
+    );
+  }
+  
+  /// מציג הודעה שהפיצ'ר בפיתוח
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.construction, color: Colors.amber, size: 20),
+            const SizedBox(width: 12),
+            Text('$feature - בקרוב!'),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF1E1E3F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
