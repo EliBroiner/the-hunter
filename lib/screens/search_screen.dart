@@ -7,9 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
+import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
+import '../services/smart_search_filter.dart';
+import '../services/smart_search_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -35,8 +39,13 @@ class _SearchScreenState extends State<SearchScreen> {
   final _databaseService = DatabaseService.instance;
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
+  final _smartSearchService = SmartSearchService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
+  
+  // Smart Search state
+  bool _isSmartSearchActive = false;
+  SearchIntent? _lastSearchIntent;
   Timer? _debounceTimer;
   
   // Stream לחיפוש ריאקטיבי
@@ -155,9 +164,60 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים
+  /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים - Hybrid Flow
   void _updateSearchStream() {
     final query = _currentQuery;
+    
+    // אם יש שאילתה - נשתמש ב-Smart Search
+    if (query.trim().length >= 2) {
+      _performHybridSearch(query);
+    } else {
+      // שאילתה ריקה או קצרה - חיפוש רגיל
+      _performSimpleSearch(query);
+    }
+  }
+  
+  /// חיפוש היברידי - קודם מנסה Smart Search, אז fallback לרגיל
+  Future<void> _performHybridSearch(String query) async {
+    appLog('HybridSearch: Starting for query: "$query"');
+    
+    // שלב A: קבלת כל הקבצים מהמסד (Stream ריאקטיבי)
+    final baseStream = _databaseService.isar.fileMetadatas
+        .where()
+        .watch(fireImmediately: true);
+    
+    // שלב B: ניסיון לקבל SearchIntent מה-API
+    SearchIntent? intent;
+    try {
+      intent = await _smartSearchService.parseSearchQuery(query);
+    } catch (e) {
+      appLog('HybridSearch: API call failed - $e');
+    }
+    
+    if (intent != null && intent.hasContent) {
+      // Smart Search הצליח - משתמשים בפילטר החכם
+      appLog('HybridSearch: Using Smart Search with intent: $intent');
+      
+      setState(() {
+        _isSmartSearchActive = true;
+        _lastSearchIntent = intent;
+        _searchStream = baseStream.map((files) {
+          // מפעילים את הפילטר החכם
+          var results = SmartSearchFilter.filterFiles(files, intent!);
+          // מפעילים גם את הפילטר המקומי (WhatsApp, withText וכו')
+          return _applyLocalFilter(results);
+        });
+      });
+    } else {
+      // Fallback לחיפוש רגיל
+      appLog('HybridSearch: Falling back to simple search');
+      _performSimpleSearch(query);
+    }
+  }
+  
+  /// חיפוש פשוט (Fallback) - מבוסס טקסט ופילטרים מקומיים
+  void _performSimpleSearch(String query) {
+    appLog('SimpleSearch: Starting for query: "$query"');
     
     // תאריך התחלה מהשאילתה או מטווח התאריכים שנבחר
     final queryStartDate = parseTimeQuery(query);
@@ -171,6 +231,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_selectedFilter == LocalFilter.withText) dbFilter = SearchFilter.ocrOnly;
     
     setState(() {
+      _isSmartSearchActive = false;
+      _lastSearchIntent = null;
       _searchStream = _databaseService.watchSearch(
         query: query,
         filter: dbFilter,

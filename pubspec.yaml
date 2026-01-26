@@ -53,6 +53,9 @@ dependencies:
   
   # RevenueCat - ניהול מנויים ורכישות
   purchases_flutter: ^8.9.0
+  
+  # HTTP - בקשות לשרת
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:
