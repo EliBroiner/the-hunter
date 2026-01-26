@@ -14,23 +14,83 @@ import 'services/log_service.dart';
 import 'services/permission_service.dart';
 import 'services/settings_service.dart';
 
-void main() async {
+void main() {
+  // שלב 1: אתחול מינימלי - רק מה שחייב להיות סינכרוני
   WidgetsFlutterBinding.ensureInitialized();
   
-  // אתחול Firebase
-  await Firebase.initializeApp();
-  
-  // אתחול RevenueCat
-  await Purchases.setLogLevel(LogLevel.debug);
-  await Purchases.configure(
-    PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
-  );
-  
-  // אתחול מסד הנתונים והגדרות
-  await DatabaseService.instance.init();
-  await SettingsService.instance.init();
-  
+  // שלב 2: הרצת האפליקציה מיד - UI יוצג מיד
   runApp(const TheHunterApp());
+}
+
+/// מנהל אתחול - מריץ את כל האתחולים ברקע
+class InitializationManager {
+  static final InitializationManager _instance = InitializationManager._();
+  static InitializationManager get instance => _instance;
+  
+  InitializationManager._();
+  
+  bool _isInitialized = false;
+  bool _isInitializing = false;
+  String? _initError;
+  
+  bool get isInitialized => _isInitialized;
+  bool get isInitializing => _isInitializing;
+  String? get initError => _initError;
+  
+  /// Callback לעדכון סטטוס
+  Function(String status)? onStatusUpdate;
+  Function(String error)? onError;
+  Function()? onComplete;
+
+  /// מאתחל את כל השירותים ברקע
+  Future<void> initialize() async {
+    if (_isInitialized || _isInitializing) return;
+    _isInitializing = true;
+    
+    try {
+      // שלב 1: Firebase (חובה לאימות)
+      onStatusUpdate?.call('מאתחל Firebase...');
+      await Firebase.initializeApp();
+      appLog('Init: Firebase initialized');
+      
+      // שלב 2: מסד נתונים (Isar)
+      onStatusUpdate?.call('מאתחל מסד נתונים...');
+      await DatabaseService.instance.init();
+      appLog('Init: Database initialized');
+      
+      // שלב 3: הגדרות
+      onStatusUpdate?.call('טוען הגדרות...');
+      await SettingsService.instance.init();
+      appLog('Init: Settings initialized');
+      
+      // שלב 4: RevenueCat (לא חוסם)
+      _initRevenueCatSafely();
+      
+      _isInitialized = true;
+      _isInitializing = false;
+      onComplete?.call();
+      appLog('Init: All services initialized successfully');
+      
+    } catch (e, stack) {
+      _initError = e.toString();
+      _isInitializing = false;
+      appLog('Init ERROR: $e\n$stack');
+      onError?.call(e.toString());
+    }
+  }
+  
+  /// אתחול RevenueCat בצורה בטוחה (לא חוסם)
+  Future<void> _initRevenueCatSafely() async {
+    try {
+      await Purchases.setLogLevel(LogLevel.debug);
+      await Purchases.configure(
+        PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
+      );
+      appLog('Init: RevenueCat initialized');
+    } catch (e) {
+      appLog('Init: RevenueCat failed (non-critical): $e');
+    }
+  }
 }
 
 /// מנהל סריקה אוטומטית ומעקב קבצים
@@ -39,6 +99,8 @@ class AutoScanManager {
   static AutoScanManager get instance => _instance;
   
   AutoScanManager._();
+  
+  final _permissionService = PermissionService.instance;
   
   bool _isInitialized = false;
   bool _isScanning = false;
@@ -55,6 +117,9 @@ class AutoScanManager {
   
   /// callback לעדכון סטטוס
   Function(String status)? onStatusUpdate;
+  
+  /// callback לשגיאות
+  Function(String error)? onError;
 
   bool get isScanning => _isScanning;
   bool get isProcessing => _isProcessing;
@@ -64,11 +129,48 @@ class AutoScanManager {
     if (_isInitialized) return;
     _isInitialized = true;
 
+    appLog('AutoScan: Starting initialization');
+    
+    // בדיקת והרשאות
+    final hasPermission = await _requestPermissions();
+    if (!hasPermission) {
+      appLog('AutoScan: No storage permission - skipping scan');
+      onError?.call('אין הרשאות אחסון - לא ניתן לסרוק קבצים');
+      return;
+    }
+
     // הרצת סריקה ועיבוד ברקע (non-blocking)
     _runBackgroundScanAndProcess();
     
     // התחלת מעקב אחר תיקיות
     _startFileWatcher();
+  }
+  
+  /// מבקש הרשאות אחסון
+  Future<bool> _requestPermissions() async {
+    try {
+      onStatusUpdate?.call('בודק הרשאות...');
+      
+      final hasPermission = await _permissionService.hasStoragePermission();
+      if (hasPermission) {
+        appLog('AutoScan: Storage permission already granted');
+        return true;
+      }
+      
+      onStatusUpdate?.call('מבקש הרשאות אחסון...');
+      final result = await _permissionService.requestStoragePermission();
+      
+      if (result == PermissionResult.granted) {
+        appLog('AutoScan: Storage permission granted');
+        return true;
+      } else {
+        appLog('AutoScan: Storage permission denied - $result');
+        return false;
+      }
+    } catch (e) {
+      appLog('AutoScan: Permission request failed - $e');
+      return false;
+    }
   }
 
   /// מריץ סריקה ועיבוד ברקע
@@ -84,6 +186,7 @@ class AutoScanManager {
         runCleanup: true,
       );
       
+      appLog('AutoScan: Scan complete - ${result.newFilesAdded} new files');
       onScanComplete?.call(result);
       
       if (result.success && result.newFilesAdded > 0) {
@@ -93,11 +196,16 @@ class AutoScanManager {
         onStatusUpdate?.call('מחלץ טקסט מקבצים...');
         
         final processResult = await FileScannerService.instance.processPendingFiles();
+        appLog('AutoScan: Processing complete - ${processResult.filesWithText} files with text');
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
       } else {
         onStatusUpdate?.call('');
       }
+    } catch (e, stack) {
+      appLog('AutoScan ERROR: $e\n$stack');
+      onError?.call('שגיאה בסריקה: $e');
+      onStatusUpdate?.call('');
     } finally {
       _isScanning = false;
       _isProcessing = false;
@@ -107,6 +215,14 @@ class AutoScanManager {
   /// מריץ סריקה מלאה מחדש
   Future<void> runFullScan() async {
     if (_isScanning || _isProcessing) return;
+    
+    // בדיקת הרשאות לפני סריקה
+    final hasPermission = await _permissionService.hasStoragePermission();
+    if (!hasPermission) {
+      onError?.call('אין הרשאות אחסון');
+      return;
+    }
+    
     _isScanning = true;
 
     try {
@@ -126,6 +242,10 @@ class AutoScanManager {
       } else {
         onStatusUpdate?.call('');
       }
+    } catch (e) {
+      appLog('AutoScan: Full scan error - $e');
+      onError?.call('שגיאה בסריקה: $e');
+      onStatusUpdate?.call('');
     } finally {
       _isScanning = false;
       _isProcessing = false;
@@ -134,25 +254,38 @@ class AutoScanManager {
 
   /// מתחיל מעקב אחר קבצים חדשים
   void _startFileWatcher() {
-    final watcher = FileWatcherService.instance;
-    
-    watcher.onNewFile = (path) async {
-      onNewFileFound?.call(path);
+    try {
+      final watcher = FileWatcherService.instance;
       
-      // עיבוד הקובץ החדש אוטומטית
-      if (!_isProcessing) {
-        _isProcessing = true;
-        await FileScannerService.instance.processPendingFiles();
-        _isProcessing = false;
-      }
-    };
-    
-    watcher.startWatching();
+      watcher.onNewFile = (path) async {
+        onNewFileFound?.call(path);
+        
+        // עיבוד הקובץ החדש אוטומטית
+        if (!_isProcessing) {
+          _isProcessing = true;
+          try {
+            await FileScannerService.instance.processPendingFiles();
+          } catch (e) {
+            appLog('AutoScan: File watcher processing error - $e');
+          }
+          _isProcessing = false;
+        }
+      };
+      
+      watcher.startWatching();
+      appLog('AutoScan: File watcher started');
+    } catch (e) {
+      appLog('AutoScan: File watcher failed to start - $e');
+    }
   }
 
   /// עוצר את כל השירותים
   Future<void> dispose() async {
-    await FileWatcherService.instance.stopWatching();
+    try {
+      await FileWatcherService.instance.stopWatching();
+    } catch (e) {
+      appLog('AutoScan: Dispose error - $e');
+    }
   }
 }
 
@@ -191,11 +324,148 @@ class TheHunterApp extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
-      home: const AuthWrapper(),
+      home: const AppInitializer(),
       routes: {
         '/subscription': (context) => const SubscriptionScreen(),
       },
     );
+  }
+}
+
+/// מסך אתחול - מציג UI מיד ומאתחל ברקע
+class AppInitializer extends StatefulWidget {
+  const AppInitializer({super.key});
+
+  @override
+  State<AppInitializer> createState() => _AppInitializerState();
+}
+
+class _AppInitializerState extends State<AppInitializer> {
+  String _status = 'מאתחל...';
+  bool _isInitialized = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _runInitialization();
+  }
+
+  Future<void> _runInitialization() async {
+    final initManager = InitializationManager.instance;
+    
+    initManager.onStatusUpdate = (status) {
+      if (mounted) setState(() => _status = status);
+    };
+    
+    initManager.onError = (error) {
+      if (mounted) setState(() => _error = error);
+    };
+    
+    initManager.onComplete = () {
+      if (mounted) setState(() => _isInitialized = true);
+    };
+    
+    await initManager.initialize();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // אם יש שגיאה קריטית
+    if (_error != null && !_isInitialized) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0F23),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 64),
+                const SizedBox(height: 16),
+                Text(
+                  'שגיאה באתחול',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _error = null;
+                      _status = 'מאתחל...';
+                    });
+                    _runInitialization();
+                  },
+                  child: const Text('נסה שוב'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // אם עדיין מאתחל
+    if (!_isInitialized) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0F23),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // לוגו
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+                      blurRadius: 30,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.search, size: 50, color: Colors.white),
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'The Hunter',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _status,
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // אתחול הושלם - מציג AuthWrapper
+    return const AuthWrapper();
   }
 }
 
@@ -247,61 +517,77 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeAutoScan();
+    // אתחול סריקה ברקע - לאחר שה-UI כבר מוצג
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeAutoScan();
+    });
   }
 
   /// מאתחל סריקה אוטומטית ברקע
   Future<void> _initializeAutoScan() async {
-    final dbCount = DatabaseService.instance.getFilesCount();
-    _isFirstScan = dbCount == 0;
-    
-    final manager = AutoScanManager.instance;
-    
-    manager.onStatusUpdate = (status) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = status;
-        _showStatus = status.isNotEmpty;
-      });
-    };
-    
-    manager.onScanComplete = (result) {
-      if (!mounted) return;
+    try {
+      final dbCount = DatabaseService.instance.getFilesCount();
+      _isFirstScan = dbCount == 0;
       
-      if (result.newFilesAdded > 0) {
-        _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
+      final manager = AutoScanManager.instance;
+      
+      manager.onStatusUpdate = (status) {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = status;
+          _showStatus = status.isNotEmpty;
+        });
+      };
+      
+      manager.onError = (error) {
+        if (!mounted) return;
+        _showSnackBar(error, isError: true);
+      };
+      
+      manager.onScanComplete = (result) {
+        if (!mounted) return;
+        
+        if (result.newFilesAdded > 0) {
+          _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
+        }
+      };
+      
+      manager.onProcessComplete = (result) {
+        if (!mounted) return;
+        
+        if (result.filesWithText > 0) {
+          _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
+        }
+        
+        setState(() {
+          _isFirstScan = false;
+        });
+      };
+      
+      manager.onNewFileFound = (path) {
+        if (!mounted) return;
+        
+        final fileName = path.split('/').last;
+        _showSnackBar('קובץ חדש: $fileName');
+      };
+      
+      // הרצת אתחול - כולל בקשת הרשאות
+      await manager.initialize();
+    } catch (e) {
+      appLog('MainScreen: AutoScan init error - $e');
+      if (mounted) {
+        _showSnackBar('שגיאה באתחול הסריקה', isError: true);
       }
-    };
-    
-    manager.onProcessComplete = (result) {
-      if (!mounted) return;
-      
-      if (result.filesWithText > 0) {
-        _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
-      }
-      
-      setState(() {
-        _isFirstScan = false;
-      });
-    };
-    
-    manager.onNewFileFound = (path) {
-      if (!mounted) return;
-      
-      final fileName = path.split('/').last;
-      _showSnackBar('קובץ חדש: $fileName');
-    };
-    
-    // הרצת אתחול
-    manager.initialize();
+    }
   }
 
-  void _showSnackBar(String message) {
+  void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red.shade700 : null,
         margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
