@@ -1857,18 +1857,8 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 Row(
                   children: [
-                    // אייקון סוג קובץ
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: fileColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Center(
-                        child: _buildFileIcon(file.extension, isWhatsApp),
-                      ),
-                    ),
+                    // תמונה ממוזערת או אייקון
+                    _buildFileThumbnail(file, fileColor, isWhatsApp),
                     const SizedBox(width: 14),
                     
                     // תוכן
@@ -1979,6 +1969,80 @@ class _SearchScreenState extends State<SearchScreen> {
   }
   
   /// בונה אייקון קובץ
+  /// סיומות תמונה שנציג להן thumbnail
+  static const _imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+  
+  /// בונה תמונה ממוזערת או אייקון
+  Widget _buildFileThumbnail(FileMetadata file, Color fileColor, bool isWhatsApp) {
+    final ext = file.extension.toLowerCase();
+    final isImage = _imageExtensions.contains(ext);
+    
+    // גודל התמונה הממוזערת
+    const double size = 52;
+    const double borderRadius = 12;
+    
+    // אם זו תמונה - נציג thumbnail
+    if (isImage) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(borderRadius),
+          color: fileColor.withValues(alpha: 0.15),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Image.file(
+          File(file.path),
+          fit: BoxFit.cover,
+          width: size,
+          height: size,
+          cacheWidth: 150, // קאשינג לביצועים
+          cacheHeight: 150,
+          errorBuilder: (context, error, stackTrace) {
+            // אם נכשל - נציג אייקון
+            return Center(
+              child: _buildFileIcon(file.extension, isWhatsApp),
+            );
+          },
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: frame != null
+                  ? child
+                  : Container(
+                      color: fileColor.withValues(alpha: 0.15),
+                      child: Center(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: fileColor,
+                          ),
+                        ),
+                      ),
+                    ),
+            );
+          },
+        ),
+      );
+    }
+    
+    // אם לא תמונה - אייקון רגיל
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: fileColor.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(borderRadius),
+      ),
+      child: Center(
+        child: _buildFileIcon(file.extension, isWhatsApp),
+      ),
+    );
+  }
+
   Widget _buildFileIcon(String extension, bool isWhatsApp) {
     IconData icon;
     Color color = _getFileColor(extension);
