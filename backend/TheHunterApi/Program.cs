@@ -43,6 +43,11 @@ builder.Services.AddHttpClient("GeminiApi", client =>
 builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
 
 var app = builder.Build();
+app.MapGet("/", () => new { 
+    status = "Alive", 
+    message = "The Hunter API is running!", 
+    time = DateTime.UtcNow 
+});
 
 // Swagger UI (גם ב-Production עבור בדיקות)
 app.UseSwagger();
