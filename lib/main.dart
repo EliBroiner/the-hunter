@@ -1,14 +1,15 @@
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
-import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'services/auth_service.dart';
+import 'services/backup_service.dart';
 import 'services/database_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
@@ -16,85 +17,23 @@ import 'services/log_service.dart';
 import 'services/permission_service.dart';
 import 'services/settings_service.dart';
 
-void main() {
-  // שלב 1: אתחול מינימלי - רק מה שחייב להיות סינכרוני
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // שלב 2: הרצת האפליקציה מיד - UI יוצג מיד
+  // אתחול Firebase
+  await Firebase.initializeApp();
+  
+  // אתחול RevenueCat
+  await Purchases.setLogLevel(LogLevel.debug);
+  await Purchases.configure(
+    PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
+  );
+  
+  // אתחול מסד הנתונים והגדרות
+  await DatabaseService.instance.init();
+  await SettingsService.instance.init();
+  
   runApp(const TheHunterApp());
-}
-
-/// מנהל אתחול - מריץ את כל האתחולים ברקע
-class InitializationManager {
-  static final InitializationManager _instance = InitializationManager._();
-  static InitializationManager get instance => _instance;
-  
-  InitializationManager._();
-  
-  bool _isInitialized = false;
-  bool _isInitializing = false;
-  String? _initError;
-  
-  bool get isInitialized => _isInitialized;
-  bool get isInitializing => _isInitializing;
-  String? get initError => _initError;
-  
-  /// Callback לעדכון סטטוס
-  Function(String status)? onStatusUpdate;
-  Function(String error)? onError;
-  Function()? onComplete;
-
-  /// מאתחל את כל השירותים ברקע
-  Future<void> initialize() async {
-    if (_isInitialized || _isInitializing) return;
-    _isInitializing = true;
-    
-    try {
-      // שלב 1: Firebase (חובה לאימות)
-      onStatusUpdate?.call('מאתחל Firebase...');
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-      appLog('Init: Firebase initialized');
-      
-      // שלב 2: מסד נתונים (Isar)
-      onStatusUpdate?.call('מאתחל מסד נתונים...');
-      await DatabaseService.instance.init();
-      appLog('Init: Database initialized');
-      
-      // שלב 3: הגדרות
-      onStatusUpdate?.call('טוען הגדרות...');
-      await SettingsService.instance.init();
-      appLog('Init: Settings initialized');
-      
-      // שלב 4: RevenueCat (לא חוסם)
-      _initRevenueCatSafely();
-      
-      _isInitialized = true;
-      _isInitializing = false;
-      onComplete?.call();
-      appLog('Init: All services initialized successfully');
-      
-    } catch (e, stack) {
-      _initError = e.toString();
-      _isInitializing = false;
-      appLog('Init ERROR: $e\n$stack');
-      onError?.call(e.toString());
-    }
-  }
-  
-  /// אתחול RevenueCat בצורה בטוחה (לא חוסם)
-  Future<void> _initRevenueCatSafely() async {
-    try {
-      await Purchases.setLogLevel(LogLevel.debug);
-      await Purchases.configure(
-        PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
-      );
-      appLog('Init: RevenueCat initialized');
-    } catch (e) {
-      appLog('Init: RevenueCat failed (non-critical): $e');
-    }
-  }
 }
 
 /// מנהל סריקה אוטומטית ומעקב קבצים
@@ -103,8 +42,6 @@ class AutoScanManager {
   static AutoScanManager get instance => _instance;
   
   AutoScanManager._();
-  
-  final _permissionService = PermissionService.instance;
   
   bool _isInitialized = false;
   bool _isScanning = false;
@@ -122,8 +59,8 @@ class AutoScanManager {
   /// callback לעדכון סטטוס
   Function(String status)? onStatusUpdate;
   
-  /// callback לשגיאות
-  Function(String error)? onError;
+  /// callback כשנמצא גיבוי קיים (בהתקנה ראשונה)
+  Function(BackupInfo backupInfo)? onBackupFound;
 
   bool get isScanning => _isScanning;
   bool get isProcessing => _isProcessing;
@@ -133,48 +70,11 @@ class AutoScanManager {
     if (_isInitialized) return;
     _isInitialized = true;
 
-    appLog('AutoScan: Starting initialization');
-    
-    // בדיקת והרשאות
-    final hasPermission = await _requestPermissions();
-    if (!hasPermission) {
-      appLog('AutoScan: No storage permission - skipping scan');
-      onError?.call('אין הרשאות אחסון - לא ניתן לסרוק קבצים');
-      return;
-    }
-
     // הרצת סריקה ועיבוד ברקע (non-blocking)
     _runBackgroundScanAndProcess();
     
     // התחלת מעקב אחר תיקיות
     _startFileWatcher();
-  }
-  
-  /// מבקש הרשאות אחסון
-  Future<bool> _requestPermissions() async {
-    try {
-      onStatusUpdate?.call('בודק הרשאות...');
-      
-      final hasPermission = await _permissionService.hasStoragePermission();
-      if (hasPermission) {
-        appLog('AutoScan: Storage permission already granted');
-        return true;
-      }
-      
-      onStatusUpdate?.call('מבקש הרשאות אחסון...');
-      final result = await _permissionService.requestStoragePermission();
-      
-      if (result == PermissionResult.granted) {
-        appLog('AutoScan: Storage permission granted');
-        return true;
-      } else {
-        appLog('AutoScan: Storage permission denied - $result');
-        return false;
-      }
-    } catch (e) {
-      appLog('AutoScan: Permission request failed - $e');
-      return false;
-    }
   }
 
   /// מריץ סריקה ועיבוד ברקע
@@ -183,99 +83,119 @@ class AutoScanManager {
     _isScanning = true;
 
     try {
-      // שלב 1: בדיקה אם יש קבצים שממתינים לעיבוד מהפעלה קודמת
-      final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
-      if (pendingCount > 0) {
-        appLog('AutoScan: Found $pendingCount pending files from previous session');
-        onStatusUpdate?.call('ממשיך עיבוד קבצים ($pendingCount)...');
+      final isFirstRun = DatabaseService.instance.getFilesCount() == 0;
+      final backupService = BackupService.instance;
+      
+      // בהתקנה ראשונה - בדוק אם יש גיבוי קיים
+      if (isFirstRun && backupService.hasUser) {
+        onStatusUpdate?.call('בודק גיבוי קיים...');
         
-        _isScanning = false;
-        _isProcessing = true;
-        
-        final processResult = await FileScannerService.instance.processPendingFiles(
-          onProgress: (current, total) {
-            onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
-          },
-        );
-        
-        appLog('AutoScan: Resumed processing complete - ${processResult.filesWithText} files with text');
-        onProcessComplete?.call(processResult);
-        
-        _isProcessing = false;
-        _isScanning = true;
+        final backupInfo = await backupService.getBackupInfo();
+        if (backupInfo != null && backupInfo.filesCount > 0) {
+          appLog('AutoScan: Found backup with ${backupInfo.filesCount} files!');
+          
+          // סריקה עם שחזור חכם מגיבוי!
+          onStatusUpdate?.call('משחזר מגיבוי...');
+          
+          final result = await FileScannerService.instance.scanWithBackupRestore(
+            onStatus: (status) => onStatusUpdate?.call(status),
+            getBackupData: () => _getBackupData(),
+          );
+          
+          onScanComplete?.call(result);
+          
+          if (result.skippedOcrCount > 0) {
+            appLog('AutoScan: Saved OCR on ${result.skippedOcrCount} files from backup!');
+          }
+          
+          // עיבוד קבצים שלא היו בגיבוי
+          final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+          if (pendingCount > 0) {
+            _isScanning = false;
+            _isProcessing = true;
+            onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים חדשים...');
+            
+            final processResult = await FileScannerService.instance.processPendingFiles();
+            onProcessComplete?.call(processResult);
+          }
+          
+          onStatusUpdate?.call('');
+          
+          // גיבוי אוטומטי לאחר סיום
+          _runAutoBackupIfNeeded();
+          return;
+        }
       }
       
-      // שלב 2: סריקה לקבצים חדשים
+      // סריקה רגילה (לא התקנה ראשונה או אין גיבוי)
       onStatusUpdate?.call('סורק תיקיות...');
       
       final result = await FileScannerService.instance.scanNewFilesOnly(
         runCleanup: true,
       );
       
-      appLog('AutoScan: Scan complete - ${result.newFilesAdded} new files');
       onScanComplete?.call(result);
       
-      // שלב 3: עיבוד קבצים חדשים (אם יש)
       if (result.success && result.newFilesAdded > 0) {
+        // עיבוד טקסט (OCR + PDF + TXT) ברקע
         _isScanning = false;
         _isProcessing = true;
-        onStatusUpdate?.call('מחלץ טקסט מקבצים חדשים...');
+        onStatusUpdate?.call('מחלץ טקסט מקבצים...');
         
-        final processResult = await FileScannerService.instance.processPendingFiles(
-          onProgress: (current, total) {
-            onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
-          },
-        );
-        
-        appLog('AutoScan: Processing complete - ${processResult.filesWithText} files with text');
+        final processResult = await FileScannerService.instance.processPendingFiles();
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
+        
+        // גיבוי אוטומטי לאחר סיום עיבוד
+        _runAutoBackupIfNeeded();
       } else {
-        // בדיקה אחרונה - אולי יש עוד קבצים ממתינים
-        final stillPending = DatabaseService.instance.getAllPendingFiles().length;
-        if (stillPending > 0) {
-          appLog('AutoScan: Still $stillPending files pending, processing...');
-          _isScanning = false;
-          _isProcessing = true;
-          onStatusUpdate?.call('מסיים עיבוד קבצים ($stillPending)...');
-          
-          final processResult = await FileScannerService.instance.processPendingFiles(
-            onProgress: (current, total) {
-              onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
-            },
-          );
-          
-          onProcessComplete?.call(processResult);
-        }
         onStatusUpdate?.call('');
+        // גיבוי אוטומטי גם אם לא היו קבצים חדשים
+        _runAutoBackupIfNeeded();
       }
-    } catch (e, stack) {
-      appLog('AutoScan ERROR: $e\n$stack');
-      onError?.call('שגיאה בסריקה: $e');
-      onStatusUpdate?.call('');
     } finally {
       _isScanning = false;
       _isProcessing = false;
+    }
+  }
+  
+  /// מחזיר את נתוני הגיבוי מהענן
+  Future<Map<String, dynamic>?> _getBackupData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+      
+      final ref = FirebaseStorage.instance.ref('backups/${user.uid}/database_backup.json');
+      final data = await ref.getData();
+      
+      if (data == null) return null;
+      
+      final jsonString = utf8.decode(data);
+      return jsonDecode(jsonString) as Map<String, dynamic>;
+    } catch (e) {
+      appLog('AutoScan: Failed to get backup data - $e');
+      return null;
+    }
+  }
+  
+  /// מריץ גיבוי אוטומטי אם צריך
+  Future<void> _runAutoBackupIfNeeded() async {
+    try {
+      await BackupService.instance.runAutoBackupIfNeeded();
+    } catch (e) {
+      appLog('AutoScan: Auto backup failed - $e');
     }
   }
 
   /// מריץ סריקה מלאה מחדש
   Future<void> runFullScan() async {
     if (_isScanning || _isProcessing) return;
-    
-    // בדיקת הרשאות לפני סריקה
-    final hasPermission = await _permissionService.hasStoragePermission();
-    if (!hasPermission) {
-      onError?.call('אין הרשאות אחסון');
-      return;
-    }
-    
     _isScanning = true;
 
     try {
       onStatusUpdate?.call('סריקה מלאה...');
       
-      final result = await FileScannerService.instance.scanAllSources();
+      final result = await FileScannerService.instance.scanAllFolders();
       onScanComplete?.call(result);
       
       if (result.success) {
@@ -289,10 +209,6 @@ class AutoScanManager {
       } else {
         onStatusUpdate?.call('');
       }
-    } catch (e) {
-      appLog('AutoScan: Full scan error - $e');
-      onError?.call('שגיאה בסריקה: $e');
-      onStatusUpdate?.call('');
     } finally {
       _isScanning = false;
       _isProcessing = false;
@@ -301,38 +217,25 @@ class AutoScanManager {
 
   /// מתחיל מעקב אחר קבצים חדשים
   void _startFileWatcher() {
-    try {
-      final watcher = FileWatcherService.instance;
+    final watcher = FileWatcherService.instance;
+    
+    watcher.onNewFile = (path) async {
+      onNewFileFound?.call(path);
       
-      watcher.onNewFile = (path) async {
-        onNewFileFound?.call(path);
-        
-        // עיבוד הקובץ החדש אוטומטית
-        if (!_isProcessing) {
-          _isProcessing = true;
-          try {
-            await FileScannerService.instance.processPendingFiles();
-          } catch (e) {
-            appLog('AutoScan: File watcher processing error - $e');
-          }
-          _isProcessing = false;
-        }
-      };
-      
-      watcher.startWatching();
-      appLog('AutoScan: File watcher started');
-    } catch (e) {
-      appLog('AutoScan: File watcher failed to start - $e');
-    }
+      // עיבוד הקובץ החדש אוטומטית
+      if (!_isProcessing) {
+        _isProcessing = true;
+        await FileScannerService.instance.processPendingFiles();
+        _isProcessing = false;
+      }
+    };
+    
+    watcher.startWatching();
   }
 
   /// עוצר את כל השירותים
   Future<void> dispose() async {
-    try {
-      await FileWatcherService.instance.stopWatching();
-    } catch (e) {
-      appLog('AutoScan: Dispose error - $e');
-    }
+    await FileWatcherService.instance.stopWatching();
   }
 }
 
@@ -344,17 +247,6 @@ class TheHunterApp extends StatelessWidget {
     return MaterialApp(
       title: 'The Hunter',
       debugShowCheckedModeBanner: false,
-      // תמיכה בעברית ולוקליזציה
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('he', 'IL'), // עברית
-        Locale('en', 'US'), // אנגלית
-      ],
-      locale: const Locale('he', 'IL'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6366F1),
@@ -382,148 +274,11 @@ class TheHunterApp extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
-      home: const AppInitializer(),
+      home: const AuthWrapper(),
       routes: {
         '/subscription': (context) => const SubscriptionScreen(),
       },
     );
-  }
-}
-
-/// מסך אתחול - מציג UI מיד ומאתחל ברקע
-class AppInitializer extends StatefulWidget {
-  const AppInitializer({super.key});
-
-  @override
-  State<AppInitializer> createState() => _AppInitializerState();
-}
-
-class _AppInitializerState extends State<AppInitializer> {
-  String _status = 'מאתחל...';
-  bool _isInitialized = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _runInitialization();
-  }
-
-  Future<void> _runInitialization() async {
-    final initManager = InitializationManager.instance;
-    
-    initManager.onStatusUpdate = (status) {
-      if (mounted) setState(() => _status = status);
-    };
-    
-    initManager.onError = (error) {
-      if (mounted) setState(() => _error = error);
-    };
-    
-    initManager.onComplete = () {
-      if (mounted) setState(() => _isInitialized = true);
-    };
-    
-    await initManager.initialize();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // אם יש שגיאה קריטית
-    if (_error != null && !_isInitialized) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF0F0F23),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 64),
-                const SizedBox(height: 16),
-                Text(
-                  'שגיאה באתחול',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _error = null;
-                      _status = 'מאתחל...';
-                    });
-                    _runInitialization();
-                  },
-                  child: const Text('נסה שוב'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // אם עדיין מאתחל
-    if (!_isInitialized) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF0F0F23),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // לוגו
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-                      blurRadius: 30,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.search, size: 50, color: Colors.white),
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'The Hunter',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _status,
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // אתחול הושלם - מציג AuthWrapper
-    return const AuthWrapper();
   }
 }
 
@@ -571,94 +326,65 @@ class _MainScreenState extends State<MainScreen> {
   bool _showStatus = false;
   bool _isFirstScan = true;
   bool _showLogPanel = false;
-  bool _showFirstTimeMessage = false;
-  int _pendingFilesCount = 0;
 
   @override
   void initState() {
     super.initState();
-    // אתחול סריקה ברקע - לאחר שה-UI כבר מוצג
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeAutoScan();
-    });
+    _initializeAutoScan();
   }
 
   /// מאתחל סריקה אוטומטית ברקע
   Future<void> _initializeAutoScan() async {
-    try {
-      final dbCount = DatabaseService.instance.getFilesCount();
-      _isFirstScan = dbCount == 0;
+    final dbCount = DatabaseService.instance.getFilesCount();
+    _isFirstScan = dbCount == 0;
+    
+    final manager = AutoScanManager.instance;
+    
+    manager.onStatusUpdate = (status) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = status;
+        _showStatus = status.isNotEmpty;
+      });
+    };
+    
+    manager.onScanComplete = (result) {
+      if (!mounted) return;
       
-      // בדיקת קבצים ממתינים
-      _pendingFilesCount = DatabaseService.instance.getAllPendingFiles().length;
+      if (result.newFilesAdded > 0) {
+        _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
+      }
+    };
+    
+    manager.onProcessComplete = (result) {
+      if (!mounted) return;
       
-      // הצגת הודעה בהפעלה ראשונה או אם יש הרבה קבצים ממתינים
-      if (_isFirstScan || _pendingFilesCount > 20) {
-        setState(() => _showFirstTimeMessage = true);
-        // הסתרת ההודעה אחרי 8 שניות
-        Future.delayed(const Duration(seconds: 8), () {
-          if (mounted) setState(() => _showFirstTimeMessage = false);
-        });
+      if (result.filesWithText > 0) {
+        _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
       }
       
-      final manager = AutoScanManager.instance;
+      setState(() {
+        _isFirstScan = false;
+      });
+    };
+    
+    manager.onNewFileFound = (path) {
+      if (!mounted) return;
       
-      manager.onStatusUpdate = (status) {
-        if (!mounted) return;
-        setState(() {
-          _statusMessage = status;
-          _showStatus = status.isNotEmpty;
-        });
-      };
-      
-      manager.onError = (error) {
-        if (!mounted) return;
-        _showSnackBar(error, isError: true);
-      };
-      
-      manager.onScanComplete = (result) {
-        if (!mounted) return;
-        
-        if (result.newFilesAdded > 0) {
-          _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
-        }
-      };
-      
-      manager.onProcessComplete = (result) {
-        if (!mounted) return;
-        
-        if (result.filesWithText > 0) {
-          _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
-        }
-        
-        setState(() {
-          _isFirstScan = false;
-          _showFirstTimeMessage = false;
-        });
-      };
-      
-      manager.onNewFileFound = (path) {
-        // לא מציג הודעה על כל קובץ חדש - מייגע
-        appLog('New file found: $path');
-      };
-      
-      // הרצת אתחול - כולל בקשת הרשאות
-      await manager.initialize();
-    } catch (e) {
-      appLog('MainScreen: AutoScan init error - $e');
-      if (mounted) {
-        _showSnackBar('שגיאה באתחול הסריקה', isError: true);
-      }
-    }
+      final fileName = path.split('/').last;
+      _showSnackBar('קובץ חדש: $fileName');
+    };
+    
+    // הרצת אתחול
+    manager.initialize();
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
+  void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: isError ? Colors.red.shade700 : null,
         margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -672,12 +398,8 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Column(
         children: [
-          // הודעה ראשונית על עיבוד ברקע
-          if (_showFirstTimeMessage)
-            _buildFirstTimeMessageBanner(theme),
-          
-          // סטטוס סריקה (רק כשפעיל) - יותר עדין
-          if (_showStatus && !_showFirstTimeMessage)
+          // סטטוס סריקה (רק כשפעיל)
+          if (_showStatus)
             _buildStatusBar(theme),
           
           // מסך חיפוש
@@ -696,65 +418,6 @@ class _MainScreenState extends State<MainScreen> {
         onPressed: () => setState(() => _showLogPanel = !_showLogPanel),
         backgroundColor: _showLogPanel ? Colors.red : Colors.grey.shade800.withValues(alpha: 0.5),
         child: Icon(_showLogPanel ? Icons.close : Icons.bug_report, size: 18),
-      ),
-    );
-  }
-  
-  /// בונה באנר הודעה ראשונית
-  Widget _buildFirstTimeMessageBanner(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.blue.shade900.withValues(alpha: 0.9),
-            Colors.purple.shade900.withValues(alpha: 0.9),
-          ],
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.info_outline, color: Colors.white, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'מעבד קבצים ברקע',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                  Text(
-                    'זה עשוי לקחת זמן ולא יפריע לשימוש באפליקציה',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, color: Colors.white70, size: 18),
-              onPressed: () => setState(() => _showFirstTimeMessage = false),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            ),
-          ],
-        ),
       ),
     );
   }

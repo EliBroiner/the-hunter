@@ -21,9 +21,11 @@ class TextExtractionService {
         case 'json':
         case 'xml':
         case 'csv':
-          return await _extractFromTextFile(filePath);
+          final text = await _extractFromTextFile(filePath);
+          return _limitText(text, maxTextLengthForTextFiles);
         case 'pdf':
-          return await _extractFromPdf(filePath);
+          final text = await _extractFromPdf(filePath);
+          return _limitText(text, maxTextLengthForPdf);
         default:
           return '';
       }
@@ -92,6 +94,12 @@ class TextExtractionService {
     }
   }
 
+  /// מקסימום תווים לשמירה
+  /// קבצי טקסט קטנים יחסית - אפשר לשמור יותר
+  /// PDF יכול להיות ענק - מגבילים
+  static const int maxTextLengthForTextFiles = 15000; // 15K לקבצי טקסט
+  static const int maxTextLengthForPdf = 5000; // 5K ל-PDF
+  
   /// ניקוי טקסט - הסרת תווים מיותרים
   String _cleanupText(String text) {
     if (text.isEmpty) return '';
@@ -105,11 +113,22 @@ class TextExtractionService {
     // הסרת תווי בקרה
     cleaned = cleaned.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '');
     
-    // קיצור אם הטקסט ארוך מדי (מקסימום 50,000 תווים)
-    if (cleaned.length > 50000)
-      cleaned = cleaned.substring(0, 50000);
-    
     return cleaned.trim();
+  }
+  
+  /// קיצור חכם - שומרים התחלה + סוף
+  String _limitText(String text, int maxLength) {
+    if (text.length <= maxLength) return text;
+    
+    // 70% מההתחלה (כותרות, תוכן עניינים)
+    // 30% מהסוף (סיכומים, חתימות)
+    final startLength = (maxLength * 0.7).toInt();
+    final endLength = maxLength - startLength - 10;
+    
+    final start = text.substring(0, startLength);
+    final end = text.substring(text.length - endLength);
+    
+    return '$start\n...\n$end';
   }
 
   /// בדיקה אם הסיומת נתמכת לחילוץ טקסט

@@ -1,10 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
+import '../services/backup_service.dart';
+import '../services/settings_service.dart';
 
 /// מסך הגדרות
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _backupService = BackupService.instance;
+  final _settingsService = SettingsService.instance;
+  
+  bool _isBackingUp = false;
+  bool _isRestoring = false;
+  double _backupProgress = 0;
+  BackupInfo? _backupInfo;
+  bool _loadingBackupInfo = false;
+  bool _autoBackupEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBackupInfo();
+    _loadAutoBackupSetting();
+  }
+
+  Future<void> _loadBackupInfo() async {
+    if (!_settingsService.isPremium) return;
+    
+    setState(() => _loadingBackupInfo = true);
+    
+    try {
+      final info = await _backupService.getBackupInfo();
+      if (mounted) {
+        setState(() {
+          _backupInfo = info;
+          _loadingBackupInfo = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadingBackupInfo = false);
+    }
+  }
+  
+  Future<void> _loadAutoBackupSetting() async {
+    final enabled = await _backupService.isAutoBackupEnabled();
+    if (mounted) {
+      setState(() => _autoBackupEnabled = enabled);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12,6 +61,7 @@ class SettingsScreen extends StatelessWidget {
     final authService = AuthService.instance;
     final user = authService.currentUser;
     final isGuest = authService.isGuest;
+    final isPremium = _settingsService.isPremium;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F23),
@@ -36,6 +86,22 @@ class SettingsScreen extends StatelessWidget {
             // פרופיל משתמש
             _buildUserProfile(context, theme, user, isGuest),
             const SizedBox(height: 24),
+            
+            // גיבוי ושחזור (פרימיום בלבד)
+            _buildSettingsSection(
+              context,
+              'גיבוי ושחזור',
+              [
+                _buildBackupTile(context, theme, isPremium),
+                if (isPremium && _backupInfo != null)
+                  _buildRestoreTile(context, theme),
+                if (isPremium)
+                  _buildAutoBackupTile(context, theme),
+              ],
+            ),
+            if (isPremium && _backupInfo != null)
+              _buildBackupInfoCard(theme),
+            const SizedBox(height: 16),
             
             // הגדרות כלליות
             _buildSettingsSection(
@@ -104,6 +170,399 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// בונה כרטיס גיבוי
+  Widget _buildBackupTile(BuildContext context, ThemeData theme, bool isPremium) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: isPremium ? null : Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            gradient: isPremium 
+                ? const LinearGradient(colors: [Colors.blue, Colors.purple])
+                : null,
+            color: isPremium ? null : Colors.grey.shade800,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: _isBackingUp
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: _backupProgress > 0 ? _backupProgress : null,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(
+                  Icons.cloud_upload,
+                  color: isPremium ? Colors.white : Colors.grey,
+                  size: 20,
+                ),
+        ),
+        title: Row(
+          children: [
+            Text(
+              'גיבוי לענן',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: isPremium ? null : Colors.grey,
+              ),
+            ),
+            if (!isPremium) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'PRO',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          _isBackingUp 
+              ? 'מגבה... ${(_backupProgress * 100).toInt()}%'
+              : (isPremium 
+                  ? (_backupInfo != null 
+                      ? 'גיבוי אחרון: ${_backupInfo!.formattedDate}'
+                      : 'לחץ כדי לגבות את הנתונים')
+                  : 'שדרג לפרימיום כדי לגבות'),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        trailing: isPremium && !_isBackingUp
+            ? Icon(Icons.chevron_left, color: Colors.grey.shade600)
+            : null,
+        onTap: isPremium && !_isBackingUp ? _performBackup : _showPremiumRequired,
+      ),
+    );
+  }
+
+  /// בונה כרטיס שחזור
+  Widget _buildRestoreTile(BuildContext context, ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Colors.green, Colors.teal]),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: _isRestoring
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: _backupProgress > 0 ? _backupProgress : null,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.cloud_download, color: Colors.white, size: 20),
+        ),
+        title: const Text(
+          'שחזור מהענן',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          _isRestoring
+              ? 'משחזר... ${(_backupProgress * 100).toInt()}%'
+              : '${_backupInfo!.filesCount} קבצים • ${_backupInfo!.formattedSize}',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        trailing: !_isRestoring
+            ? Icon(Icons.chevron_left, color: Colors.grey.shade600)
+            : null,
+        onTap: !_isRestoring ? () => _showRestoreConfirmation(context) : null,
+      ),
+    );
+  }
+
+  /// מבצע גיבוי חכם
+  Future<void> _performBackup() async {
+    setState(() {
+      _isBackingUp = true;
+      _backupProgress = 0;
+    });
+
+    // שימוש בגיבוי חכם - מעלה רק שינויים!
+    final result = await _backupService.smartBackup(
+      onProgress: (progress) {
+        if (mounted) setState(() => _backupProgress = progress);
+      },
+    );
+
+    setState(() => _isBackingUp = false);
+
+    if (mounted) {
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(result.message ?? 'גובו ${result.filesCount} קבצים בהצלחה!'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _loadBackupInfo();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.error ?? 'שגיאה בגיבוי'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// מציג אישור שחזור
+  void _showRestoreConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E3F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.amber),
+            SizedBox(width: 12),
+            Text('שחזור מגיבוי'),
+          ],
+        ),
+        content: const Text(
+          'פעולה זו תחליף את כל הנתונים הנוכחיים בנתונים מהגיבוי.\n\nהאם להמשיך?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ביטול'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _performRestore();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+            ),
+            child: const Text('שחזר'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// מבצע שחזור
+  Future<void> _performRestore() async {
+    setState(() {
+      _isRestoring = true;
+      _backupProgress = 0;
+    });
+
+    final result = await _backupService.restoreFromCloud(
+      onProgress: (progress) {
+        if (mounted) setState(() => _backupProgress = progress);
+      },
+    );
+
+    setState(() => _isRestoring = false);
+
+    if (mounted) {
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Text('שוחזרו ${result.filesCount} קבצים בהצלחה!'),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.error ?? 'שגיאה בשחזור'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// מציג הודעת פרימיום נדרש
+  void _showPremiumRequired() {
+    Navigator.pushNamed(context, '/subscription');
+  }
+  
+  /// בונה כרטיס גיבוי אוטומטי
+  Widget _buildAutoBackupTile(BuildContext context, ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SwitchListTile(
+        secondary: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.schedule, color: Colors.green, size: 20),
+        ),
+        title: const Text(
+          'גיבוי אוטומטי',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          _autoBackupEnabled ? 'פעיל - כל 24 שעות' : 'כבוי',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        value: _autoBackupEnabled,
+        onChanged: (value) async {
+          setState(() => _autoBackupEnabled = value);
+          await _backupService.setAutoBackupEnabled(value);
+        },
+      ),
+    );
+  }
+  
+  /// בונה כרטיס מידע על הגיבוי
+  Widget _buildBackupInfoCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade900.withValues(alpha: 0.3),
+            Colors.purple.shade900.withValues(alpha: 0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cloud_done, color: Colors.green, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'גיבוי אחרון',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildInfoChip(Icons.calendar_today, _backupInfo!.formattedDate),
+              const SizedBox(width: 8),
+              _buildInfoChip(Icons.folder, '${_backupInfo!.filesCount} קבצים'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildInfoChip(Icons.storage, _backupInfo!.formattedSize),
+              const SizedBox(width: 8),
+              if (_backupInfo!.filesWithText > 0)
+                _buildInfoChip(Icons.text_fields, '${_backupInfo!.filesWithText} עם טקסט'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildInfoChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 11, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// מציג הודעה שהפיצ'ר בפיתוח
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.construction, color: Colors.amber, size: 20),
+            const SizedBox(width: 12),
+            Text('$feature - בקרוב!'),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF1E1E3F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
   
   /// מציג הודעה שהפיצ'ר בפיתוח
   void _showComingSoon(BuildContext context, String feature) {
@@ -169,14 +628,13 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ),
                   )
-                : Icon(
-                    isGuest ? Icons.person_outline : Icons.person,
+                : const Icon(
+                    Icons.person,
                     color: Colors.white,
                     size: 30,
                   ),
           ),
           const SizedBox(width: 16),
-          
           // פרטי משתמש
           Expanded(
             child: Column(
@@ -184,22 +642,17 @@ class SettingsScreen extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Flexible(
-                      child: Text(
-                        displayName,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                    Text(
+                      displayName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
                       ),
                     ),
                     if (isGuest) ...[
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.orange.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
@@ -209,40 +662,62 @@ class SettingsScreen extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             color: Colors.orange,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (_settingsService.isPremium) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Colors.amber, Colors.orange],
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'PRO',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  email,
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: 13,
+                if (email.isNotEmpty)
+                  Text(
+                    email,
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
+                if (isGuest)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: TextButton.icon(
+                      onPressed: () => _upgradeToGoogle(context),
+                      icon: const Icon(Icons.upgrade, size: 16),
+                      label: const Text('שדרג לחשבון Google'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-          
-          // כפתור שדרוג לאורחים
-          if (isGuest)
-            TextButton.icon(
-              onPressed: () => _upgradeToGoogle(context),
-              icon: const Icon(Icons.upgrade, size: 18),
-              label: const Text('שדרג'),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.primary,
-              ),
-            ),
         ],
       ),
     );
   }
-  
+
   /// שדרוג חשבון אורח ל-Google
   Future<void> _upgradeToGoogle(BuildContext context) async {
     final result = await AuthService.instance.upgradeAnonymousToGoogle();
@@ -250,27 +725,89 @@ class SettingsScreen extends StatelessWidget {
     if (context.mounted) {
       if (result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('החשבון שודרג בהצלחה!'),
+          const SnackBar(
+            content: Text('החשבון שודרג בהצלחה!'),
             backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
-        Navigator.of(context).pop(); // חזרה למסך הקודם
-      } else if (result.errorMessage != null) {
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.errorMessage!),
+            content: Text(result.errorMessage ?? 'שגיאה בשדרוג'),
             backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
     }
   }
-  
+
+  /// בונה סקציית הגדרות
+  Widget _buildSettingsSection(
+    BuildContext context,
+    String title,
+    List<Widget> children,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 4, bottom: 8),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: Colors.grey.shade400,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        ...children,
+      ],
+    );
+  }
+
+  /// בונה פריט הגדרות
+  Widget _buildSettingsTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        trailing: Icon(Icons.chevron_left, color: Colors.grey.shade600),
+        onTap: onTap,
+      ),
+    );
+  }
+
   /// בונה כפתור התנתקות
   Widget _buildLogoutButton(BuildContext context, ThemeData theme) {
     return SizedBox(
@@ -284,7 +821,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: Colors.red),
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -292,10 +829,10 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
-  
+
   /// מציג דיאלוג אישור התנתקות
-  Future<void> _showLogoutDialog(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E3F),
@@ -304,185 +841,102 @@ class SettingsScreen extends StatelessWidget {
         content: const Text('האם אתה בטוח שברצונך להתנתק?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.pop(context),
             child: const Text('ביטול'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () async {
+              Navigator.pop(context);
+              await AuthService.instance.signOut();
+              if (context.mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
             ),
             child: const Text('התנתק'),
           ),
         ],
       ),
     );
-    
-    if (confirmed == true && context.mounted) {
-      await AuthService.instance.signOut();
-      if (context.mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
-    }
   }
-  
-  /// מציג bottom sheet עם מידע על האפליקציה
-  Future<void> _showAboutSheet(BuildContext context) async {
-    final theme = Theme.of(context);
-    
-    // קבלת מידע על הגרסה
-    String version = '1.0.0';
-    String buildNumber = '1';
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      version = packageInfo.version;
-      buildNumber = packageInfo.buildNumber;
-    } catch (_) {
-      // אם נכשל, נשתמש בברירת מחדל
-    }
-    
-    if (!context.mounted) return;
-    
+
+  /// מציג מידע על האפליקציה
+  void _showAboutSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
           color: Color(0xFF1E1E3F),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ידית למשיכה
+            // ידית
             Container(
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade600,
+                color: Colors.grey.shade700,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 24),
             
-            // אייקון האפליקציה
+            // לוגו
             Container(
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.secondary,
-                  ],
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                 ),
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
-              child: const Icon(
-                Icons.search,
-                color: Colors.white,
-                size: 40,
-              ),
+              child: const Icon(Icons.search, size: 40, color: Colors.white),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             
-            // שם האפליקציה
-            Text(
+            // שם
+            const Text(
               'The Hunter',
-              style: theme.textTheme.headlineSmall?.copyWith(
+              style: TextStyle(
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
               ),
             ),
             const SizedBox(height: 8),
             
             // גרסה
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'גרסה $version ($buildNumber)',
-                style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+            FutureBuilder<PackageInfo>(
+              future: PackageInfo.fromPlatform(),
+              builder: (context, snapshot) {
+                final version = snapshot.data?.version ?? '1.0.0';
+                final buildNumber = snapshot.data?.buildNumber ?? '1';
+                return Text(
+                  'גרסה $version ($buildNumber)',
+                  style: TextStyle(color: Colors.grey.shade500),
+                );
+              },
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             
             // תיאור
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F0F23),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.format_quote,
-                    color: theme.colorScheme.secondary,
-                    size: 24,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'The ultimate local file search tool tailored for efficiency.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'כלי החיפוש המקומי המושלם, מותאם ליעילות מקסימלית.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 13,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              'The ultimate local file search tool tailored for efficiency.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade400),
             ),
-            const SizedBox(height: 20),
-            
-            // קרדיט למפתח
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.code,
-                  size: 16,
-                  color: Colors.grey.shade500,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Developed with ❤️ by Eli Broiner',
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+            const SizedBox(height: 8),
+            Text(
+              'כלי החיפוש המקומי האולטימטיבי למציאת קבצים.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade400),
             ),
             const SizedBox(height: 24),
             
@@ -490,94 +944,14 @@ class SettingsScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'סגור',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('סגור'),
               ),
             ),
-            
-            // רווח תחתון לבטיחות
-            SizedBox(height: MediaQuery.of(context).padding.bottom),
+            const SizedBox(height: 16),
           ],
         ),
       ),
-    );
-  }
-
-  /// בונה סקשן הגדרות
-  Widget _buildSettingsSection(
-    BuildContext context,
-    String title,
-    List<Widget> children,
-  ) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(right: 8, bottom: 8),
-          child: Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(children: children),
-        ),
-      ],
-    );
-  }
-
-  /// בונה פריט הגדרה בודד
-  Widget _buildSettingsTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primary.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, color: theme.colorScheme.primary, size: 20),
-      ),
-      title: Text(title),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-      ),
-      trailing: Icon(
-        Icons.chevron_left,
-        color: Colors.grey.shade500,
-      ),
-      onTap: onTap,
     );
   }
 }

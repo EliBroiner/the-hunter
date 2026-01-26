@@ -376,6 +376,127 @@ class FileScannerService {
     );
   }
 
+  /// סריקה חכמה עם שחזור מגיבוי - חוסכת OCR על קבצים שכבר עובדו בעבר!
+  /// 
+  /// זרימה:
+  /// 1. סורק את כל הקבצים במכשיר
+  /// 2. אם יש גיבוי - ממזג את הנתונים (טקסט מחולץ) מהגיבוי
+  /// 3. רק קבצים שלא היו בגיבוי יעברו OCR
+  Future<ScanResult> scanWithBackupRestore({
+    Function(String status)? onStatus,
+    Function(String sourceName, int current, int total)? onProgress,
+    required Future<Map<String, dynamic>?> Function() getBackupData,
+  }) async {
+    // בדיקת הרשאות
+    final hasPermission = await _permissionService.hasStoragePermission();
+    if (!hasPermission) {
+      final result = await _permissionService.requestStoragePermission();
+      if (result != PermissionResult.granted) {
+        return ScanResult(
+          success: false,
+          filesScanned: 0,
+          newFilesAdded: 0,
+          scannedSources: [],
+          error: 'הרשאות אחסון נדחו.',
+          permissionDenied: true,
+        );
+      }
+    }
+
+    onStatus?.call('סורק קבצים...');
+    
+    final sources = getScanSources();
+    final scannedSources = <ScanSource>[];
+    final allFiles = <FileMetadata>[];
+    int currentSource = 0;
+    int totalFilesScanned = 0;
+
+    // שלב 1: סריקת כל הקבצים במכשיר
+    for (final source in sources) {
+      currentSource++;
+      onProgress?.call(source.name, currentSource, sources.length);
+
+      final exists = await directoryExists(source.path);
+      
+      if (!exists) {
+        scannedSources.add(source.copyWith(exists: false, filesFound: 0));
+        continue;
+      }
+
+      final files = await _scanDirectory(source.path);
+      totalFilesScanned += files.length;
+      allFiles.addAll(files);
+      
+      scannedSources.add(source.copyWith(exists: true, filesFound: files.length));
+    }
+
+    appLog('ScanWithBackup: Found $totalFilesScanned files on device');
+
+    // שלב 2: ניסיון לקבל נתוני גיבוי
+    onStatus?.call('בודק גיבוי קיים...');
+    int skippedOcrCount = 0;
+    
+    try {
+      final backupData = await getBackupData();
+      
+      if (backupData != null) {
+        final backupFiles = backupData['files'] as List<dynamic>?;
+        
+        if (backupFiles != null && backupFiles.isNotEmpty) {
+          onStatus?.call('ממזג נתונים מגיבוי...');
+          
+          // יצירת מפה של קבצי הגיבוי לפי נתיב
+          final backupMap = <String, Map<String, dynamic>>{};
+          for (final fileJson in backupFiles) {
+            final path = fileJson['path'] as String?;
+            if (path != null) {
+              backupMap[path] = fileJson as Map<String, dynamic>;
+            }
+          }
+
+          appLog('ScanWithBackup: Found ${backupMap.length} files in backup');
+
+          // מיזוג: לכל קובץ במכשיר, בדוק אם יש לו נתונים בגיבוי
+          for (final deviceFile in allFiles) {
+            final backupFileData = backupMap[deviceFile.path];
+            
+            if (backupFileData != null) {
+              final backupText = backupFileData['extractedText'] as String?;
+              final backupIsIndexed = backupFileData['isIndexed'] as bool? ?? false;
+              
+              if (backupIsIndexed) {
+                // הקובץ כבר עבר עיבוד בגיבוי - משתמשים בנתונים!
+                deviceFile.extractedText = backupText ?? '';
+                deviceFile.isIndexed = true;
+                skippedOcrCount++;
+              }
+            }
+          }
+
+          appLog('ScanWithBackup: Merged $skippedOcrCount files from backup (saved OCR!)');
+        }
+      }
+    } catch (e) {
+      appLog('ScanWithBackup: Backup merge failed (continuing without) - $e');
+    }
+
+    // שלב 3: שמירה למסד
+    onStatus?.call('שומר נתונים...');
+    _databaseService.replaceAllFiles(allFiles);
+
+    // שלב 4: ניקוי
+    final staleFilesRemoved = await _databaseService.cleanupStaleFiles();
+
+    return ScanResult(
+      success: true,
+      filesScanned: totalFilesScanned,
+      newFilesAdded: allFiles.length,
+      staleFilesRemoved: staleFilesRemoved,
+      scannedSources: scannedSources,
+      skippedOcrCount: skippedOcrCount,
+    );
+  }
+
   /// מעבד קובץ בודד - סריקה + OCR
   Future<FileMetadata?> processNewFile(String filePath) async {
     try {
@@ -603,6 +724,7 @@ class ScanResult {
   final int filesScanned;
   final int newFilesAdded;
   final int staleFilesRemoved;
+  final int skippedOcrCount; // כמה קבצים חסכנו OCR בזכות גיבוי
   final List<ScanSource> scannedSources;
   final String? error;
   final bool permissionDenied;
@@ -613,6 +735,7 @@ class ScanResult {
     required this.scannedSources,
     this.newFilesAdded = 0,
     this.staleFilesRemoved = 0,
+    this.skippedOcrCount = 0,
     this.error,
     this.permissionDenied = false,
   });

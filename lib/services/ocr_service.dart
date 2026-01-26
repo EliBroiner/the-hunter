@@ -80,6 +80,9 @@ class OCRService {
     }
   }
 
+  /// מקסימום תווים לשמירה - תמונות בד"כ מכילות פחות טקסט מ-PDF
+  static const int _maxTextLength = 3000; // 3K תווים מספיק לתמונה!
+
   /// מנקה את הטקסט שחולץ
   /// מסיר שורות ריקות מיותרות, רווחים כפולים ומנקה whitespace
   String _cleanupText(String text) {
@@ -97,6 +100,11 @@ class OCRService {
         .join('\n')
         // ניקוי סופי
         .trim();
+
+    // הגבלת אורך - מספיק לחיפוש
+    if (cleaned.length > _maxTextLength) {
+      cleaned = cleaned.substring(0, _maxTextLength);
+    }
 
     return cleaned;
   }
