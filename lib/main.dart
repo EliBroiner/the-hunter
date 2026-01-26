@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -18,6 +19,12 @@ void main() async {
   
   // אתחול Firebase
   await Firebase.initializeApp();
+  
+  // אתחול RevenueCat
+  await Purchases.setLogLevel(LogLevel.debug);
+  await Purchases.configure(
+    PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
+  );
   
   // אתחול מסד הנתונים והגדרות
   await DatabaseService.instance.init();
