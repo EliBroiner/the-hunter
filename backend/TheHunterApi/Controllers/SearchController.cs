@@ -73,7 +73,7 @@ public class SearchController : ControllerBase
         try
         {
             var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/gemini-1.5-flash:generateContent?key={_geminiConfig.ApiKey}";
+            var url = $"v1beta/models/gemini-3-flash-preview:generateContent?key={_geminiConfig.ApiKey}";
 
             var geminiRequest = new GeminiRequest
             {
