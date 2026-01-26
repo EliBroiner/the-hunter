@@ -15,7 +15,7 @@ public class GeminiService
     private readonly ILogger<GeminiService> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    private const string GeminiModel = "gemini-3-flash-preview";
+    private const string GeminiModel = "gemini-2.5-pro-preview-05-06";
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
@@ -150,12 +150,8 @@ public class GeminiService
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
 
-            // לוג מפורט של התשובה מ-Gemini API
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
-            Console.WriteLine($"📡 GEMINI API RAW RESPONSE (Status: {response.StatusCode}):");
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
-            Console.WriteLine(responseBody);
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            // לוג מפורט של התשובה מ-Gemini API - בשורה אחת
+            Console.WriteLine($"📡 GEMINI_RAW_RESPONSE | Status: {response.StatusCode} | Body: {responseBody.Replace("\n", " ").Replace("\r", "")}");
 
             if (!response.IsSuccessStatusCode)
             {
@@ -248,25 +244,14 @@ public class GeminiService
                 return GeminiResult<SearchIntent>.Failure("Empty response from AI");
             }
 
-            // לוג של התשובה הגולמית - קריטי לדיבאגינג
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            Console.WriteLine("🔍 EXTRACTED TEXT FROM GEMINI:");
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            Console.WriteLine(rawText);
-            Console.WriteLine($"   [Length: {rawText.Length} chars]");
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            _logger.LogDebug("Raw Gemini response: {RawText}", rawText);
+            // לוג של התשובה הגולמית - בשורה אחת
+            Console.WriteLine($"🔍 EXTRACTED_TEXT | Length: {rawText.Length} | Content: {rawText.Replace("\n", " ").Replace("\r", "")}");
 
             // ניקוי וסניטציה של ה-JSON
             var cleanJson = SanitizeJsonResponse(rawText);
             
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            Console.WriteLine("✅ SANITIZED JSON (ready for parsing):");
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            Console.WriteLine(cleanJson);
-            Console.WriteLine($"   [Length: {cleanJson.Length} chars]");
-            Console.WriteLine("───────────────────────────────────────────────────────────");
-            _logger.LogInformation("Sanitized intent JSON: {Intent}", cleanJson);
+            // לוג של ה-JSON המנוקה - בשורה אחת
+            Console.WriteLine($"✅ SANITIZED_JSON | Length: {cleanJson.Length} | Content: {cleanJson.Replace("\n", " ").Replace("\r", "")}");
 
             var intent = JsonSerializer.Deserialize<SearchIntent>(cleanJson, _jsonOptions);
             
@@ -280,12 +265,7 @@ public class GeminiService
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse Gemini response as JSON");
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
-            Console.WriteLine("❌ JSON PARSE ERROR:");
-            Console.WriteLine($"   Message: {ex.Message}");
-            Console.WriteLine($"   Path: {ex.Path}");
-            Console.WriteLine($"   Line: {ex.LineNumber}");
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            Console.WriteLine($"❌ JSON_PARSE_ERROR | Message: {ex.Message} | Path: {ex.Path} | Line: {ex.LineNumber}");
             return GeminiResult<SearchIntent>.Failure($"JSON parse error: {ex.Message}");
         }
     }
