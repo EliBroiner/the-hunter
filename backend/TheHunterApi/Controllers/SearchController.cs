@@ -13,12 +13,12 @@ public class SearchController : ControllerBase
     private readonly GeminiConfig _geminiConfig;
     private readonly ILogger<SearchController> _logger;
 
-    // פרומפט דינמי - מוזרק עם התאריך הנוכחי
+    // פרומפט דינמי - מוזרק עם התאריך הנוכחי, תומך בעברית ומילים נרדפות
     private static string GetSystemPrompt()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
         return $"""
-            You are a query parser for a file search engine. Today is {today}.
+            You are a query parser for a multilingual file search engine. Today is {today}.
             
             Your task: Parse the user's natural language query into a structured JSON object.
             Output ONLY valid JSON - no markdown, no code blocks, no explanations.
@@ -33,31 +33,68 @@ public class SearchController : ControllerBase
                 }}
             }}
             
-            Rules:
-            1. "terms": Extract SPECIFIC keywords only (names, content, subjects).
-               - DO NOT include generic words: 'file', 'photo', 'image', 'document', 'search', 'find', 'show', 'get'.
-               - Include proper nouns, specific topics, or content descriptions.
-               - If user says "photos from the beach" -> terms: ["beach"]
-               - If user says "invoice from Amazon" -> terms: ["invoice", "Amazon"]
+            === CRITICAL RULES ===
             
-            2. "fileTypes": Map user intent to file extensions:
-               - "photos/pictures/images" -> ["jpg", "jpeg", "png", "heic", "webp"]
-               - "documents/docs" -> ["pdf", "doc", "docx"]
-               - "excel/spreadsheet" -> ["xlsx", "xls", "csv"]
-               - "video/videos" -> ["mp4", "mov", "avi", "mkv"]
-               - "receipts/invoices" -> ["pdf", "jpg", "png"]
-               - "presentations" -> ["pptx", "ppt"]
+            1. "terms" - KEYWORD EXTRACTION:
+               a) Extract SPECIFIC keywords only (names, content, subjects).
+               b) NOISE REDUCTION - STRICTLY REMOVE these filler words (do NOT include them):
+                  - English: "find", "search", "show", "get", "look", "for", "me", "please", "my", "the", "a", "an", "file", "files"
+                  - Hebrew: "תמצא", "חפש", "תחפש", "מצא", "דחוף", "בבקשה", "לי", "את", "של", "שלי", "קובץ", "קבצים"
+               c) Include proper nouns, specific topics, or content descriptions only.
+            
+            2. "terms" - HEBREW-ENGLISH TRANSLATION (MANDATORY):
+               If the query contains Hebrew words, you MUST include BOTH the Hebrew term AND its English translation.
+               Examples:
+               - "דרכון" -> add BOTH: ["דרכון", "passport"]
+               - "חשבונית" -> add BOTH: ["חשבונית", "invoice", "receipt"]
+               - "תעודת זהות" -> add BOTH: ["תעודת זהות", "ID", "identity"]
+               - "חוזה" -> add BOTH: ["חוזה", "contract", "agreement"]
+               - "קבלה" -> add BOTH: ["קבלה", "receipt"]
+               - "ביטוח" -> add BOTH: ["ביטוח", "insurance"]
+               - "רישיון" -> add BOTH: ["רישיון", "license"]
+               - "אישור" -> add BOTH: ["אישור", "confirmation", "approval"]
+               - "הזמנה" -> add BOTH: ["הזמנה", "order", "reservation"]
+               - "טיסה" -> add BOTH: ["טיסה", "flight"]
+               - "מלון" -> add BOTH: ["מלון", "hotel"]
+            
+            3. "terms" - SYNONYM EXPANSION:
+               Add common synonyms and filename variations:
+               - "invoice" -> also add: "receipt", "bill"
+               - "contract" -> also add: "agreement"
+               - "passport" -> also add: "travel"
+               - "resume" -> also add: "CV", "curriculum"
+               - "photo" -> also add: "pic", "img", "image"
+            
+            4. "fileTypes" - STANDARD MAPPING:
+               - "photos/pictures/images/תמונות" -> ["jpg", "jpeg", "png", "heic", "webp"]
+               - "documents/docs/מסמכים" -> ["pdf", "doc", "docx"]
+               - "excel/spreadsheet/אקסל" -> ["xlsx", "xls", "csv"]
+               - "video/videos/סרטון" -> ["mp4", "mov", "avi", "mkv"]
+               - "receipts/invoices/קבלות/חשבוניות" -> ["pdf", "jpg", "png"]
+               - "presentations/מצגות" -> ["pptx", "ppt"]
                - If no file type implied -> []
             
-            3. "dateRange": Convert ALL relative dates to EXACT ISO 8601 format (yyyy-MM-dd):
-               - "yesterday" -> start: {today} minus 1 day, end: {today} minus 1 day
-               - "last week" -> start: {today} minus 7 days, end: {today}
-               - "last month" -> start: {today} minus 30 days, end: {today}
-               - "this week" -> start: Monday of current week, end: {today}
-               - "last year" -> start: {today} minus 365 days, end: {today}
+            5. "fileTypes" - CONTEXTUAL INFERENCE:
+               Infer file types from abstract concepts:
+               - "contract/חוזה", "agreement" -> ["pdf", "docx"]
+               - "book/ספר" -> ["pdf", "epub", "mobi"]
+               - "song/שיר", "music/מוזיקה" -> ["mp3", "m4a", "wav", "flac"]
+               - "passport/דרכון", "ID/תעודת זהות" -> ["pdf", "jpg", "png"]
+               - "resume/קורות חיים", "CV" -> ["pdf", "docx"]
+               - "screenshot" -> ["png", "jpg"]
+               - "scan" -> ["pdf", "jpg", "png"]
+            
+            6. "dateRange" - RELATIVE DATE CONVERSION:
+               Convert ALL relative dates to EXACT ISO 8601 format (yyyy-MM-dd):
+               - "yesterday/אתמול" -> start & end: {today} minus 1 day
+               - "last week/שבוע שעבר" -> start: {today} minus 7 days, end: {today}
+               - "last month/חודש שעבר" -> start: {today} minus 30 days, end: {today}
+               - "this week/השבוע" -> start: Monday of current week, end: {today}
+               - "last year/שנה שעברה" -> start: {today} minus 365 days, end: {today}
+               - "today/היום" -> start & end: {today}
                - If no time reference -> dateRange: null
             
-            4. Output pure JSON only. No explanations before or after.
+            7. OUTPUT: Pure JSON only. No explanations, no markdown, no text before or after.
             """;
     }
 
