@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../services/favorites_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
@@ -19,6 +20,7 @@ import 'settings_screen.dart';
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
 enum LocalFilter {
   all,
+  favorites, // מועדפים - פרימיום בלבד
   images,
   pdfs,
   whatsapp,
@@ -40,6 +42,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
   final _smartSearchService = SmartSearchService.instance;
+  final _favoritesService = FavoritesService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
   Timer? _debounceTimer;
@@ -306,11 +309,32 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// מחיל פילטר מקומי על התוצאות
   List<FileMetadata> _applyLocalFilter(List<FileMetadata> results) {
+    // סינון לפי WhatsApp
     if (_selectedFilter == LocalFilter.whatsapp) {
       return results.where((f) => 
         f.path.toLowerCase().contains('whatsapp')
       ).toList();
     }
+    
+    // סינון לפי מועדפים
+    if (_selectedFilter == LocalFilter.favorites) {
+      final favoriteResults = results.where((f) => 
+        _favoritesService.isFavorite(f.path)
+      ).toList();
+      return favoriteResults;
+    }
+    
+    // מיון: מועדפים קודם (אם לא בפילטר מועדפים)
+    if (_selectedFilter != LocalFilter.favorites) {
+      results.sort((a, b) {
+        final aFav = _favoritesService.isFavorite(a.path);
+        final bFav = _favoritesService.isFavorite(b.path);
+        if (aFav && !bFav) return -1;
+        if (!aFav && bFav) return 1;
+        return 0; // שמור על המיון הקיים
+      });
+    }
+    
     return results;
   }
 
@@ -726,6 +750,9 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
             const SizedBox(height: 8),
+            // מועדפים - פרימיום בלבד
+            _buildFavoriteActionTile(file),
+            const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -766,6 +793,127 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  /// בונה פריט פעולה מועדפים
+  Widget _buildFavoriteActionTile(FileMetadata file) {
+    final isPremium = _settingsService.isPremium;
+    final isFavorite = _favoritesService.isFavorite(file.path);
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          if (!isPremium) {
+            Navigator.of(context).pop();
+            _showPremiumUpgradeMessage('מועדפים');
+            return;
+          }
+          
+          await _favoritesService.toggleFavorite(file.path);
+          Navigator.of(context).pop();
+          
+          setState(() {}); // רענון UI
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(
+                    isFavorite ? Icons.star_outline : Icons.star,
+                    color: Colors.amber,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(isFavorite ? 'הוסר מהמועדפים' : 'נוסף למועדפים'),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E1E3F),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+            border: !isPremium 
+                ? Border.all(color: Colors.amber.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isFavorite ? Icons.star : Icons.star_outline,
+                  color: Colors.amber,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          isFavorite ? 'הסר מהמועדפים' : 'הוסף למועדפים',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isPremium ? null : Colors.grey,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPremium 
+                          ? (isFavorite ? 'הקובץ במועדפים שלך' : 'גישה מהירה לקבצים חשובים')
+                          : 'שדרג לפרימיום',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isPremium)
+                Icon(
+                  Icons.chevron_left,
+                  color: Colors.grey.shade600,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// בונה פריט פעולה
   Widget _buildActionTile({
     required IconData icon,
@@ -1507,6 +1655,8 @@ class _SearchScreenState extends State<SearchScreen> {
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
     final theme = Theme.of(context);
+    final isPremium = _settingsService.isPremium;
+    final favoritesCount = _favoritesService.count;
     
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -1514,6 +1664,9 @@ class _SearchScreenState extends State<SearchScreen> {
       child: Row(
         children: [
           _buildModernFilterChip('הכל', LocalFilter.all, Icons.apps),
+          const SizedBox(width: 10),
+          // מועדפים - פרימיום בלבד
+          _buildFavoritesChip(isPremium, favoritesCount),
           const SizedBox(width: 10),
           _buildModernFilterChip('תמונות', LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
@@ -1523,6 +1676,103 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(width: 10),
           _buildModernFilterChip('עם טקסט', LocalFilter.withText, Icons.text_snippet),
         ],
+      ),
+    );
+  }
+  
+  /// בונה צ'יפ מועדפים
+  Widget _buildFavoritesChip(bool isPremium, int count) {
+    final theme = Theme.of(context);
+    final isSelected = _selectedFilter == LocalFilter.favorites;
+    
+    return GestureDetector(
+      onTap: () {
+        if (!isPremium) {
+          _showPremiumUpgradeMessage('מועדפים');
+        } else {
+          _onFilterChanged(LocalFilter.favorites);
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: isSelected 
+              ? const LinearGradient(
+                  colors: [Colors.amber, Colors.orange],
+                )
+              : null,
+          color: isSelected ? null : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected 
+              ? null 
+              : Border.all(
+                  color: isPremium 
+                      ? Colors.amber.withValues(alpha: 0.5)
+                      : Colors.grey.withValues(alpha: 0.3),
+                ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.star,
+              size: 16,
+              color: isSelected 
+                  ? Colors.white 
+                  : (isPremium ? Colors.amber : Colors.grey),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'מועדפים',
+              style: TextStyle(
+                color: isSelected 
+                    ? Colors.white 
+                    : (isPremium ? null : Colors.grey),
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+            if (count > 0 && isPremium) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected 
+                      ? Colors.white.withValues(alpha: 0.3)
+                      : Colors.amber.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? Colors.white : Colors.amber,
+                  ),
+                ),
+              ),
+            ],
+            if (!isPremium) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'PRO',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1859,6 +2109,9 @@ class _SearchScreenState extends State<SearchScreen> {
     // בדיקה אם זה קובץ מ-WhatsApp
     final isWhatsApp = file.path.toLowerCase().contains('whatsapp');
     
+    // בדיקה אם מועדף
+    final isFavorite = _favoritesService.isFavorite(file.path);
+    
     final fileColor = _getFileColor(file.extension);
 
     return Container(
@@ -1867,9 +2120,11 @@ class _SearchScreenState extends State<SearchScreen> {
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: hasOcrMatch 
-              ? theme.colorScheme.secondary.withValues(alpha: 0.3)
-              : Colors.transparent,
+          color: isFavorite
+              ? Colors.amber.withValues(alpha: 0.5)
+              : (hasOcrMatch 
+                  ? theme.colorScheme.secondary.withValues(alpha: 0.3)
+                  : Colors.transparent),
         ),
       ),
       child: Material(
@@ -1895,10 +2150,20 @@ class _SearchScreenState extends State<SearchScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // שם קובץ עם הדגשה
-                          _buildHighlightedText(
-                            file.name,
-                            cleanQuery,
-                            const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          Row(
+                            children: [
+                              if (isFavorite) ...[
+                                const Icon(Icons.star, color: Colors.amber, size: 14),
+                                const SizedBox(width: 4),
+                              ],
+                              Expanded(
+                                child: _buildHighlightedText(
+                                  file.name,
+                                  cleanQuery,
+                                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 6),
                           
