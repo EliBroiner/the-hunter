@@ -1,3 +1,5 @@
+using TheHunterApi.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // קריאת PORT מ-environment variables (ברירת מחדל: 8080 עבור Cloud Run)
@@ -41,8 +43,11 @@ builder.Services.AddHttpClient("GeminiApi", client =>
     client.DefaultRequestHeaders.Add("Accept", "application/json");
 });
 
-// שמירת ה-API key ב-Configuration לשימוש ב-Controllers
+// רישום GeminiConfig כ-Singleton
 builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
+
+// רישום GeminiService
+builder.Services.AddScoped<GeminiService>();
 
 var app = builder.Build();
 
