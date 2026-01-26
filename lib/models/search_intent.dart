@@ -1,4 +1,4 @@
-/// מודל לתוצאת פענוח שאילתה מ-Gemini API
+/// מודל intent לחיפוש חכם - מגיע מהבקאנד
 class SearchIntent {
   final List<String> terms;
   final List<String> fileTypes;
@@ -10,25 +10,27 @@ class SearchIntent {
     this.dateRange,
   });
 
-  /// יצירת אובייקט מ-JSON
   factory SearchIntent.fromJson(Map<String, dynamic> json) {
     return SearchIntent(
-      terms: List<String>.from(json['terms'] ?? []),
-      fileTypes: List<String>.from(json['fileTypes'] ?? []),
-      dateRange: json['dateRange'] != null 
-          ? DateRange.fromJson(json['dateRange']) 
+      terms: (json['terms'] as List<dynamic>?)
+          ?.map((e) => e.toString())
+          .toList() ?? [],
+      fileTypes: (json['fileTypes'] as List<dynamic>?)
+          ?.map((e) => e.toString())
+          .toList() ?? [],
+      dateRange: json['dateRange'] != null
+          ? DateRange.fromJson(json['dateRange'] as Map<String, dynamic>)
           : null,
     );
   }
 
-  /// המרה ל-JSON
   Map<String, dynamic> toJson() => {
     'terms': terms,
     'fileTypes': fileTypes,
     'dateRange': dateRange?.toJson(),
   };
 
-  /// בודק אם יש תוכן משמעותי
+  /// האם יש תוכן לחיפוש
   bool get hasContent => terms.isNotEmpty || fileTypes.isNotEmpty || dateRange != null;
 
   @override
@@ -37,15 +39,15 @@ class SearchIntent {
 
 /// טווח תאריכים
 class DateRange {
-  final String? start; // פורמט: yyyy-MM-dd
-  final String? end;   // פורמט: yyyy-MM-dd
+  final String? start; // Format: yyyy-MM-dd
+  final String? end;   // Format: yyyy-MM-dd
 
   DateRange({this.start, this.end});
 
   factory DateRange.fromJson(Map<String, dynamic> json) {
     return DateRange(
-      start: json['start'],
-      end: json['end'],
+      start: json['start'] as String?,
+      end: json['end'] as String?,
     );
   }
 
@@ -54,10 +56,9 @@ class DateRange {
     'end': end,
   };
 
-  /// ממיר לאובייקט DateTime
   DateTime? get startDate => start != null ? DateTime.tryParse(start!) : null;
   DateTime? get endDate => end != null ? DateTime.tryParse(end!) : null;
 
   @override
-  String toString() => 'DateRange(start: $start, end: $end)';
+  String toString() => 'DateRange($start to $end)';
 }

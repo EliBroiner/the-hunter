@@ -2,55 +2,42 @@ import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import 'log_service.dart';
 
-/// מסנן קבצים חכם על בסיס SearchIntent מ-Gemini
+/// פילטר חכם - מסנן קבצים לפי SearchIntent מה-AI
 class SmartSearchFilter {
   SmartSearchFilter._();
 
-  /// מסנן רשימת קבצים לפי SearchIntent
-  static List<FileMetadata> filterFiles(
-    List<FileMetadata> files,
-    SearchIntent intent,
-  ) {
-    appLog('SmartFilter: Starting with ${files.length} files');
-    appLog('SmartFilter: Intent - Terms: ${intent.terms}, FileTypes: ${intent.fileTypes}, DateRange: ${intent.dateRange}');
+  /// מסנן רשימת קבצים לפי intent
+  static List<FileMetadata> filterFiles(List<FileMetadata> files, SearchIntent intent) {
+    var results = files.toList();
 
-    var results = List<FileMetadata>.from(files);
-
-    // שלב 1: סינון לפי סוגי קבצים (אם צוינו)
+    // סינון לפי סוגי קבצים
     if (intent.fileTypes.isNotEmpty) {
       results = _filterByFileTypes(results, intent.fileTypes);
       appLog('SmartFilter: After fileTypes filter: ${results.length} files');
     }
 
-    // שלב 2: סינון לפי טווח תאריכים (אם צוין)
+    // סינון לפי טווח תאריכים
     if (intent.dateRange != null) {
       results = _filterByDateRange(results, intent.dateRange!);
       appLog('SmartFilter: After dateRange filter: ${results.length} files');
     }
 
-    // שלב 3: סינון לפי מילות מפתח (Terms)
+    // סינון לפי מילות חיפוש
     if (intent.terms.isNotEmpty) {
       results = _filterByTerms(results, intent.terms);
       appLog('SmartFilter: After terms filter: ${results.length} files');
     }
 
-    // מיון לפי תאריך שינוי (החדשים קודם)
-    results.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+    // מיון: התאמה בשם קודם, אח"כ לפי תאריך
+    results = _sortByRelevance(results, intent.terms);
 
-    appLog('SmartFilter: Final result: ${results.length} files');
     return results;
   }
 
   /// סינון לפי סוגי קבצים
-  static List<FileMetadata> _filterByFileTypes(
-    List<FileMetadata> files,
-    List<String> fileTypes,
-  ) {
-    // נרמול הסיומות (הסרת נקודה אם יש, lowercase)
-    final normalizedTypes = fileTypes
-        .map((t) => t.toLowerCase().replaceAll('.', ''))
-        .toSet();
-
+  static List<FileMetadata> _filterByFileTypes(List<FileMetadata> files, List<String> fileTypes) {
+    final normalizedTypes = fileTypes.map((t) => t.toLowerCase()).toSet();
+    
     return files.where((file) {
       final ext = file.extension.toLowerCase();
       return normalizedTypes.contains(ext);
@@ -58,73 +45,83 @@ class SmartSearchFilter {
   }
 
   /// סינון לפי טווח תאריכים
-  static List<FileMetadata> _filterByDateRange(
-    List<FileMetadata> files,
-    DateRange dateRange,
-  ) {
+  static List<FileMetadata> _filterByDateRange(List<FileMetadata> files, DateRange dateRange) {
     final startDate = dateRange.startDate;
     final endDate = dateRange.endDate;
 
     return files.where((file) {
       final fileDate = file.lastModified;
-
-      // בדיקת תאריך התחלה
-      if (startDate != null) {
-        final startOfDay = DateTime(startDate.year, startDate.month, startDate.day);
-        if (fileDate.isBefore(startOfDay)) {
-          return false;
-        }
+      
+      if (startDate != null && fileDate.isBefore(startDate)) {
+        return false;
       }
-
-      // בדיקת תאריך סיום
+      
       if (endDate != null) {
+        // כולל את היום האחרון
         final endOfDay = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
         if (fileDate.isAfter(endOfDay)) {
           return false;
         }
       }
-
+      
       return true;
     }).toList();
   }
 
-  /// סינון לפי מילות מפתח (חיפוש בשם ובטקסט המחולץ)
-  static List<FileMetadata> _filterByTerms(
-    List<FileMetadata> files,
-    List<String> terms,
-  ) {
+  /// סינון לפי מילות חיפוש
+  static List<FileMetadata> _filterByTerms(List<FileMetadata> files, List<String> terms) {
     if (terms.isEmpty) return files;
 
-    // נרמול המילים לחיפוש
-    final normalizedTerms = terms.map((t) => t.toLowerCase()).toList();
+    final lowerTerms = terms.map((t) => t.toLowerCase()).toList();
 
     return files.where((file) {
       final fileName = file.name.toLowerCase();
-      final extractedText = (file.extractedText ?? '').toLowerCase();
+      final extractedText = file.extractedText?.toLowerCase() ?? '';
 
-      // חיפוש התאמה לפחות לאחת מהמילים
-      return normalizedTerms.any((term) =>
+      // בודק אם לפחות מילה אחת נמצאת בשם או בטקסט
+      return lowerTerms.any((term) =>
           fileName.contains(term) || extractedText.contains(term));
     }).toList();
   }
 
-  /// חיפוש פשוט (fallback) - מבוסס טקסט בלבד
-  static List<FileMetadata> simpleSearch(
-    List<FileMetadata> files,
-    String query,
-  ) {
-    if (query.trim().isEmpty) {
-      return files..sort((a, b) => b.lastModified.compareTo(a.lastModified));
+  /// מיון לפי רלוונטיות
+  static List<FileMetadata> _sortByRelevance(List<FileMetadata> files, List<String> terms) {
+    if (terms.isEmpty) {
+      // אם אין terms - מיון לפי תאריך
+      files.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+      return files;
     }
 
-    final lowerQuery = query.toLowerCase();
+    final lowerTerms = terms.map((t) => t.toLowerCase()).toList();
 
-    final results = files.where((file) =>
-        file.name.toLowerCase().contains(lowerQuery) ||
-        (file.extractedText?.toLowerCase().contains(lowerQuery) ?? false)
-    ).toList();
+    // חישוב ציון רלוונטיות
+    int getScore(FileMetadata file) {
+      int score = 0;
+      final fileName = file.name.toLowerCase();
+      final extractedText = file.extractedText?.toLowerCase() ?? '';
 
-    results.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-    return results;
+      for (final term in lowerTerms) {
+        // התאמה בשם = ציון גבוה
+        if (fileName.contains(term)) score += 10;
+        // התאמה בטקסט = ציון נמוך יותר
+        if (extractedText.contains(term)) score += 1;
+      }
+
+      return score;
+    }
+
+    files.sort((a, b) {
+      final scoreA = getScore(a);
+      final scoreB = getScore(b);
+      
+      if (scoreA != scoreB) {
+        return scoreB.compareTo(scoreA); // גבוה יותר = קודם
+      }
+      
+      // אם אותו ציון - לפי תאריך
+      return b.lastModified.compareTo(a.lastModified);
+    });
+
+    return files;
   }
 }

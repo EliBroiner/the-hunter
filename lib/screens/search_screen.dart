@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../services/favorites_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
@@ -19,9 +20,11 @@ import 'settings_screen.dart';
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
 enum LocalFilter {
   all,
+  favorites, // מועדפים - פרימיום בלבד
   images,
   pdfs,
-  withText,  // קבצים עם טקסט מחולץ (OCR)
+  whatsapp,
+  withText,
 }
 
 /// מסך חיפוש - מסך ראשי לחיפוש קבצים
@@ -39,12 +42,9 @@ class _SearchScreenState extends State<SearchScreen> {
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
   final _smartSearchService = SmartSearchService.instance;
+  final _favoritesService = FavoritesService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
-  
-  // Smart Search state
-  bool _isSmartSearchActive = false;
-  SearchIntent? _lastSearchIntent;
   Timer? _debounceTimer;
   
   // Stream לחיפוש ריאקטיבי
@@ -65,6 +65,11 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isListening = false;
   bool _speechEnabled = false;
   String _selectedLocale = 'he-IL'; // ברירת מחדל עברית
+  
+  // חיפוש חכם (AI)
+  bool _isSmartSearching = false;
+  bool _isSmartSearchActive = false;
+  SearchIntent? _lastSmartIntent;
 
   @override
   void initState() {
@@ -163,74 +168,9 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים - Hybrid Flow
+  /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים
   void _updateSearchStream() {
     final query = _currentQuery;
-    
-    // אם יש שאילתה - נשתמש ב-Smart Search
-    if (query.trim().length >= 2) {
-      _performHybridSearch(query);
-    } else {
-      // שאילתה ריקה או קצרה - חיפוש רגיל
-      _performSimpleSearch(query);
-    }
-  }
-  
-  /// חיפוש היברידי - כרגע משתמש בחיפוש רגיל, Smart Search יופעל רק בלחיצה על כפתור
-  /// (כדי לא לשלוח המון בקשות יקרות ל-API בכל הקלדה)
-  Future<void> _performHybridSearch(String query) async {
-    // כרגע - חיפוש רגיל בלבד בהקלדה
-    // Smart Search יופעל רק בלחיצה על כפתור ייעודי
-    _performSimpleSearch(query);
-  }
-  
-  /// מבצע חיפוש חכם עם Gemini API - נקרא רק בלחיצה על כפתור
-  Future<void> _performSmartSearch(String query) async {
-    if (query.trim().length < 2) {
-      _performSimpleSearch(query);
-      return;
-    }
-    
-    appLog('SmartSearch: Starting for query: "$query"');
-    
-    // ניסיון לקבל SearchIntent מה-API
-    SearchIntent? intent;
-    try {
-      intent = await _smartSearchService.parseSearchQuery(query);
-    } catch (e) {
-      appLog('SmartSearch: API call failed - $e');
-    }
-    
-    if (intent != null && intent.hasContent) {
-      // Smart Search הצליח - משתמשים בפילטר החכם
-      appLog('SmartSearch: Using Smart Search with intent: $intent');
-      
-      // קבלת Stream של כל הקבצים ממסד הנתונים
-      final baseStream = _databaseService.watchSearch(
-        query: '', // לא מסננים לפי טקסט - הפילטר החכם יעשה את זה
-        filter: SearchFilter.all,
-      );
-      
-      setState(() {
-        _isSmartSearchActive = true;
-        _lastSearchIntent = intent;
-        _searchStream = baseStream.map((files) {
-          // מפעילים את הפילטר החכם
-          var results = SmartSearchFilter.filterFiles(files, intent!);
-          // מפעילים גם את הפילטר המקומי (WhatsApp, withText וכו')
-          return _applyLocalFilter(results);
-        });
-      });
-    } else {
-      // Fallback לחיפוש רגיל
-      appLog('SmartSearch: Falling back to simple search');
-      _performSimpleSearch(query);
-    }
-  }
-  
-  /// חיפוש פשוט (Fallback) - מבוסס טקסט ופילטרים מקומיים
-  void _performSimpleSearch(String query) {
-    appLog('SimpleSearch: Starting for query: "$query"');
     
     // תאריך התחלה מהשאילתה או מטווח התאריכים שנבחר
     final queryStartDate = parseTimeQuery(query);
@@ -244,8 +184,6 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_selectedFilter == LocalFilter.withText) dbFilter = SearchFilter.ocrOnly;
     
     setState(() {
-      _isSmartSearchActive = false;
-      _lastSearchIntent = null;
       _searchStream = _databaseService.watchSearch(
         query: query,
         filter: dbFilter,
@@ -371,7 +309,32 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// מחיל פילטר מקומי על התוצאות
   List<FileMetadata> _applyLocalFilter(List<FileMetadata> results) {
-    // כרגע אין פילטרים מקומיים נוספים - הפילטרים מטופלים ב-DatabaseService
+    // סינון לפי WhatsApp
+    if (_selectedFilter == LocalFilter.whatsapp) {
+      return results.where((f) => 
+        f.path.toLowerCase().contains('whatsapp')
+      ).toList();
+    }
+    
+    // סינון לפי מועדפים
+    if (_selectedFilter == LocalFilter.favorites) {
+      final favoriteResults = results.where((f) => 
+        _favoritesService.isFavorite(f.path)
+      ).toList();
+      return favoriteResults;
+    }
+    
+    // מיון: מועדפים קודם (אם לא בפילטר מועדפים)
+    if (_selectedFilter != LocalFilter.favorites) {
+      results.sort((a, b) {
+        final aFav = _favoritesService.isFavorite(a.path);
+        final bFav = _favoritesService.isFavorite(b.path);
+        if (aFav && !bFav) return -1;
+        if (!aFav && bFav) return 1;
+        return 0; // שמור על המיון הקיים
+      });
+    }
+    
     return results;
   }
 
@@ -787,6 +750,9 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
             const SizedBox(height: 8),
+            // מועדפים - פרימיום בלבד
+            _buildFavoriteActionTile(file),
+            const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -827,6 +793,127 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  /// בונה פריט פעולה מועדפים
+  Widget _buildFavoriteActionTile(FileMetadata file) {
+    final isPremium = _settingsService.isPremium;
+    final isFavorite = _favoritesService.isFavorite(file.path);
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          if (!isPremium) {
+            Navigator.of(context).pop();
+            _showPremiumUpgradeMessage('מועדפים');
+            return;
+          }
+          
+          await _favoritesService.toggleFavorite(file.path);
+          Navigator.of(context).pop();
+          
+          setState(() {}); // רענון UI
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(
+                    isFavorite ? Icons.star_outline : Icons.star,
+                    color: Colors.amber,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(isFavorite ? 'הוסר מהמועדפים' : 'נוסף למועדפים'),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E1E3F),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+            border: !isPremium 
+                ? Border.all(color: Colors.amber.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isFavorite ? Icons.star : Icons.star_outline,
+                  color: Colors.amber,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          isFavorite ? 'הסר מהמועדפים' : 'הוסף למועדפים',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isPremium ? null : Colors.grey,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPremium 
+                          ? (isFavorite ? 'הקובץ במועדפים שלך' : 'גישה מהירה לקבצים חשובים')
+                          : 'שדרג לפרימיום',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isPremium)
+                Icon(
+                  Icons.chevron_left,
+                  color: Colors.grey.shade600,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// בונה פריט פעולה
   Widget _buildActionTile({
     required IconData icon,
@@ -1025,38 +1112,34 @@ class _SearchScreenState extends State<SearchScreen> {
         _searchController.text.isEmpty && 
         _recentSearches.isNotEmpty;
     
-    return GestureDetector(
-      // סגירת מקלדת בלחיצה מחוץ לשדה הטקסט
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0F0F23),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // כותרת וחיפוש
-              _buildSearchHeader(),
-              
-              // חיפושים אחרונים (כשהשדה בפוקוס וריק)
-              if (showRecentSearches)
-                _buildRecentSearches(),
-              
-              // בורר טווח תאריכים
-              if (!showRecentSearches)
-                _buildDateRangePicker(),
-              
-              // באנר חיפוש חכם (פרימיום)
-              if (!showRecentSearches)
-                _buildSmartAISearchBanner(),
-              
-              // צ'יפים לסינון מהיר
-              _buildFilterChips(),
-              
-              // תוצאות או מצב ריק
-              Expanded(
-                child: _buildResults(),
-              ),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F23),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // כותרת וחיפוש
+            _buildSearchHeader(),
+            
+            // חיפושים אחרונים (כשהשדה בפוקוס וריק)
+            if (showRecentSearches)
+              _buildRecentSearches(),
+            
+            // בורר טווח תאריכים
+            if (!showRecentSearches)
+              _buildDateRangePicker(),
+            
+            // באנר חיפוש AI חכם (פרימיום)
+            if (!showRecentSearches)
+              _buildSmartAISearchBanner(),
+            
+            // צ'יפים לסינון מהיר
+            _buildFilterChips(),
+            
+            // תוצאות או מצב ריק
+            Expanded(
+              child: _buildResults(),
+            ),
+          ],
         ),
       ),
     );
@@ -1222,7 +1305,80 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// בונה באנר חיפוש חכם
+  /// מבצע חיפוש חכם עם AI
+  Future<void> _performSmartSearch() async {
+    final query = _currentQuery.trim();
+    if (query.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('הקלד לפחות 2 תווים לחיפוש חכם'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSmartSearching = true);
+
+    try {
+      appLog('SmartSearch: Starting for query: "$query"');
+      
+      final intent = await _smartSearchService.parseSearchQuery(query);
+
+      if (intent != null && intent.hasContent) {
+        appLog('SmartSearch: Got intent - $intent');
+        
+        // קבלת כל הקבצים וסינון לפי intent
+        final baseStream = _databaseService.watchSearch(
+          query: '', // לא משתמשים בחיפוש רגיל
+          filter: SearchFilter.all,
+        );
+
+        setState(() {
+          _isSmartSearchActive = true;
+          _lastSmartIntent = intent;
+          _searchStream = baseStream.map((files) {
+            return SmartSearchFilter.filterFiles(files, intent);
+          });
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text('חיפוש חכם: ${intent.terms.join(", ")}'),
+              ],
+            ),
+            backgroundColor: Colors.purple.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        appLog('SmartSearch: No intent returned, falling back to regular search');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('לא הצלחתי להבין את החיפוש, נסה ניסוח אחר'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      appLog('SmartSearch ERROR: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('שגיאה בחיפוש חכם: $e'),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      setState(() => _isSmartSearching = false);
+    }
+  }
+
+  /// בונה באנר חיפוש AI חכם
   Widget _buildSmartAISearchBanner() {
     final theme = Theme.of(context);
     final isPremium = _settingsService.isPremium;
@@ -1233,32 +1389,15 @@ class _SearchScreenState extends State<SearchScreen> {
       child: GestureDetector(
         onTap: () {
           if (!isPremium) {
-            _showPremiumUpgradeMessage('חיפוש חכם');
+            _showPremiumUpgradeMessage('חיפוש AI חכם');
+          } else if (_isSmartSearching) {
+            // כבר בחיפוש
           } else if (hasQuery) {
-            // הפעלת חיפוש חכם עם ה-query הנוכחי
-            _performSmartSearch(_currentQuery);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text('מבצע חיפוש חכם...'),
-                  ],
-                ),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            _performSmartSearch();
           } else {
-            // אין query - הצג הודעה
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('הקלד לפחות 2 תווים כדי להפעיל חיפוש חכם'),
+                content: Text('הקלד משהו לחיפוש'),
                 behavior: SnackBarBehavior.floating,
               ),
             );
@@ -1267,20 +1406,26 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            gradient: isPremium
-                ? LinearGradient(
-                    colors: [
-                      theme.colorScheme.primary.withValues(alpha: 0.3),
-                      theme.colorScheme.secondary.withValues(alpha: 0.3),
-                    ],
+            gradient: _isSmartSearchActive
+                ? const LinearGradient(
+                    colors: [Colors.purple, Colors.blue],
                   )
-                : null,
+                : (isPremium
+                    ? LinearGradient(
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.3),
+                          theme.colorScheme.secondary.withValues(alpha: 0.3),
+                        ],
+                      )
+                    : null),
             color: isPremium ? null : theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isPremium 
-                  ? Colors.transparent 
-                  : Colors.amber.withValues(alpha: 0.5),
+              color: _isSmartSearchActive
+                  ? Colors.transparent
+                  : (isPremium 
+                      ? Colors.transparent 
+                      : Colors.amber.withValues(alpha: 0.5)),
             ),
           ),
           child: Row(
@@ -1288,12 +1433,28 @@ class _SearchScreenState extends State<SearchScreen> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Colors.purple, Colors.blue],
-                  ),
+                  gradient: _isSmartSearchActive
+                      ? null
+                      : const LinearGradient(
+                          colors: [Colors.purple, Colors.blue],
+                        ),
+                  color: _isSmartSearchActive ? Colors.white.withValues(alpha: 0.2) : null,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+                child: _isSmartSearching
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(
+                        Icons.auto_awesome,
+                        size: 16,
+                        color: _isSmartSearchActive ? Colors.white : Colors.white,
+                      ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1302,11 +1463,12 @@ class _SearchScreenState extends State<SearchScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text(
-                          'חיפוש חכם',
+                        Text(
+                          _isSmartSearchActive ? 'חיפוש חכם פעיל' : 'חיפוש AI חכם',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
+                            color: _isSmartSearchActive ? Colors.white : null,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1329,18 +1491,27 @@ class _SearchScreenState extends State<SearchScreen> {
                         ],
                         if (_isSmartSearchActive) ...[
                           const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'פעיל',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isSmartSearchActive = false;
+                                _lastSmartIntent = null;
+                              });
+                              _updateSearchStream();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'ביטול',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
                           ),
@@ -1348,21 +1519,24 @@ class _SearchScreenState extends State<SearchScreen> {
                       ],
                     ),
                     Text(
-                      isPremium 
-                          ? 'לחץ כדי לחפש בשפה טבעית עם AI'
+                      _isSmartSearchActive
+                          ? 'מציג תוצאות לפי AI'
                           : 'חפש בשפה טבעית עם בינה מלאכותית',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.grey.shade400,
+                        color: _isSmartSearchActive 
+                            ? Colors.white.withValues(alpha: 0.8)
+                            : Colors.grey.shade400,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_left,
-                color: isPremium ? theme.colorScheme.primary : Colors.amber,
-              ),
+              if (!_isSmartSearchActive)
+                Icon(
+                  Icons.chevron_left,
+                  color: isPremium ? theme.colorScheme.primary : Colors.amber,
+                ),
             ],
           ),
         ),
@@ -1481,6 +1655,8 @@ class _SearchScreenState extends State<SearchScreen> {
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
     final theme = Theme.of(context);
+    final isPremium = _settingsService.isPremium;
+    final favoritesCount = _favoritesService.count;
     
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -1489,12 +1665,114 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           _buildModernFilterChip('הכל', LocalFilter.all, Icons.apps),
           const SizedBox(width: 10),
+          // מועדפים - פרימיום בלבד
+          _buildFavoritesChip(isPremium, favoritesCount),
+          const SizedBox(width: 10),
           _buildModernFilterChip('תמונות', LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
           _buildModernFilterChip('PDF', LocalFilter.pdfs, Icons.picture_as_pdf),
           const SizedBox(width: 10),
+          _buildModernFilterChip('WhatsApp', LocalFilter.whatsapp, Icons.chat_bubble),
+          const SizedBox(width: 10),
           _buildModernFilterChip('עם טקסט', LocalFilter.withText, Icons.text_snippet),
         ],
+      ),
+    );
+  }
+  
+  /// בונה צ'יפ מועדפים
+  Widget _buildFavoritesChip(bool isPremium, int count) {
+    final theme = Theme.of(context);
+    final isSelected = _selectedFilter == LocalFilter.favorites;
+    
+    return GestureDetector(
+      onTap: () {
+        if (!isPremium) {
+          _showPremiumUpgradeMessage('מועדפים');
+        } else {
+          _onFilterChanged(LocalFilter.favorites);
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: isSelected 
+              ? const LinearGradient(
+                  colors: [Colors.amber, Colors.orange],
+                )
+              : null,
+          color: isSelected ? null : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected 
+              ? null 
+              : Border.all(
+                  color: isPremium 
+                      ? Colors.amber.withValues(alpha: 0.5)
+                      : Colors.grey.withValues(alpha: 0.3),
+                ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.star,
+              size: 16,
+              color: isSelected 
+                  ? Colors.white 
+                  : (isPremium ? Colors.amber : Colors.grey),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'מועדפים',
+              style: TextStyle(
+                color: isSelected 
+                    ? Colors.white 
+                    : (isPremium ? null : Colors.grey),
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+            if (count > 0 && isPremium) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected 
+                      ? Colors.white.withValues(alpha: 0.3)
+                      : Colors.amber.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? Colors.white : Colors.amber,
+                  ),
+                ),
+              ),
+            ],
+            if (!isPremium) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'PRO',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1831,6 +2109,9 @@ class _SearchScreenState extends State<SearchScreen> {
     // בדיקה אם זה קובץ מ-WhatsApp
     final isWhatsApp = file.path.toLowerCase().contains('whatsapp');
     
+    // בדיקה אם מועדף
+    final isFavorite = _favoritesService.isFavorite(file.path);
+    
     final fileColor = _getFileColor(file.extension);
 
     return Container(
@@ -1839,9 +2120,11 @@ class _SearchScreenState extends State<SearchScreen> {
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: hasOcrMatch 
-              ? theme.colorScheme.secondary.withValues(alpha: 0.3)
-              : Colors.transparent,
+          color: isFavorite
+              ? Colors.amber.withValues(alpha: 0.5)
+              : (hasOcrMatch 
+                  ? theme.colorScheme.secondary.withValues(alpha: 0.3)
+                  : Colors.transparent),
         ),
       ),
       child: Material(
@@ -1867,10 +2150,20 @@ class _SearchScreenState extends State<SearchScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // שם קובץ עם הדגשה
-                          _buildHighlightedText(
-                            file.name,
-                            cleanQuery,
-                            const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          Row(
+                            children: [
+                              if (isFavorite) ...[
+                                const Icon(Icons.star, color: Colors.amber, size: 14),
+                                const SizedBox(width: 4),
+                              ],
+                              Expanded(
+                                child: _buildHighlightedText(
+                                  file.name,
+                                  cleanQuery,
+                                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 6),
                           

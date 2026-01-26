@@ -10,8 +10,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_localizations:
-    sdk: flutter
 
   cupertino_icons: ^1.0.8
   
@@ -57,7 +55,7 @@ dependencies:
   # RevenueCat - ניהול מנויים ורכישות
   purchases_flutter: ^8.9.0
   
-  # HTTP - בקשות לשרת
+  # HTTP - בקשות לבקאנד AI
   http: ^1.2.2
 
 dev_dependencies:
