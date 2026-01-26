@@ -234,40 +234,57 @@ public class GeminiService
     /// </summary>
     private GeminiResult<SearchIntent> ParseGeminiResponse(string responseBody)
     {
+        string rawText = "";
+        string cleanJson = "";
+        
         try
         {
+            // שלב 1: פירסור התשובה מ-Gemini API
             var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions);
-            var rawText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+            rawText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+
+            // לוג ראשוני - לפני כל עיבוד
+            Console.WriteLine($"[Gemini Raw]: {rawText}");
 
             if (string.IsNullOrEmpty(rawText))
             {
-                _logger.LogWarning("Empty response from Gemini");
+                Console.WriteLine("❌ ERROR: Empty response from Gemini");
                 return GeminiResult<SearchIntent>.Failure("Empty response from AI");
             }
 
-            // לוג של התשובה הגולמית - בשורה אחת
+            // לוג מפורט של התשובה הגולמית
             Console.WriteLine($"🔍 EXTRACTED_TEXT | Length: {rawText.Length} | Content: {rawText.Replace("\n", " ").Replace("\r", "")}");
 
-            // ניקוי וסניטציה של ה-JSON
-            var cleanJson = SanitizeJsonResponse(rawText);
+            // שלב 2: ניקוי וסניטציה של ה-JSON
+            cleanJson = SanitizeJsonResponse(rawText);
             
-            // לוג של ה-JSON המנוקה - בשורה אחת
+            // לוג של ה-JSON המנוקה
             Console.WriteLine($"✅ SANITIZED_JSON | Length: {cleanJson.Length} | Content: {cleanJson.Replace("\n", " ").Replace("\r", "")}");
 
+            // שלב 3: פירסור ה-JSON ל-SearchIntent
             var intent = JsonSerializer.Deserialize<SearchIntent>(cleanJson, _jsonOptions);
             
             if (intent == null)
             {
-                return GeminiResult<SearchIntent>.Failure("Failed to parse AI response");
+                Console.WriteLine("❌ ERROR: Deserialized intent is null");
+                return GeminiResult<SearchIntent>.Failure("Failed to parse AI response - null result");
             }
 
+            Console.WriteLine($"✅ SUCCESS | Terms: [{string.Join(", ", intent.Terms)}] | FileTypes: [{string.Join(", ", intent.FileTypes)}] | DateRange: {(intent.DateRange != null ? $"{intent.DateRange.Start} to {intent.DateRange.End}" : "null")}");
             return GeminiResult<SearchIntent>.Success(intent);
         }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse Gemini response as JSON");
-            Console.WriteLine($"❌ JSON_PARSE_ERROR | Message: {ex.Message} | Path: {ex.Path} | Line: {ex.LineNumber}");
+            Console.WriteLine($"❌ JSON_PARSE_ERROR | Message: {ex.Message} | Path: {ex.Path} | Line: {ex.LineNumber} | BytePos: {ex.BytePositionInLine}");
+            Console.WriteLine($"❌ FAILED_JSON_CONTENT: {cleanJson}");
             return GeminiResult<SearchIntent>.Failure($"JSON parse error: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error parsing Gemini response");
+            Console.WriteLine($"❌ UNEXPECTED_ERROR | Type: {ex.GetType().Name} | Message: {ex.Message}");
+            return GeminiResult<SearchIntent>.Failure($"Unexpected error: {ex.Message}");
         }
     }
 
@@ -276,8 +293,14 @@ public class GeminiService
     /// </summary>
     private static string SanitizeJsonResponse(string responseText)
     {
+        // לוג התחלתי
+        Console.WriteLine($"🧹 SANITIZE_START | Input Length: {responseText?.Length ?? 0}");
+        
         if (string.IsNullOrWhiteSpace(responseText))
+        {
+            Console.WriteLine("⚠️ SANITIZE: Empty input, returning empty object");
             return "{}";
+        }
 
         // שלב 1: הסרת Markdown code blocks
         responseText = responseText
@@ -286,25 +309,36 @@ public class GeminiService
             .Replace("```", "")
             .Trim();
 
+        Console.WriteLine($"🧹 AFTER_MARKDOWN_REMOVAL | Length: {responseText.Length}");
+
         // שלב 2: מציאת ה-JSON בלבד (בין הסוגריים המסולסלים הראשונים והאחרונים)
         int firstBrace = responseText.IndexOf('{');
         int lastBrace = responseText.LastIndexOf('}');
 
+        Console.WriteLine($"🧹 BRACE_POSITIONS | FirstBrace: {firstBrace} | LastBrace: {lastBrace}");
+
         if (firstBrace >= 0 && lastBrace > firstBrace)
         {
+            // מצאנו JSON תקין
             responseText = responseText.Substring(firstBrace, lastBrace - firstBrace + 1);
+            Console.WriteLine($"🧹 JSON_EXTRACTED | Length: {responseText.Length}");
         }
         else
         {
-            Console.WriteLine("⚠️ Warning: Could not find valid JSON braces in response");
+            // Fallback: אם לא מצאנו סוגריים, ננסה לפרסר את הטקסט המקורי
+            Console.WriteLine($"⚠️ WARNING: Could not find valid JSON braces. Attempting to parse raw text. Length: {responseText.Length}");
         }
 
         // שלב 3: ניקוי תווים בעייתיים שעלולים לשבור JSON
         responseText = responseText
             .Replace("\r\n", "\n")  // נרמול line endings
+            .Replace("\r", "")      // הסרת CR בודדים
             .Replace("\t", " ");    // החלפת tabs ברווחים
 
-        return responseText.Trim();
+        var result = responseText.Trim();
+        Console.WriteLine($"🧹 SANITIZE_COMPLETE | Final Length: {result.Length}");
+        
+        return result;
     }
 }
 
