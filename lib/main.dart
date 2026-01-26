@@ -5,6 +5,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'screens/folder_selection_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -279,6 +280,7 @@ class TheHunterApp extends StatelessWidget {
       home: const AuthWrapper(),
       routes: {
         '/subscription': (context) => const SubscriptionScreen(),
+        '/folders': (context) => const FolderSelectionScreen(),
       },
     );
   }

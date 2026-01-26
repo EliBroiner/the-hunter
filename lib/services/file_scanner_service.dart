@@ -1,10 +1,14 @@
 import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
 import 'text_extraction_service.dart';
+
+/// מפתח לשמירת תיקיות נבחרות
+const String _selectedFoldersKey = 'selected_scan_folders';
 
 /// מקור סריקה - מייצג תיקייה לסריקה
 class ScanSource {
@@ -96,7 +100,7 @@ class FileScannerService {
     return '';
   }
 
-  /// מחזיר רשימת מקורות סריקה לפי פלטפורמה
+  /// מחזיר רשימת מקורות סריקה לפי פלטפורמה (סינכרוני - ברירת מחדל)
   List<ScanSource> getScanSources() {
     final base = basePath;
     if (base.isEmpty) return [];
@@ -108,10 +112,6 @@ class FileScannerService {
         ScanSource(name: 'DCIM', path: '$base/DCIM', exists: false),
         ScanSource(name: 'Screenshots', path: '$base/DCIM/Screenshots', exists: false),
         ScanSource(name: 'Pictures', path: '$base/Pictures', exists: false),
-        // TODO: Messaging apps disabled temporarily for faster development
-        // ScanSource(name: 'WhatsApp Media', path: '$base/Android/media/com.whatsapp/WhatsApp/Media', exists: false),
-        // ScanSource(name: 'WhatsApp Images', path: '$base/WhatsApp/Media/WhatsApp Images', exists: false),
-        // ScanSource(name: 'Telegram', path: '$base/Telegram', exists: false),
       ];
     } else {
       // Linux / macOS / Windows
@@ -123,6 +123,31 @@ class FileScannerService {
         ScanSource(name: 'Desktop', path: '$base${separator}Desktop', exists: false),
       ];
     }
+  }
+  
+  /// מחזיר רשימת מקורות סריקה מותאמות אישית (אסינכרוני)
+  Future<List<ScanSource>> getCustomScanSources() async {
+    final base = basePath;
+    if (base.isEmpty) return [];
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final customPaths = prefs.getStringList(_selectedFoldersKey);
+      
+      if (customPaths != null && customPaths.isNotEmpty) {
+        appLog('FileScannerService: Using ${customPaths.length} custom folders');
+        return customPaths.map((path) {
+          // חילוץ שם מהנתיב
+          final name = path.split('/').last;
+          return ScanSource(name: name, path: path, exists: false);
+        }).toList();
+      }
+    } catch (e) {
+      appLog('FileScannerService: Error loading custom folders: $e');
+    }
+    
+    // ברירת מחדל
+    return getScanSources();
   }
 
   /// בודק אילו מקורות קיימים
@@ -264,7 +289,8 @@ class FileScannerService {
       }
     }
 
-    final sources = getScanSources();
+    // שימוש בתיקיות מותאמות אישית אם קיימות
+    final sources = await getCustomScanSources();
     final scannedSources = <ScanSource>[];
     final allFiles = <FileMetadata>[];
     int currentSource = 0;
@@ -325,7 +351,8 @@ class FileScannerService {
       }
     }
 
-    final sources = getScanSources();
+    // שימוש בתיקיות מותאמות אישית אם קיימות
+    final sources = await getCustomScanSources();
     final scannedSources = <ScanSource>[];
     final allNewFiles = <FileMetadata>[];
     int currentSource = 0;
@@ -405,7 +432,8 @@ class FileScannerService {
 
     onStatus?.call('סורק קבצים...');
     
-    final sources = getScanSources();
+    // שימוש בתיקיות מותאמות אישית אם קיימות
+    final sources = await getCustomScanSources();
     final scannedSources = <ScanSource>[];
     final allFiles = <FileMetadata>[];
     int currentSource = 0;

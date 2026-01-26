@@ -344,6 +344,32 @@ class _SearchScreenState extends State<SearchScreen> {
     _currentQuery = _searchController.text;
     _updateSearchStream();
   }
+  
+  /// רענון בגרירה למטה
+  Future<void> _onRefresh() async {
+    // רענון הסטרים
+    _updateSearchStream();
+    
+    // המתנה קצרה לתחושת רענון
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.refresh, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              const Text('התוצאות עודכנו'),
+            ],
+          ),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E1E3F),
+        ),
+      );
+    }
+  }
 
   /// פותח קובץ
   Future<void> _openFile(FileMetadata file) async {
@@ -1672,8 +1698,6 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(width: 10),
           _buildModernFilterChip('PDF', LocalFilter.pdfs, Icons.picture_as_pdf),
           const SizedBox(width: 10),
-          _buildModernFilterChip('WhatsApp', LocalFilter.whatsapp, Icons.chat_bubble),
-          const SizedBox(width: 10),
           _buildModernFilterChip('עם טקסט', LocalFilter.withText, Icons.text_snippet),
         ],
       ),
@@ -1951,16 +1975,21 @@ class _SearchScreenState extends State<SearchScreen> {
                 ],
               ),
             ),
-            // רשימת תוצאות
+            // רשימת תוצאות עם Pull to Refresh
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                itemCount: results.length,
-                itemBuilder: (context, index) {
-                  final file = results[index];
-                  return _buildResultItem(file);
-                },
+              child: RefreshIndicator(
+                onRefresh: _onRefresh,
+                color: theme.colorScheme.primary,
+                backgroundColor: theme.colorScheme.surface,
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: results.length,
+                  itemBuilder: (context, index) {
+                    final file = results[index];
+                    return _buildResultItem(file);
+                  },
+                ),
               ),
             ),
           ],
@@ -1974,40 +2003,67 @@ class _SearchScreenState extends State<SearchScreen> {
     final theme = Theme.of(context);
     final hasSearchQuery = _searchController.text.isNotEmpty;
     final dbCount = _databaseService.getFilesCount();
+    final isFavoritesFilter = _selectedFilter == LocalFilter.favorites;
+    
+    // מצב מיוחד - מועדפים ריקים
+    if (isFavoritesFilter) {
+      return _buildEmptyFavoritesState(theme);
+    }
     
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // אייקון
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary.withValues(alpha: 0.2),
-                    theme.colorScheme.secondary.withValues(alpha: 0.2),
+            // אנימציית אייקון
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.8, end: 1.0),
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.elasticOut,
+              builder: (context, scale, child) {
+                return Transform.scale(scale: scale, child: child);
+              },
+              child: Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: hasSearchQuery 
+                        ? [Colors.grey.shade800, Colors.grey.shade700]
+                        : [
+                            theme.colorScheme.primary.withValues(alpha: 0.2),
+                            theme.colorScheme.secondary.withValues(alpha: 0.2),
+                          ],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: hasSearchQuery ? null : [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
                   ],
                 ),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                hasSearchQuery ? Icons.search_off : (dbCount == 0 ? Icons.folder_off : Icons.search),
-                size: 64,
-                color: hasSearchQuery ? Colors.grey : theme.colorScheme.primary,
+                child: Icon(
+                  hasSearchQuery 
+                      ? Icons.search_off_rounded 
+                      : (dbCount == 0 ? Icons.folder_open_rounded : Icons.search_rounded),
+                  size: 56,
+                  color: hasSearchQuery ? Colors.grey.shade400 : theme.colorScheme.primary,
+                ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             
             // כותרת
             Text(
               hasSearchQuery 
                   ? 'לא נמצאו תוצאות' 
-                  : (dbCount == 0 ? 'אין קבצים במסד' : 'מוכן לחיפוש'),
+                  : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?'),
               style: theme.textTheme.headlineSmall?.copyWith(
-                color: hasSearchQuery ? Colors.grey : null,
+                color: hasSearchQuery ? Colors.grey.shade400 : null,
                 fontWeight: FontWeight.bold,
               ),
               textAlign: TextAlign.center,
@@ -2017,43 +2073,164 @@ class _SearchScreenState extends State<SearchScreen> {
             // תיאור
             Text(
               hasSearchQuery
-                  ? 'נסה לחפש משהו אחר או שנה את הפילטר'
+                  ? 'נסה מילים אחרות או בדוק את האיות'
                   : (dbCount == 0 
-                      ? 'עבור לטאב סריקה ולחץ "סרוק הכל"' 
-                      : 'חפש קבלות, צילומי מסך או מסמכים'),
+                      ? 'הקבצים שלך נסרקים ברקע...' 
+                      : 'חפש בשפה טבעית - "קבלה מאתמול", "תמונות מהחופשה"'),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey,
+                color: Colors.grey.shade500,
               ),
               textAlign: TextAlign.center,
             ),
             
-            // מידע על מסד הנתונים
-            if (!hasSearchQuery)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  'קבצים במסד: $dbCount',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey,
-                  ),
+            // טיפים לחיפוש כשאין תוצאות
+            if (hasSearchQuery) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb_outline, color: Colors.amber, size: 18),
+                        const SizedBox(width: 8),
+                        Text('טיפים', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _buildTipRow('נסה מילה באנגלית או בעברית'),
+                    _buildTipRow('חפש חלק משם הקובץ'),
+                    _buildTipRow('הסר את הפילטר הנוכחי'),
+                  ],
                 ),
               ),
+            ],
+            
+            // סטטיסטיקות
+            if (!hasSearchQuery && dbCount > 0) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.inventory_2_outlined, 
+                         color: theme.colorScheme.primary, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$dbCount קבצים מוכנים לחיפוש',
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             
             // דוגמאות חיפוש
             if (!hasSearchQuery) ...[
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
+              Text(
+                'נסה לחפש:',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
                   _buildSuggestionChip('חשבונית'),
-                  _buildSuggestionChip('שבוע'),
+                  _buildSuggestionChip('תעודת זהות'),
+                  _buildSuggestionChip('חוזה'),
                   _buildSuggestionChip('receipt'),
-                  _buildSuggestionChip('screenshot'),
                 ],
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildTipRow(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: Colors.green, size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildEmptyFavoritesState(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.amber.withValues(alpha: 0.2), Colors.orange.withValues(alpha: 0.2)],
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.star_outline_rounded, size: 56, color: Colors.amber),
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              'אין מועדפים עדיין',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'לחץ ארוך על קובץ והוסף למועדפים\nלגישה מהירה',
+              style: TextStyle(color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(() => _selectedFilter = LocalFilter.all);
+                _updateSearchStream();
+              },
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('חזרה לכל הקבצים'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.amber,
+                side: const BorderSide(color: Colors.amber),
+              ),
+            ),
           ],
         ),
       ),

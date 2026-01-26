@@ -134,8 +134,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context,
                   icon: Icons.folder,
                   title: 'תיקיות לסריקה',
-                  subtitle: 'Downloads, DCIM, Documents',
-                  onTap: () => _showComingSoon(context, 'בחירת תיקיות'),
+                  subtitle: 'לחץ לבחירת תיקיות',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () {
+                    Navigator.of(context).pushNamed('/folders');
+                  },
                 ),
                 _buildSettingsTile(
                   context,
