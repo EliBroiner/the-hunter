@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
@@ -30,6 +31,7 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
   final _databaseService = DatabaseService.instance;
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
@@ -44,6 +46,12 @@ class _SearchScreenState extends State<SearchScreen> {
   // טווח תאריכים לסינון
   DateTimeRange? _selectedDateRange;
   
+  // חיפושים אחרונים
+  static const String _recentSearchesKey = 'recent_searches';
+  static const int _maxRecentSearches = 5;
+  List<String> _recentSearches = [];
+  bool _isSearchFocused = false;
+  
   // חיפוש קולי
   final SpeechToText _speechToText = SpeechToText();
   bool _isListening = false;
@@ -55,6 +63,67 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _updateSearchStream();
     _initSpeech();
+    _loadRecentSearches();
+    
+    // מאזין לפוקוס על שדה החיפוש
+    _searchFocusNode.addListener(_onFocusChange);
+  }
+  
+  /// מטפל בשינוי פוקוס
+  void _onFocusChange() {
+    setState(() {
+      _isSearchFocused = _searchFocusNode.hasFocus;
+    });
+  }
+  
+  /// טוען חיפושים אחרונים מ-SharedPreferences
+  Future<void> _loadRecentSearches() async {
+    final prefs = await SharedPreferences.getInstance();
+    final searches = prefs.getStringList(_recentSearchesKey) ?? [];
+    if (mounted) {
+      setState(() => _recentSearches = searches);
+    }
+  }
+  
+  /// שומר חיפוש לרשימת החיפושים האחרונים
+  Future<void> _saveRecentSearch(String query) async {
+    // לא שומר שאילתות ריקות או קצרות מדי
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return;
+    
+    // מסיר כפילויות ומוסיף בתחילת הרשימה
+    _recentSearches.remove(trimmed);
+    _recentSearches.insert(0, trimmed);
+    
+    // מגביל ל-5 חיפושים אחרונים
+    if (_recentSearches.length > _maxRecentSearches) {
+      _recentSearches = _recentSearches.sublist(0, _maxRecentSearches);
+    }
+    
+    // שומר ב-SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_recentSearchesKey, _recentSearches);
+    
+    if (mounted) setState(() {});
+  }
+  
+  /// מוחק חיפוש מהרשימה
+  Future<void> _removeRecentSearch(String query) async {
+    _recentSearches.remove(query);
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_recentSearchesKey, _recentSearches);
+    
+    if (mounted) setState(() {});
+  }
+  
+  /// בוחר חיפוש מהרשימה
+  void _selectRecentSearch(String query) {
+    _searchController.text = query;
+    _currentQuery = query;
+    _updateSearchStream();
+    // מעביר את החיפוש לראש הרשימה
+    _saveRecentSearch(query);
   }
 
   /// מאתחל את מנוע הזיהוי הקולי
@@ -79,6 +148,8 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.removeListener(_onFocusChange);
+    _searchFocusNode.dispose();
     _debounceTimer?.cancel();
     _speechToText.stop();
     super.dispose();
@@ -115,6 +186,11 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _currentQuery = query;
       _updateSearchStream();
+      
+      // שומר חיפוש תקין לרשימת החיפושים האחרונים
+      if (query.trim().length >= 2) {
+        _saveRecentSearch(query);
+      }
     });
   }
 
@@ -442,6 +518,9 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showRecentSearches = _isSearchFocused && 
+        _searchController.text.isEmpty && 
+        _recentSearches.isNotEmpty;
     
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F23),
@@ -451,11 +530,17 @@ class _SearchScreenState extends State<SearchScreen> {
             // כותרת וחיפוש
             _buildSearchHeader(),
             
+            // חיפושים אחרונים (כשהשדה בפוקוס וריק)
+            if (showRecentSearches)
+              _buildRecentSearches(),
+            
             // בורר טווח תאריכים
-            _buildDateRangePicker(),
+            if (!showRecentSearches)
+              _buildDateRangePicker(),
             
             // באנר חיפוש AI חכם (פרימיום)
-            _buildSmartAISearchBanner(),
+            if (!showRecentSearches)
+              _buildSmartAISearchBanner(),
             
             // צ'יפים לסינון מהיר
             _buildFilterChips(),
@@ -463,6 +548,101 @@ class _SearchScreenState extends State<SearchScreen> {
             // תוצאות או מצב ריק
             Expanded(
               child: _buildResults(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// בונה רשימת חיפושים אחרונים
+  Widget _buildRecentSearches() {
+    final theme = Theme.of(context);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // כותרת
+          Row(
+            children: [
+              Icon(
+                Icons.history,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'חיפושים אחרונים',
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // צ'יפים של חיפושים אחרונים
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _recentSearches.map((query) {
+              return _buildRecentSearchChip(query, theme);
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// בונה צ'יפ חיפוש אחרון
+  Widget _buildRecentSearchChip(String query, ThemeData theme) {
+    return GestureDetector(
+      onTap: () => _selectRecentSearch(query),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search,
+              size: 14,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              query,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(width: 6),
+            // כפתור מחיקה
+            GestureDetector(
+              onTap: () => _removeRecentSearch(query),
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.close,
+                  size: 12,
+                  color: Colors.white54,
+                ),
+              ),
             ),
           ],
         ),
@@ -708,6 +888,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: TextField(
               controller: _searchController,
+              focusNode: _searchFocusNode,
               textDirection: _isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
               decoration: InputDecoration(
                 hintText: 'חפש קבצים, תמונות, מסמכים...',
