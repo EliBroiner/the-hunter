@@ -92,7 +92,10 @@ class TextExtractionService {
     }
   }
 
-  /// ניקוי טקסט - הסרת תווים מיותרים
+  /// מקסימום תווים לשמירה - מספיק לחיפוש, לא צריך יותר
+  static const int maxTextLength = 5000; // 5K תווים מספיק לחיפוש!
+  
+  /// ניקוי טקסט - הסרת תווים מיותרים וקיצור חכם
   String _cleanupText(String text) {
     if (text.isEmpty) return '';
     
@@ -105,9 +108,18 @@ class TextExtractionService {
     // הסרת תווי בקרה
     cleaned = cleaned.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '');
     
-    // קיצור אם הטקסט ארוך מדי (מקסימום 50,000 תווים)
-    if (cleaned.length > 50000)
-      cleaned = cleaned.substring(0, 50000);
+    // קיצור חכם - שומרים התחלה + סוף (לתפוס כותרות ותוכן)
+    if (cleaned.length > maxTextLength) {
+      // 70% מההתחלה (כותרות, תוכן עניינים)
+      // 30% מהסוף (סיכומים, חתימות)
+      final startLength = (maxTextLength * 0.7).toInt();
+      final endLength = maxTextLength - startLength - 10;
+      
+      final start = cleaned.substring(0, startLength);
+      final end = cleaned.substring(cleaned.length - endLength);
+      
+      cleaned = '$start\n...\n$end';
+    }
     
     return cleaned.trim();
   }
