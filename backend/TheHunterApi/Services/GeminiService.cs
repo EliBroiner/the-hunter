@@ -15,7 +15,7 @@ public class GeminiService
     private readonly ILogger<GeminiService> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    private const string GeminiModel = "gemini-2.0-flash";
+    private const string GeminiModel = "gemini-3-flash-preview";
 
     public GeminiService(
         IHttpClientFactory httpClientFactory,
