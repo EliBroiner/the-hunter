@@ -183,9 +183,31 @@ class AutoScanManager {
     _isScanning = true;
 
     try {
+      // שלב 1: בדיקה אם יש קבצים שממתינים לעיבוד מהפעלה קודמת
+      final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+      if (pendingCount > 0) {
+        appLog('AutoScan: Found $pendingCount pending files from previous session');
+        onStatusUpdate?.call('ממשיך עיבוד קבצים ($pendingCount)...');
+        
+        _isScanning = false;
+        _isProcessing = true;
+        
+        final processResult = await FileScannerService.instance.processPendingFiles(
+          onProgress: (current, total) {
+            onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
+          },
+        );
+        
+        appLog('AutoScan: Resumed processing complete - ${processResult.filesWithText} files with text');
+        onProcessComplete?.call(processResult);
+        
+        _isProcessing = false;
+        _isScanning = true;
+      }
+      
+      // שלב 2: סריקה לקבצים חדשים
       onStatusUpdate?.call('סורק תיקיות...');
       
-      // סריקה חכמה - רק קבצים חדשים
       final result = await FileScannerService.instance.scanNewFilesOnly(
         runCleanup: true,
       );
@@ -193,17 +215,38 @@ class AutoScanManager {
       appLog('AutoScan: Scan complete - ${result.newFilesAdded} new files');
       onScanComplete?.call(result);
       
+      // שלב 3: עיבוד קבצים חדשים (אם יש)
       if (result.success && result.newFilesAdded > 0) {
-        // עיבוד טקסט (OCR + PDF + TXT) ברקע
         _isScanning = false;
         _isProcessing = true;
-        onStatusUpdate?.call('מחלץ טקסט מקבצים...');
+        onStatusUpdate?.call('מחלץ טקסט מקבצים חדשים...');
         
-        final processResult = await FileScannerService.instance.processPendingFiles();
+        final processResult = await FileScannerService.instance.processPendingFiles(
+          onProgress: (current, total) {
+            onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
+          },
+        );
+        
         appLog('AutoScan: Processing complete - ${processResult.filesWithText} files with text');
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
       } else {
+        // בדיקה אחרונה - אולי יש עוד קבצים ממתינים
+        final stillPending = DatabaseService.instance.getAllPendingFiles().length;
+        if (stillPending > 0) {
+          appLog('AutoScan: Still $stillPending files pending, processing...');
+          _isScanning = false;
+          _isProcessing = true;
+          onStatusUpdate?.call('מסיים עיבוד קבצים ($stillPending)...');
+          
+          final processResult = await FileScannerService.instance.processPendingFiles(
+            onProgress: (current, total) {
+              onStatusUpdate?.call('מחלץ טקסט... ($current/$total)');
+            },
+          );
+          
+          onProcessComplete?.call(processResult);
+        }
         onStatusUpdate?.call('');
       }
     } catch (e, stack) {
