@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -50,7 +51,9 @@ class InitializationManager {
     try {
       // שלב 1: Firebase (חובה לאימות)
       onStatusUpdate?.call('מאתחל Firebase...');
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
       appLog('Init: Firebase initialized');
       
       // שלב 2: מסד נתונים (Isar)
