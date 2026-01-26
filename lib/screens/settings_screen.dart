@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 
 /// מסך הגדרות
@@ -88,9 +89,9 @@ class SettingsScreen extends StatelessWidget {
                 _buildSettingsTile(
                   context,
                   icon: Icons.info_outline,
-                  title: 'גרסה',
-                  subtitle: '1.0.0',
-                  onTap: () {},
+                  title: 'אודות האפליקציה',
+                  subtitle: 'גרסה ומידע',
+                  onTap: () => _showAboutSheet(context),
                 ),
               ],
             ),
@@ -306,6 +307,196 @@ class SettingsScreen extends StatelessWidget {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     }
+  }
+  
+  /// מציג bottom sheet עם מידע על האפליקציה
+  Future<void> _showAboutSheet(BuildContext context) async {
+    final theme = Theme.of(context);
+    
+    // קבלת מידע על הגרסה
+    String version = '1.0.0';
+    String buildNumber = '1';
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      version = packageInfo.version;
+      buildNumber = packageInfo.buildNumber;
+    } catch (_) {
+      // אם נכשל, נשתמש בברירת מחדל
+    }
+    
+    if (!context.mounted) return;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ידית למשיכה
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade600,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            
+            // אייקון האפליקציה
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    theme.colorScheme.primary,
+                    theme.colorScheme.secondary,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.search,
+                color: Colors.white,
+                size: 40,
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // שם האפליקציה
+            Text(
+              'The Hunter',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            // גרסה
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'גרסה $version ($buildNumber)',
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            
+            // תיאור
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F23),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.format_quote,
+                    color: theme.colorScheme.secondary,
+                    size: 24,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'The ultimate local file search tool tailored for efficiency.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'כלי החיפוש המקומי המושלם, מותאם ליעילות מקסימלית.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // קרדיט למפתח
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.code,
+                  size: 16,
+                  color: Colors.grey.shade500,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Developed with ❤️ by Eli Broiner',
+                  style: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
+            // כפתור סגירה
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'סגור',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+            
+            // רווח תחתון לבטיחות
+            SizedBox(height: MediaQuery.of(context).padding.bottom),
+          ],
+        ),
+      ),
+    );
   }
 
   /// בונה סקשן הגדרות

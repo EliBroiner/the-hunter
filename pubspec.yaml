@@ -47,6 +47,9 @@ dependencies:
   
   # Shared Preferences - שמירת הגדרות מקומיות
   shared_preferences: ^2.3.5
+  
+  # Package Info Plus - מידע על האפליקציה
+  package_info_plus: ^8.3.0
 
 dev_dependencies:
   flutter_test:
