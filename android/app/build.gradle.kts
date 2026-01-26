@@ -8,10 +8,24 @@ plugins {
 }
 
 // קריאת משתני סביבה לחתימה
-val keystorePath: String? = System.getenv("KEYSTORE_PATH")
-val keystorePassword: String? = System.getenv("KEYSTORE_PASSWORD")
-val keyAlias: String? = System.getenv("KEY_ALIAS")
-val keyPassword: String? = System.getenv("KEY_PASSWORD")
+val envKeystorePath: String? = System.getenv("KEYSTORE_PATH")
+val envKeystorePassword: String? = System.getenv("KEYSTORE_PASSWORD")
+val envKeyAlias: String? = System.getenv("KEY_ALIAS")
+val envKeyPassword: String? = System.getenv("KEY_PASSWORD")
+
+// בדיקה אם כל המשתנים קיימים
+val hasSigningConfig = envKeystorePath != null && 
+                       envKeystorePassword != null && 
+                       envKeyAlias != null && 
+                       envKeyPassword != null
+
+// Debug output
+println("🔐 Signing Config Check:")
+println("   KEYSTORE_PATH: ${if (envKeystorePath != null) "SET" else "NOT SET"}")
+println("   KEYSTORE_PASSWORD: ${if (envKeystorePassword != null) "SET" else "NOT SET"}")
+println("   KEY_ALIAS: ${if (envKeyAlias != null) "SET" else "NOT SET"}")
+println("   KEY_PASSWORD: ${if (envKeyPassword != null) "SET" else "NOT SET"}")
+println("   Using release signing: $hasSigningConfig")
 
 android {
     namespace = "com.thehunter.the_hunter"
@@ -37,23 +51,22 @@ android {
 
     // הגדרת חתימות
     signingConfigs {
-        // חתימת Release - משתמש ב-keystore אם קיים
-        if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
+        if (hasSigningConfig) {
             create("release") {
-                storeFile = file(keystorePath)
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+                storeFile = file(envKeystorePath!!)
+                storePassword = envKeystorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
             }
         }
     }
 
     buildTypes {
         release {
-            // אם יש signing config מותאם - השתמש בו, אחרת debug
-            signingConfig = if (keystorePath != null) {
+            signingConfig = if (hasSigningConfig) {
                 signingConfigs.getByName("release")
             } else {
+                println("⚠️ Using debug signing config for release build")
                 signingConfigs.getByName("debug")
             }
             isMinifyEnabled = true
