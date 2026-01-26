@@ -7,9 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
+import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
+import '../services/smart_search_filter.dart';
+import '../services/smart_search_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -35,6 +39,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final _databaseService = DatabaseService.instance;
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
+  final _smartSearchService = SmartSearchService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
   Timer? _debounceTimer;
@@ -57,6 +62,11 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isListening = false;
   bool _speechEnabled = false;
   String _selectedLocale = 'he-IL'; // ברירת מחדל עברית
+  
+  // חיפוש חכם (AI)
+  bool _isSmartSearching = false;
+  bool _isSmartSearchActive = false;
+  SearchIntent? _lastSmartIntent;
 
   @override
   void initState() {
@@ -1147,10 +1157,84 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  /// מבצע חיפוש חכם עם AI
+  Future<void> _performSmartSearch() async {
+    final query = _currentQuery.trim();
+    if (query.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('הקלד לפחות 2 תווים לחיפוש חכם'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSmartSearching = true);
+
+    try {
+      appLog('SmartSearch: Starting for query: "$query"');
+      
+      final intent = await _smartSearchService.parseSearchQuery(query);
+
+      if (intent != null && intent.hasContent) {
+        appLog('SmartSearch: Got intent - $intent');
+        
+        // קבלת כל הקבצים וסינון לפי intent
+        final baseStream = _databaseService.watchSearch(
+          query: '', // לא משתמשים בחיפוש רגיל
+          filter: SearchFilter.all,
+        );
+
+        setState(() {
+          _isSmartSearchActive = true;
+          _lastSmartIntent = intent;
+          _searchStream = baseStream.map((files) {
+            return SmartSearchFilter.filterFiles(files, intent);
+          });
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text('חיפוש חכם: ${intent.terms.join(", ")}'),
+              ],
+            ),
+            backgroundColor: Colors.purple.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        appLog('SmartSearch: No intent returned, falling back to regular search');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('לא הצלחתי להבין את החיפוש, נסה ניסוח אחר'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      appLog('SmartSearch ERROR: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('שגיאה בחיפוש חכם: $e'),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      setState(() => _isSmartSearching = false);
+    }
+  }
+
   /// בונה באנר חיפוש AI חכם
   Widget _buildSmartAISearchBanner() {
     final theme = Theme.of(context);
     final isPremium = _settingsService.isPremium;
+    final hasQuery = _currentQuery.trim().length >= 2;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -1158,27 +1242,42 @@ class _SearchScreenState extends State<SearchScreen> {
         onTap: () {
           if (!isPremium) {
             _showPremiumUpgradeMessage('חיפוש AI חכם');
+          } else if (_isSmartSearching) {
+            // כבר בחיפוש
+          } else if (hasQuery) {
+            _performSmartSearch();
           } else {
-            // TODO: הפעלת חיפוש AI
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('הקלד משהו לחיפוש'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           }
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            gradient: isPremium
-                ? LinearGradient(
-                    colors: [
-                      theme.colorScheme.primary.withValues(alpha: 0.3),
-                      theme.colorScheme.secondary.withValues(alpha: 0.3),
-                    ],
+            gradient: _isSmartSearchActive
+                ? const LinearGradient(
+                    colors: [Colors.purple, Colors.blue],
                   )
-                : null,
+                : (isPremium
+                    ? LinearGradient(
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.3),
+                          theme.colorScheme.secondary.withValues(alpha: 0.3),
+                        ],
+                      )
+                    : null),
             color: isPremium ? null : theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isPremium 
-                  ? Colors.transparent 
-                  : Colors.amber.withValues(alpha: 0.5),
+              color: _isSmartSearchActive
+                  ? Colors.transparent
+                  : (isPremium 
+                      ? Colors.transparent 
+                      : Colors.amber.withValues(alpha: 0.5)),
             ),
           ),
           child: Row(
@@ -1186,12 +1285,28 @@ class _SearchScreenState extends State<SearchScreen> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Colors.purple, Colors.blue],
-                  ),
+                  gradient: _isSmartSearchActive
+                      ? null
+                      : const LinearGradient(
+                          colors: [Colors.purple, Colors.blue],
+                        ),
+                  color: _isSmartSearchActive ? Colors.white.withValues(alpha: 0.2) : null,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+                child: _isSmartSearching
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(
+                        Icons.auto_awesome,
+                        size: 16,
+                        color: _isSmartSearchActive ? Colors.white : Colors.white,
+                      ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1200,11 +1315,12 @@ class _SearchScreenState extends State<SearchScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text(
-                          'חיפוש AI חכם',
+                        Text(
+                          _isSmartSearchActive ? 'חיפוש חכם פעיל' : 'חיפוש AI חכם',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
+                            color: _isSmartSearchActive ? Colors.white : null,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1225,22 +1341,54 @@ class _SearchScreenState extends State<SearchScreen> {
                             ),
                           ),
                         ],
+                        if (_isSmartSearchActive) ...[
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isSmartSearchActive = false;
+                                _lastSmartIntent = null;
+                              });
+                              _updateSearchStream();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'ביטול',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     Text(
-                      'חפש בשפה טבעית עם בינה מלאכותית',
+                      _isSmartSearchActive
+                          ? 'מציג תוצאות לפי AI'
+                          : 'חפש בשפה טבעית עם בינה מלאכותית',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.grey.shade400,
+                        color: _isSmartSearchActive 
+                            ? Colors.white.withValues(alpha: 0.8)
+                            : Colors.grey.shade400,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_left,
-                color: isPremium ? theme.colorScheme.primary : Colors.amber,
-              ),
+              if (!_isSmartSearchActive)
+                Icon(
+                  Icons.chevron_left,
+                  color: isPremium ? theme.colorScheme.primary : Colors.amber,
+                ),
             ],
           ),
         ),
