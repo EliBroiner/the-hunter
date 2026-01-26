@@ -2,7 +2,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 // קריאת PORT מ-environment variables (ברירת מחדל: 8080 עבור Cloud Run)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // קריאת GEMINI_API_KEY מ-environment variables (אופציונלי - יתריע אם חסר)
 var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
@@ -52,12 +51,12 @@ app.MapGet("/", () => new {
     time = DateTime.UtcNow 
 });
 
-// Swagger UI (גם ב-Production עבור בדיקות)
+// Swagger UI בנתיב /swagger
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "The Hunter API v1");
-    options.RoutePrefix = string.Empty; // Swagger בנתיב הראשי
+    options.RoutePrefix = "swagger"; // Swagger בנתיב /swagger
 });
 
 app.UseCors();
