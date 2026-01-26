@@ -13,27 +13,53 @@ public class SearchController : ControllerBase
     private readonly GeminiConfig _geminiConfig;
     private readonly ILogger<SearchController> _logger;
 
-    private const string SystemPrompt = """
-        You are The Hunter, a file search assistant. 
-        The user asks in natural language what file they are looking for.
-        You must analyze their intent and output ONLY a valid JSON object with no markdown formatting, no code blocks, no extra text.
-        
-        Output format:
-        {
-            "terms": ["keyword1", "keyword2"],
-            "fileTypes": ["pdf", "jpg"],
-            "dateRange": {
-                "start": "2024-01-01",
-                "end": "2024-12-31"
-            }
-        }
-        
-        Rules:
-        - "terms": Extract search keywords from the query. Include synonyms if relevant.
-        - "fileTypes": If user mentions documents, use ["pdf", "doc", "docx"]. For images: ["jpg", "jpeg", "png"]. For receipts: ["pdf", "jpg", "png"]. Leave empty [] if not specified.
-        - "dateRange": If user says "last week", calculate actual dates. If "yesterday", use that date. If no time mentioned, set to null.
-        - Output ONLY the JSON. No explanations, no markdown, no code fences.
-        """;
+    // פרומפט דינמי - מוזרק עם התאריך הנוכחי
+    private static string GetSystemPrompt()
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        return $"""
+            You are a query parser for a file search engine. Today is {today}.
+            
+            Your task: Parse the user's natural language query into a structured JSON object.
+            Output ONLY valid JSON - no markdown, no code blocks, no explanations.
+            
+            Output format:
+            {{
+                "terms": ["keyword1", "keyword2"],
+                "fileTypes": ["pdf", "jpg"],
+                "dateRange": {{
+                    "start": "2024-01-01",
+                    "end": "2024-12-31"
+                }}
+            }}
+            
+            Rules:
+            1. "terms": Extract SPECIFIC keywords only (names, content, subjects).
+               - DO NOT include generic words: 'file', 'photo', 'image', 'document', 'search', 'find', 'show', 'get'.
+               - Include proper nouns, specific topics, or content descriptions.
+               - If user says "photos from the beach" -> terms: ["beach"]
+               - If user says "invoice from Amazon" -> terms: ["invoice", "Amazon"]
+            
+            2. "fileTypes": Map user intent to file extensions:
+               - "photos/pictures/images" -> ["jpg", "jpeg", "png", "heic", "webp"]
+               - "documents/docs" -> ["pdf", "doc", "docx"]
+               - "excel/spreadsheet" -> ["xlsx", "xls", "csv"]
+               - "video/videos" -> ["mp4", "mov", "avi", "mkv"]
+               - "receipts/invoices" -> ["pdf", "jpg", "png"]
+               - "presentations" -> ["pptx", "ppt"]
+               - If no file type implied -> []
+            
+            3. "dateRange": Convert ALL relative dates to EXACT ISO 8601 format (yyyy-MM-dd):
+               - "yesterday" -> start: {today} minus 1 day, end: {today} minus 1 day
+               - "last week" -> start: {today} minus 7 days, end: {today}
+               - "last month" -> start: {today} minus 30 days, end: {today}
+               - "this week" -> start: Monday of current week, end: {today}
+               - "last year" -> start: {today} minus 365 days, end: {today}
+               - If no time reference -> dateRange: null
+            
+            4. Output pure JSON only. No explanations before or after.
+            """;
+    }
 
     public SearchController(
         IHttpClientFactory httpClientFactory,
@@ -83,7 +109,7 @@ public class SearchController : ControllerBase
                     {
                         Parts = new List<GeminiPart>
                         {
-                            new GeminiPart { Text = SystemPrompt },
+                            new GeminiPart { Text = GetSystemPrompt() },
                             new GeminiPart { Text = $"User query: {request.Query}" }
                         }
                     }
