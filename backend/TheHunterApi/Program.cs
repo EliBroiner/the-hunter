@@ -60,7 +60,10 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
 Console.WriteLine($"🚀 The Hunter API is running on port {port}");
-app.Run();
+// קריאת הפורט שגוגל נותן לנו, או ברירת מחדל 8080
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+// הקשבה לכל הכתובות (0.0.0.0) בפורט הנכון - קריטי לענן!
+app.Run($"http://0.0.0.0:{port}");
 
 /// <summary>
 /// הגדרות Gemini API
