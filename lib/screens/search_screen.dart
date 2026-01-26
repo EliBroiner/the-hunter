@@ -927,7 +927,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              // TODO: פתיחת מסך שדרוג
+              Navigator.pushNamed(context, '/subscription');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
+import 'screens/subscription_screen.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/file_scanner_service.dart';
@@ -184,6 +185,9 @@ class TheHunterApp extends StatelessWidget {
         ),
       ),
       home: const AuthWrapper(),
+      routes: {
+        '/subscription': (context) => const SubscriptionScreen(),
+      },
     );
   }
 }
