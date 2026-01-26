@@ -85,8 +85,11 @@ class BackupService {
   final _databaseService = DatabaseService.instance;
   final _settingsService = SettingsService.instance;
   
-  // הגדרות גיבוי אוטומטי
+  // הגדרות גיבוי אוטומטי וחכם
   static const String _lastBackupKey = 'last_backup_timestamp';
+  static const String _lastBackupFilesCountKey = 'last_backup_files_count';
+  static const String _lastBackupFilesWithTextKey = 'last_backup_files_with_text';
+  static const String _lastBackupChecksumKey = 'last_backup_checksum';
   static const String _autoBackupEnabledKey = 'auto_backup_enabled';
   static const Duration autoBackupInterval = Duration(hours: 24); // גיבוי כל 24 שעות
 
@@ -122,11 +125,6 @@ class BackupService {
     return now.difference(lastBackupTime) > autoBackupInterval;
   }
   
-  /// שומר את זמן הגיבוי האחרון
-  Future<void> _saveLastBackupTime() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_lastBackupKey, DateTime.now().millisecondsSinceEpoch);
-  }
   
   /// מפעיל/מכבה גיבוי אוטומטי
   Future<void> setAutoBackupEnabled(bool enabled) async {
@@ -140,9 +138,10 @@ class BackupService {
     return prefs.getBool(_autoBackupEnabledKey) ?? true;
   }
 
-  /// מגבה את מסד הנתונים לענן
+  /// מגבה את מסד הנתונים לענן - גיבוי מלא
   Future<BackupResult> backupToCloud({
     Function(double progress)? onProgress,
+    bool force = false,
   }) async {
     if (!isAvailable) {
       return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
@@ -163,7 +162,7 @@ class BackupService {
 
       // המרה ל-JSON
       final backupData = {
-        'version': 1,
+        'version': 2, // גרסה 2 - תומך בגיבוי חכם
         'date': DateTime.now().toIso8601String(),
         'filesCount': files.length,
         'files': files.map((f) => _fileToJson(f)).toList(),
@@ -179,6 +178,9 @@ class BackupService {
       final filesWithText = files.where((f) => 
         f.extractedText != null && f.extractedText!.isNotEmpty
       ).length;
+      
+      // חישוב checksum לזיהוי שינויים
+      final checksum = _calculateChecksum(files);
 
       // העלאה ל-Firebase Storage
       final ref = _storage.ref(_backupPath);
@@ -190,6 +192,8 @@ class BackupService {
             'filesCount': files.length.toString(),
             'filesWithText': filesWithText.toString(),
             'backupDate': DateTime.now().toIso8601String(),
+            'checksum': checksum,
+            'sizeBytes': bytes.length.toString(),
           },
         ),
       );
@@ -202,8 +206,8 @@ class BackupService {
 
       await uploadTask;
       
-      // שמירת זמן הגיבוי האחרון
-      await _saveLastBackupTime();
+      // שמירת זמן וחתימה של הגיבוי האחרון
+      await _saveLastBackupInfo(files.length, filesWithText, checksum);
 
       appLog('Backup: Upload complete!');
       onProgress?.call(1.0);
@@ -219,14 +223,288 @@ class BackupService {
     }
   }
   
-  /// גיבוי אוטומטי (רץ ברקע אם צריך)
+  /// גיבוי חכם - מעלה רק אם יש שינויים משמעותיים
+  Future<BackupResult> smartBackup({
+    Function(double progress)? onProgress,
+  }) async {
+    if (!isAvailable) {
+      return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
+    }
+
+    try {
+      appLog('SmartBackup: Checking for changes...');
+      onProgress?.call(0.1);
+
+      // קבלת מצב נוכחי
+      final files = _databaseService.getAllFiles();
+      if (files.isEmpty) {
+        return BackupResult.failure('אין קבצים לגיבוי');
+      }
+
+      final currentCount = files.length;
+      final currentWithText = files.where((f) => 
+        f.extractedText != null && f.extractedText!.isNotEmpty
+      ).length;
+      final currentChecksum = _calculateChecksum(files);
+
+      // קבלת מידע על הגיבוי האחרון
+      final prefs = await SharedPreferences.getInstance();
+      final lastCount = prefs.getInt(_lastBackupFilesCountKey) ?? 0;
+      final lastWithText = prefs.getInt(_lastBackupFilesWithTextKey) ?? 0;
+      final lastChecksum = prefs.getString(_lastBackupChecksumKey) ?? '';
+
+      onProgress?.call(0.3);
+
+      // בדיקה אם יש שינויים
+      final hasChanges = _hasSignificantChanges(
+        currentCount: currentCount,
+        currentWithText: currentWithText,
+        currentChecksum: currentChecksum,
+        lastCount: lastCount,
+        lastWithText: lastWithText,
+        lastChecksum: lastChecksum,
+      );
+
+      if (!hasChanges) {
+        appLog('SmartBackup: No significant changes detected, skipping backup');
+        return BackupResult.success(
+          message: 'אין שינויים - הגיבוי עדכני',
+          filesCount: currentCount,
+        );
+      }
+
+      appLog('SmartBackup: Changes detected, proceeding with incremental backup');
+      onProgress?.call(0.4);
+
+      // ניסיון לגיבוי אינקרמנטלי
+      return await _incrementalBackup(
+        files: files,
+        onProgress: (p) => onProgress?.call(0.4 + (p * 0.6)),
+      );
+    } catch (e) {
+      appLog('SmartBackup ERROR: $e');
+      // fallback לגיבוי מלא
+      return backupToCloud(onProgress: onProgress);
+    }
+  }
+  
+  /// גיבוי אינקרמנטלי - מוריד גיבוי קיים, ממזג שינויים, מעלה
+  Future<BackupResult> _incrementalBackup({
+    required List<FileMetadata> files,
+    Function(double progress)? onProgress,
+  }) async {
+    try {
+      onProgress?.call(0.1);
+      
+      // ניסיון להוריד גיבוי קיים
+      Map<String, dynamic>? existingBackup;
+      try {
+        final ref = _storage.ref(_backupPath);
+        final data = await ref.getData();
+        if (data != null) {
+          final jsonString = utf8.decode(data);
+          existingBackup = jsonDecode(jsonString) as Map<String, dynamic>;
+          appLog('IncrementalBackup: Downloaded existing backup');
+        }
+      } catch (e) {
+        appLog('IncrementalBackup: No existing backup, will create new');
+      }
+
+      onProgress?.call(0.3);
+
+      // יצירת מפת הקבצים הנוכחיים
+      final currentFilesMap = <String, Map<String, dynamic>>{};
+      for (final file in files) {
+        currentFilesMap[file.path] = _fileToJson(file);
+      }
+
+      Map<String, dynamic> mergedBackup;
+      int unchangedCount = 0;
+      int updatedCount = 0;
+      int newCount = 0;
+
+      if (existingBackup != null) {
+        // מיזוג חכם
+        final existingFiles = existingBackup['files'] as List<dynamic>? ?? [];
+        final existingFilesMap = <String, Map<String, dynamic>>{};
+        
+        for (final fileJson in existingFiles) {
+          final path = fileJson['path'] as String?;
+          if (path != null) {
+            existingFilesMap[path] = fileJson as Map<String, dynamic>;
+          }
+        }
+
+        // בניית הגיבוי הממוזג
+        final mergedFiles = <Map<String, dynamic>>[];
+        
+        for (final entry in currentFilesMap.entries) {
+          final path = entry.key;
+          final currentFile = entry.value;
+          final existingFile = existingFilesMap[path];
+          
+          if (existingFile != null) {
+            // קובץ קיים - בדוק אם השתנה
+            final currentText = currentFile['extractedText'] as String? ?? '';
+            final existingText = existingFile['extractedText'] as String? ?? '';
+            final currentIndexed = currentFile['isIndexed'] as bool? ?? false;
+            final existingIndexed = existingFile['isIndexed'] as bool? ?? false;
+            
+            if (currentText == existingText && currentIndexed == existingIndexed) {
+              // לא השתנה - משתמשים בקיים (חוסכים bandwidth)
+              mergedFiles.add(existingFile);
+              unchangedCount++;
+            } else {
+              // השתנה - משתמשים בחדש
+              mergedFiles.add(currentFile);
+              updatedCount++;
+            }
+          } else {
+            // קובץ חדש
+            mergedFiles.add(currentFile);
+            newCount++;
+          }
+        }
+
+        appLog('IncrementalBackup: Unchanged=$unchangedCount, Updated=$updatedCount, New=$newCount');
+
+        final filesWithText = files.where((f) => 
+          f.extractedText != null && f.extractedText!.isNotEmpty
+        ).length;
+
+        mergedBackup = {
+          'version': 2,
+          'date': DateTime.now().toIso8601String(),
+          'filesCount': mergedFiles.length,
+          'filesWithText': filesWithText,
+          'incrementalInfo': {
+            'unchanged': unchangedCount,
+            'updated': updatedCount,
+            'new': newCount,
+          },
+          'files': mergedFiles,
+        };
+      } else {
+        // אין גיבוי קיים - גיבוי מלא
+        final filesWithText = files.where((f) => 
+          f.extractedText != null && f.extractedText!.isNotEmpty
+        ).length;
+        
+        mergedBackup = {
+          'version': 2,
+          'date': DateTime.now().toIso8601String(),
+          'filesCount': files.length,
+          'filesWithText': filesWithText,
+          'files': currentFilesMap.values.toList(),
+        };
+        newCount = files.length;
+      }
+
+      onProgress?.call(0.6);
+
+      // העלאת הגיבוי הממוזג
+      final jsonString = jsonEncode(mergedBackup);
+      final bytes = utf8.encode(jsonString);
+      
+      final filesWithText = files.where((f) => 
+        f.extractedText != null && f.extractedText!.isNotEmpty
+      ).length;
+      final checksum = _calculateChecksum(files);
+
+      appLog('IncrementalBackup: Uploading ${bytes.length} bytes...');
+
+      final ref = _storage.ref(_backupPath);
+      await ref.putData(
+        bytes as dynamic,
+        SettableMetadata(
+          contentType: 'application/json',
+          customMetadata: {
+            'filesCount': files.length.toString(),
+            'filesWithText': filesWithText.toString(),
+            'backupDate': DateTime.now().toIso8601String(),
+            'checksum': checksum,
+            'sizeBytes': bytes.length.toString(),
+            'incrementalBackup': 'true',
+          },
+        ),
+      );
+
+      await _saveLastBackupInfo(files.length, filesWithText, checksum);
+
+      onProgress?.call(1.0);
+
+      final message = newCount > 0 || updatedCount > 0
+          ? 'גיבוי חכם: $newCount חדשים, $updatedCount עודכנו'
+          : 'הגיבוי עדכני';
+
+      return BackupResult.success(
+        message: message,
+        filesCount: files.length,
+        backupDate: DateTime.now(),
+      );
+    } catch (e) {
+      appLog('IncrementalBackup ERROR: $e');
+      // fallback לגיבוי מלא
+      return backupToCloud();
+    }
+  }
+  
+  /// בודק אם יש שינויים משמעותיים שמצדיקים גיבוי
+  bool _hasSignificantChanges({
+    required int currentCount,
+    required int currentWithText,
+    required String currentChecksum,
+    required int lastCount,
+    required int lastWithText,
+    required String lastChecksum,
+  }) {
+    // אם אין גיבוי קודם - צריך לגבות
+    if (lastCount == 0) return true;
+    
+    // אם ה-checksum זהה - אין שינויים
+    if (currentChecksum == lastChecksum) return false;
+    
+    // בדיקת שינויים משמעותיים
+    final countDiff = (currentCount - lastCount).abs();
+    final textDiff = (currentWithText - lastWithText).abs();
+    
+    // שינוי של יותר מ-5 קבצים או יותר מ-3 קבצים עם טקסט
+    if (countDiff >= 5) return true;
+    if (textDiff >= 3) return true;
+    
+    // שינוי של יותר מ-10% מהקבצים
+    if (lastCount > 0 && countDiff.toDouble() / lastCount > 0.1) return true;
+    
+    return false;
+  }
+  
+  /// מחשב checksum של רשימת הקבצים
+  String _calculateChecksum(List<FileMetadata> files) {
+    // checksum פשוט מבוסס על paths ו-isIndexed
+    final buffer = StringBuffer();
+    for (final file in files) {
+      buffer.write('${file.path}:${file.isIndexed}:${file.extractedText?.length ?? 0};');
+    }
+    return buffer.toString().hashCode.toRadixString(16);
+  }
+  
+  /// שומר מידע על הגיבוי האחרון
+  Future<void> _saveLastBackupInfo(int filesCount, int filesWithText, String checksum) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_lastBackupKey, DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt(_lastBackupFilesCountKey, filesCount);
+    await prefs.setInt(_lastBackupFilesWithTextKey, filesWithText);
+    await prefs.setString(_lastBackupChecksumKey, checksum);
+  }
+  
+  /// גיבוי אוטומטי חכם (רץ ברקע אם צריך)
   Future<void> runAutoBackupIfNeeded() async {
     try {
       if (await shouldAutoBackup()) {
-        appLog('AutoBackup: Starting automatic backup...');
-        final result = await backupToCloud();
+        appLog('AutoBackup: Starting smart automatic backup...');
+        final result = await smartBackup(); // משתמש בגיבוי חכם!
         if (result.success) {
-          appLog('AutoBackup: Completed - ${result.filesCount} files');
+          appLog('AutoBackup: Completed - ${result.message}');
         } else {
           appLog('AutoBackup: Failed - ${result.error}');
         }

@@ -304,14 +304,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// מבצע גיבוי
+  /// מבצע גיבוי חכם
   Future<void> _performBackup() async {
     setState(() {
       _isBackingUp = true;
       _backupProgress = 0;
     });
 
-    final result = await _backupService.backupToCloud(
+    // שימוש בגיבוי חכם - מעלה רק שינויים!
+    final result = await _backupService.smartBackup(
       onProgress: (progress) {
         if (mounted) setState(() => _backupProgress = progress);
       },
@@ -327,7 +328,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.white),
                 const SizedBox(width: 12),
-                Text('גובו ${result.filesCount} קבצים בהצלחה!'),
+                Expanded(
+                  child: Text(result.message ?? 'גובו ${result.filesCount} קבצים בהצלחה!'),
+                ),
               ],
             ),
             backgroundColor: Colors.green.shade700,
