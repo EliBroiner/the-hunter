@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'log_service.dart';
 
+import 'dart:isolate';
+
 /// שירות חילוץ טקסט מקבצי טקסט ו-PDF
 class TextExtractionService {
   static final TextExtractionService _instance = TextExtractionService._();
@@ -10,6 +12,17 @@ class TextExtractionService {
 
   /// חילוץ טקסט מקובץ לפי הסיומת
   Future<String> extractText(String filePath) async {
+    // הרצת החילוץ ב-Isolate נפרד כדי לא לחסום את ה-UI
+    try {
+      return await Isolate.run(() => _extractTextInIsolate(filePath));
+    } catch (e) {
+      appLog('TEXT_EXTRACT ISOLATE ERROR: $e');
+      return '';
+    }
+  }
+
+  /// פונקציה סטטית שרצה בתוך ה-Isolate
+  static Future<String> _extractTextInIsolate(String filePath) async {
     final extension = filePath.split('.').last.toLowerCase();
     
     try {
@@ -30,13 +43,14 @@ class TextExtractionService {
           return '';
       }
     } catch (e) {
-      appLog('TEXT_EXTRACT ERROR: $e');
+      // בתוך Isolate אין לנו גישה ל-LogService הרגיל, אז נדפיס לקונסול
+      print('TEXT_EXTRACT ERROR IN ISOLATE: $e');
       return '';
     }
   }
 
-  /// חילוץ טקסט מקובץ טקסט פשוט
-  Future<String> _extractFromTextFile(String filePath) async {
+  /// חילוץ טקסט מקובץ טקסט פשוט (סטטי לשימוש ב-Isolate)
+  static Future<String> _extractFromTextFile(String filePath) async {
     try {
       final file = File(filePath);
       if (!await file.exists()) return '';
@@ -44,7 +58,6 @@ class TextExtractionService {
       // בדיקת גודל - לא קוראים קבצים גדולים מדי
       final stat = await file.stat();
       if (stat.size > 5 * 1024 * 1024) { // מקסימום 5MB
-        appLog('TEXT_EXTRACT: File too large: ${stat.size} bytes');
         return '';
       }
       
@@ -52,21 +65,19 @@ class TextExtractionService {
       return _cleanupText(content);
     } catch (e) {
       // יתכן שהקובץ לא בקידוד UTF-8
-      appLog('TEXT_EXTRACT: Failed to read as UTF-8, trying Latin1');
       try {
         final file = File(filePath);
         final bytes = await file.readAsBytes();
         final content = String.fromCharCodes(bytes);
         return _cleanupText(content);
       } catch (e2) {
-        appLog('TEXT_EXTRACT ERROR: $e2');
         return '';
       }
     }
   }
 
-  /// חילוץ טקסט מקובץ PDF
-  Future<String> _extractFromPdf(String filePath) async {
+  /// חילוץ טקסט מקובץ PDF (סטטי לשימוש ב-Isolate)
+  static Future<String> _extractFromPdf(String filePath) async {
     try {
       final file = File(filePath);
       if (!await file.exists()) return '';
@@ -74,7 +85,6 @@ class TextExtractionService {
       // בדיקת גודל - לא קוראים קבצים גדולים מדי
       final stat = await file.stat();
       if (stat.size > 20 * 1024 * 1024) { // מקסימום 20MB
-        appLog('TEXT_EXTRACT: PDF too large: ${stat.size} bytes');
         return '';
       }
       
@@ -89,19 +99,17 @@ class TextExtractionService {
       
       return _cleanupText(text);
     } catch (e) {
-      appLog('TEXT_EXTRACT PDF ERROR: $e');
+      print('TEXT_EXTRACT PDF ERROR: $e');
       return '';
     }
   }
 
   /// מקסימום תווים לשמירה
-  /// קבצי טקסט קטנים יחסית - אפשר לשמור יותר
-  /// PDF יכול להיות ענק - מגבילים
   static const int maxTextLengthForTextFiles = 15000; // 15K לקבצי טקסט
   static const int maxTextLengthForPdf = 5000; // 5K ל-PDF
   
-  /// ניקוי טקסט - הסרת תווים מיותרים
-  String _cleanupText(String text) {
+  /// ניקוי טקסט - הסרת תווים מיותרים (סטטי)
+  static String _cleanupText(String text) {
     if (text.isEmpty) return '';
     
     // הסרת שורות ריקות מרובות
@@ -116,8 +124,8 @@ class TextExtractionService {
     return cleaned.trim();
   }
   
-  /// קיצור חכם - שומרים התחלה + סוף
-  String _limitText(String text, int maxLength) {
+  /// קיצור חכם - שומרים התחלה + סוף (סטטי)
+  static String _limitText(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     
     // 70% מההתחלה (כותרות, תוכן עניינים)

@@ -780,7 +780,8 @@ class FileScannerService {
         batchCount++;
         
         // השהיה קצרה בין קבצים כדי לתת ל-UI לנשום
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
+        // הגדלתי את ההשהיה כדי למנוע ANR במכשירים חלשים
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
         
         // השהיה ארוכה יותר בין אצוות
         if (batchCount >= batchSize) {
@@ -849,7 +850,9 @@ class FileScannerService {
 
         batchCount++;
         
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
+        // השהיה קצרה בין קבצים כדי לתת ל-UI לנשום
+        // הגדלתי את ההשהיה כדי למנוע ANR במכשירים חלשים
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
         
         if (batchCount >= batchSize) {
           batchCount = 0;
