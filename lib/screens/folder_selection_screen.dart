@@ -85,11 +85,13 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
       ),
     ];
 
-    // בדיקה אילו תיקיות קיימות
+    // בדיקה אילו תיקיות קיימות - מציגים רק קיימות
     for (final folder in folders) {
       final dir = Directory(folder.path);
       folder.exists = await dir.exists();
-      _availableFolders.add(folder);
+      if (folder.exists) {
+        _availableFolders.add(folder);
+      }
     }
 
     // הגדרת ברירת מחדל או טעינה מהשמור
@@ -226,7 +228,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                         onPressed: () {
                           setState(() {
                             _selectedPaths = _availableFolders
-                                .where((f) => f.exists && !f.isPremium)
+                                .where((f) => !f.isPremium)
                                 .map((f) => f.path)
                                 .toSet();
                           });
@@ -264,7 +266,6 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
 
   Widget _buildFolderTile(FolderOption folder, ThemeData theme) {
     final isSelected = _selectedPaths.contains(folder.path);
-    final isDisabled = !folder.exists;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -281,9 +282,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: isDisabled
-              ? null
-              : () => _toggleFolder(folder),
+          onTap: () => _toggleFolder(folder),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -294,14 +293,12 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: isDisabled
-                        ? Colors.grey.withValues(alpha: 0.2)
-                        : folder.color.withValues(alpha: 0.2),
+                    color: folder.color.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     folder.icon,
-                    color: isDisabled ? Colors.grey : folder.color,
+                    color: folder.color,
                     size: 24,
                   ),
                 ),
@@ -316,10 +313,9 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                         children: [
                           Text(
                             folder.name,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
-                              color: isDisabled ? Colors.grey : null,
                             ),
                           ),
                           if (folder.isPremium) ...[
@@ -341,24 +337,6 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                               ),
                             ),
                           ],
-                          if (!folder.exists) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'לא קיימת',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.red.shade300,
-                                ),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -374,15 +352,14 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                 ),
                 
                 // Checkbox
-                if (!isDisabled)
-                  Checkbox(
-                    value: isSelected,
-                    onChanged: (_) => _toggleFolder(folder),
-                    activeColor: folder.color,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => _toggleFolder(folder),
+                  activeColor: folder.color,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
                   ),
+                ),
               ],
             ),
           ),
