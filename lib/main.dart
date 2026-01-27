@@ -14,6 +14,7 @@ import 'services/auth_service.dart';
 import 'services/backup_service.dart';
 import 'services/database_service.dart';
 import 'services/favorites_service.dart';
+import 'services/recent_files_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
@@ -36,6 +37,7 @@ void main() async {
   await DatabaseService.instance.init();
   await SettingsService.instance.init();
   await FavoritesService.instance.init();
+  await RecentFilesService.instance.init();
   
   runApp(const TheHunterApp());
 }

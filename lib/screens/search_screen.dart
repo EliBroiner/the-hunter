@@ -10,6 +10,7 @@ import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
 import '../services/favorites_service.dart';
+import '../services/recent_files_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
@@ -403,7 +404,14 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     final result = await OpenFilex.open(file.path);
-    if (result.type != ResultType.done && mounted) {
+    if (result.type == ResultType.done) {
+      // שמירה בקבצים אחרונים
+      RecentFilesService.instance.addRecentFile(
+        path: file.path,
+        name: file.name,
+        extension: file.extension,
+      );
+    } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('לא ניתן לפתוח את הקובץ: ${result.message}'),
@@ -2170,10 +2178,168 @@ class _SearchScreenState extends State<SearchScreen> {
                 ],
               ),
             ],
+            
+            // קבצים אחרונים
+            if (!hasSearchQuery) _buildRecentFilesSection(theme),
           ],
         ),
       ),
     );
+  }
+  
+  /// בונה סקשן קבצים אחרונים
+  Widget _buildRecentFilesSection(ThemeData theme) {
+    final recentFiles = RecentFilesService.instance.recentFiles;
+    if (recentFiles.isEmpty) return const SizedBox.shrink();
+    
+    // הצגת עד 5 קבצים אחרונים
+    final filesToShow = recentFiles.take(5).toList();
+    
+    return Column(
+      children: [
+        const SizedBox(height: 32),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.history, size: 16, color: Colors.grey.shade500),
+            const SizedBox(width: 8),
+            Text(
+              'נפתחו לאחרונה',
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...filesToShow.map((recent) => _buildRecentFileItem(recent, theme)),
+      ],
+    );
+  }
+  
+  /// בונה פריט קובץ אחרון
+  Widget _buildRecentFileItem(RecentFile recent, ThemeData theme) {
+    final fileColor = _getFileColor(recent.extension);
+    
+    return GestureDetector(
+      onTap: () async {
+        final file = File(recent.path);
+        if (await file.exists()) {
+          final result = await OpenFilex.open(recent.path);
+          if (result.type != ResultType.done && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('לא ניתן לפתוח: ${result.message}'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          // הקובץ לא קיים - הסרה מהרשימה
+          RecentFilesService.instance.removeRecentFile(recent.path);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('הקובץ לא נמצא'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            setState(() {}); // רענון
+          }
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: fileColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                _getFileIcon(recent.extension),
+                size: 18,
+                color: fileColor,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    recent.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    _formatRecentTime(recent.accessedAt),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_left,
+              size: 18,
+              color: Colors.grey.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// מחזיר אייקון לפי סוג קובץ
+  IconData _getFileIcon(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'heic':
+        return Icons.image;
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc': case 'docx':
+        return Icons.description;
+      case 'xls': case 'xlsx':
+        return Icons.table_chart;
+      case 'mp4': case 'mov': case 'avi':
+        return Icons.video_file;
+      case 'mp3': case 'wav': case 'aac':
+        return Icons.audio_file;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+  
+  /// מפרמט זמן יחסי
+  String _formatRecentTime(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    
+    if (diff.inMinutes < 1) return 'עכשיו';
+    if (diff.inMinutes < 60) return 'לפני ${diff.inMinutes} דקות';
+    if (diff.inHours < 24) return 'לפני ${diff.inHours} שעות';
+    if (diff.inDays < 7) return 'לפני ${diff.inDays} ימים';
+    return '${time.day}/${time.month}/${time.year}';
   }
   
   Widget _buildTipRow(String text) {
