@@ -9,6 +9,7 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 import 'screens/folder_selection_screen.dart';
 import 'screens/duplicates_screen.dart';
 import 'screens/secure_folder_screen.dart';
+import 'screens/cloud_storage_screen.dart';
 import 'services/secure_folder_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
@@ -470,6 +471,7 @@ class TheHunterApp extends StatelessWidget {
             '/folders': (context) => const FolderSelectionScreen(),
             '/duplicates': (context) => const DuplicatesScreen(),
             '/secure': (context) => const SecureFolderScreen(),
+            '/cloud': (context) => const CloudStorageScreen(),
           },
         );
       },

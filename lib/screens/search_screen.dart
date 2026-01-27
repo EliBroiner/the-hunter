@@ -19,6 +19,7 @@ import '../services/smart_search_filter.dart';
 import '../services/smart_search_service.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
+import '../services/cloud_storage_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -931,6 +932,9 @@ class _SearchScreenState extends State<SearchScreen> {
             // תיקייה מאובטחת - פרימיום בלבד
             _buildSecureFolderActionTile(file),
             const SizedBox(height: 8),
+            // העלאה לענן - פרימיום בלבד
+            _buildCloudUploadActionTile(file),
+            const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -1533,6 +1537,164 @@ class _SearchScreenState extends State<SearchScreen> {
       if (success) {
         setState(() {});
       }
+    }
+  }
+  
+  /// בונה פריט העלאה לענן
+  Widget _buildCloudUploadActionTile(FileMetadata file) {
+    final isPremium = _settingsService.isPremium;
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          if (!isPremium) {
+            Navigator.of(context).pop();
+            _showPremiumUpgradeMessage('אחסון בענן');
+            return;
+          }
+          
+          Navigator.of(context).pop();
+          _uploadToCloud(file);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+            border: !isPremium 
+                ? Border.all(color: Colors.blue.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.cloud_upload, color: Colors.blue, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'העלה לענן',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isPremium ? null : Colors.grey,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPremium ? 'שמור העתק בענן לגישה מכל מקום' : 'שדרג לפרימיום',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (isPremium)
+                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// מעלה קובץ לענן
+  Future<void> _uploadToCloud(FileMetadata file) async {
+    final cloudService = CloudStorageService.instance;
+    
+    // בדיקת חיבור
+    if (!cloudService.hasUser) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש להתחבר לחשבון כדי להעלות לענן')),
+      );
+      return;
+    }
+    
+    // הצגת דיאלוג התקדמות
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            title: Row(
+              children: [
+                const Icon(Icons.cloud_upload, color: Colors.blue),
+                const SizedBox(width: 12),
+                const Text('מעלה לענן'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(file.name),
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+                const Text('מעלה...', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    
+    // העלאה
+    final result = await cloudService.uploadFile(
+      file.path,
+      onProgress: (progress) {
+        // עדכון התקדמות (לא נגישה ישירות אבל תופיע בקונסול)
+      },
+    );
+    
+    // סגירת הדיאלוג
+    if (mounted) Navigator.of(context).pop();
+    
+    // הודעה
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                result != null ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Text(result != null ? 'הקובץ הועלה בהצלחה' : 'שגיאה בהעלאה'),
+            ],
+          ),
+          backgroundColor: result != null ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
