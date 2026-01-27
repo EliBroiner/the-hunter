@@ -71,6 +71,10 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSmartSearching = false;
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
+  
+  // מצב בחירה מרובה
+  bool _isSelectionMode = false;
+  final Set<String> _selectedFiles = {};
 
   @override
   void initState() {
@@ -344,6 +348,134 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _selectedFilter = filter);
     _currentQuery = _searchController.text;
     _updateSearchStream();
+  }
+  
+  /// מפעיל/מכבה מצב בחירה מרובה
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelectionMode = !_isSelectionMode;
+      if (!_isSelectionMode) {
+        _selectedFiles.clear();
+      }
+    });
+  }
+  
+  /// בוחר/מבטל בחירת קובץ
+  void _toggleFileSelection(String path) {
+    setState(() {
+      if (_selectedFiles.contains(path)) {
+        _selectedFiles.remove(path);
+        // אם אין עוד קבצים נבחרים - יציאה ממצב בחירה
+        if (_selectedFiles.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedFiles.add(path);
+      }
+    });
+  }
+  
+  /// בוחר את כל הקבצים
+  void _selectAll(List<FileMetadata> files) {
+    setState(() {
+      _selectedFiles.clear();
+      _selectedFiles.addAll(files.map((f) => f.path));
+    });
+  }
+  
+  /// מבטל את כל הבחירות
+  void _clearSelection() {
+    setState(() {
+      _selectedFiles.clear();
+      _isSelectionMode = false;
+    });
+  }
+  
+  /// מוחק קבצים נבחרים
+  Future<void> _deleteSelectedFiles(List<FileMetadata> allFiles) async {
+    final selectedCount = _selectedFiles.length;
+    
+    // אישור מחיקה
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber, color: Colors.orange),
+            const SizedBox(width: 12),
+            const Text('מחיקת קבצים'),
+          ],
+        ),
+        content: Text('האם למחוק $selectedCount קבצים?\nפעולה זו בלתי הפיכה.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('ביטול'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('מחק', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    int deleted = 0;
+    int failed = 0;
+    
+    for (final path in _selectedFiles.toList()) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+          // הסרה מהמסד
+          final metadata = allFiles.firstWhere(
+            (f) => f.path == path,
+            orElse: () => FileMetadata()..path = path,
+          );
+          _databaseService.deleteFile(metadata);
+          deleted++;
+        }
+      } catch (e) {
+        failed++;
+      }
+    }
+    
+    _clearSelection();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(failed > 0 
+              ? 'נמחקו $deleted קבצים, $failed נכשלו'
+              : 'נמחקו $deleted קבצים'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  /// משתף קבצים נבחרים
+  Future<void> _shareSelectedFiles() async {
+    final files = _selectedFiles.map((path) => XFile(path)).toList();
+    
+    try {
+      await Share.shareXFiles(files);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה בשיתוף: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
   
   /// רענון בגרירה למטה
@@ -1152,31 +1284,167 @@ class _SearchScreenState extends State<SearchScreen> {
         _recentSearches.isNotEmpty;
     
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F23),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            // כותרת וחיפוש
-            _buildSearchHeader(),
+            // כותרת וחיפוש (או בר בחירה)
+            _isSelectionMode
+                ? _buildSelectionHeader(theme)
+                : _buildSearchHeader(),
             
             // חיפושים אחרונים (כשהשדה בפוקוס וריק)
-            if (showRecentSearches)
+            if (showRecentSearches && !_isSelectionMode)
               _buildRecentSearches(),
             
             // בורר טווח תאריכים
-            if (!showRecentSearches)
+            if (!showRecentSearches && !_isSelectionMode)
               _buildDateRangePicker(),
             
             // באנר חיפוש AI חכם (פרימיום)
-            if (!showRecentSearches)
+            if (!showRecentSearches && !_isSelectionMode)
               _buildSmartAISearchBanner(),
             
             // צ'יפים לסינון מהיר
-            _buildFilterChips(),
+            if (!_isSelectionMode)
+              _buildFilterChips(),
             
             // תוצאות או מצב ריק
             Expanded(
               child: _buildResults(),
+            ),
+          ],
+        ),
+      ),
+      // בר פעולות בחירה מרובה
+      bottomNavigationBar: _isSelectionMode ? _buildSelectionActionBar(theme) : null,
+    );
+  }
+  
+  /// בונה כותרת מצב בחירה
+  Widget _buildSelectionHeader(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.3),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: _clearSelection,
+            icon: const Icon(Icons.close),
+            tooltip: 'ביטול',
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${_selectedFiles.length} נבחרו',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () {
+              // בחירת הכל - צריך גישה לרשימת הקבצים
+              // יתבצע דרך StreamBuilder
+            },
+            child: Text(
+              'בחר הכל',
+              style: TextStyle(color: theme.colorScheme.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// בונה בר פעולות בחירה מרובה
+  Widget _buildSelectionActionBar(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            // שיתוף
+            _buildSelectionAction(
+              icon: Icons.share,
+              label: 'שתף',
+              onTap: _shareSelectedFiles,
+              color: theme.colorScheme.primary,
+            ),
+            // מועדפים
+            _buildSelectionAction(
+              icon: Icons.star_border,
+              label: 'מועדפים',
+              onTap: () {
+                for (final path in _selectedFiles) {
+                  _favoritesService.addFavorite(path);
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${_selectedFiles.length} קבצים נוספו למועדפים'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                _clearSelection();
+              },
+              color: Colors.amber,
+            ),
+            // מחיקה
+            _buildSelectionAction(
+              icon: Icons.delete_outline,
+              label: 'מחק',
+              onTap: () => _deleteSelectedFiles([]),
+              color: Colors.red,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// בונה כפתור פעולה בבר בחירה
+  Widget _buildSelectionAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required Color color,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 26),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -2462,26 +2730,44 @@ class _SearchScreenState extends State<SearchScreen> {
     // בדיקה אם מועדף
     final isFavorite = _favoritesService.isFavorite(file.path);
     
+    // בדיקה אם נבחר (מצב בחירה מרובה)
+    final isSelected = _selectedFiles.contains(file.path);
+    
     final fileColor = _getFileColor(file.extension);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: isSelected 
+            ? theme.colorScheme.primary.withValues(alpha: 0.15)
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isFavorite
-              ? Colors.amber.withValues(alpha: 0.5)
-              : (hasOcrMatch 
-                  ? theme.colorScheme.secondary.withValues(alpha: 0.3)
-                  : Colors.transparent),
+          color: isSelected
+              ? theme.colorScheme.primary
+              : isFavorite
+                  ? Colors.amber.withValues(alpha: 0.5)
+                  : (hasOcrMatch 
+                      ? theme.colorScheme.secondary.withValues(alpha: 0.3)
+                      : Colors.transparent),
+          width: isSelected ? 2 : 1,
         ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => _openFile(file),
-          onLongPress: () => _showFileActionsSheet(file),
+          onTap: _isSelectionMode 
+              ? () => _toggleFileSelection(file.path)
+              : () => _openFile(file),
+          onLongPress: _isSelectionMode 
+              ? null 
+              : () {
+                  // כניסה למצב בחירה בלחיצה ארוכה
+                  setState(() {
+                    _isSelectionMode = true;
+                    _selectedFiles.add(file.path);
+                  });
+                },
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -2490,6 +2776,18 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 Row(
                   children: [
+                    // Checkbox במצב בחירה
+                    if (_isSelectionMode) ...[
+                      Checkbox(
+                        value: isSelected,
+                        onChanged: (_) => _toggleFileSelection(file.path),
+                        activeColor: theme.colorScheme.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     // תמונה ממוזערת או אייקון
                     _buildFileThumbnail(file, fileColor, isWhatsApp),
                     const SizedBox(width: 14),
