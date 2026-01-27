@@ -613,7 +613,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         final file = File(path);
         final size = await file.length();
         await file.delete();
-        await _databaseService.deleteFile(path);
+        await _databaseService.deleteFileByPath(path);
         deleted++;
         freedSpace += size;
       } catch (e) {

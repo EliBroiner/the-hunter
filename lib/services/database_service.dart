@@ -507,6 +507,18 @@ class DatabaseService {
     return deleted;
   }
 
+  /// מוחק קובץ לפי נתיב
+  Future<bool> deleteFileByPath(String path) async {
+    bool deleted = false;
+    isar.write((isar) {
+      final file = isar.fileMetadatas.where().pathEqualTo(path).findFirst();
+      if (file != null) {
+        deleted = isar.fileMetadatas.delete(file.id);
+      }
+    });
+    return deleted;
+  }
+
   /// מוחק את כל הקבצים
   void clearAll() {
     isar.write((isar) {

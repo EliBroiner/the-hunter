@@ -187,7 +187,7 @@ class SecureFolderService {
         await sourceFile.delete();
         
         // הסרה מבסיס הנתונים
-        await DatabaseService.instance.deleteFile(sourcePath);
+        await DatabaseService.instance.deleteFileByPath(sourcePath);
       } else {
         await sourceFile.copy(destPath);
       }

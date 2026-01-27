@@ -442,11 +442,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (await file.exists()) {
           await file.delete();
           // הסרה מהמסד
-          final metadata = allFiles.firstWhere(
-            (f) => f.path == path,
-            orElse: () => FileMetadata()..path = path,
-          );
-          _databaseService.deleteFile(metadata);
+          await _databaseService.deleteFileByPath(path);
           deleted++;
         }
       } catch (e) {

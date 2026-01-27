@@ -198,7 +198,7 @@ class CloudStorageService {
     
     try {
       final files = await listFiles();
-      return files.fold(0, (sum, file) => sum + file.size);
+      return files.fold<int>(0, (sum, file) => sum + file.size);
     } catch (e) {
       appLog('CloudStorage: Get storage failed - $e');
       return 0;
