@@ -17,6 +17,7 @@ import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../services/smart_search_filter.dart';
 import '../services/smart_search_service.dart';
+import '../services/tags_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -923,6 +924,9 @@ class _SearchScreenState extends State<SearchScreen> {
             // מועדפים - פרימיום בלבד
             _buildFavoriteActionTile(file),
             const SizedBox(height: 8),
+            // תגיות - פרימיום בלבד
+            _buildTagsActionTile(file),
+            const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -1079,6 +1083,298 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+  
+  /// בונה פריט תגיות
+  Widget _buildTagsActionTile(FileMetadata file) {
+    final isPremium = _settingsService.isPremium;
+    final tagsService = TagsService.instance;
+    final fileTags = tagsService.getFileTags(file.path);
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (!isPremium) {
+            Navigator.of(context).pop();
+            _showPremiumUpgradeMessage('תגיות');
+            return;
+          }
+          Navigator.of(context).pop();
+          _showTagsDialog(file);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+            border: !isPremium 
+                ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.label_outline, color: Colors.purple, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'תגיות',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isPremium ? null : Colors.grey,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    if (isPremium && fileTags.isNotEmpty)
+                      Wrap(
+                        spacing: 4,
+                        children: fileTags.take(3).map((tag) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: tag.color.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            tag.name,
+                            style: TextStyle(fontSize: 10, color: tag.color),
+                          ),
+                        )).toList(),
+                      )
+                    else
+                      Text(
+                        isPremium ? 'הוסף תגיות לארגון קבצים' : 'שדרג לפרימיום',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+              if (isPremium)
+                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// מציג דיאלוג ניהול תגיות
+  void _showTagsDialog(FileMetadata file) {
+    final tagsService = TagsService.instance;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final allTags = tagsService.tags;
+          
+          return Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ידית
+                Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade600,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // כותרת
+                Row(
+                  children: [
+                    const Icon(Icons.label, color: Colors.purple),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'בחר תגיות',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _showCreateTagDialog(setModalState),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('חדשה'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // רשימת תגיות
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: allTags.map((tag) {
+                    final hasTag = tagsService.hasTag(file.path, tag.id);
+                    
+                    return GestureDetector(
+                      onTap: () async {
+                        HapticFeedback.selectionClick();
+                        await tagsService.toggleFileTag(file.path, tag.id);
+                        setModalState(() {});
+                        setState(() {});
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: hasTag 
+                              ? tag.color.withValues(alpha: 0.25)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: hasTag ? tag.color : Colors.grey.withValues(alpha: 0.3),
+                            width: hasTag ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(tag.icon, size: 16, color: tag.color),
+                            const SizedBox(width: 8),
+                            Text(
+                              tag.name,
+                              style: TextStyle(
+                                color: hasTag ? tag.color : null,
+                                fontWeight: hasTag ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                            if (hasTag) ...[
+                              const SizedBox(width: 6),
+                              Icon(Icons.check, size: 16, color: tag.color),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                
+                SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+  
+  /// מציג דיאלוג יצירת תגית חדשה
+  void _showCreateTagDialog(StateSetter setModalState) {
+    final nameController = TextEditingController();
+    Color selectedColor = Colors.purple;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          title: const Text('תגית חדשה'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'שם התגית',
+                  hintText: 'לדוגמה: מסמכים',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              const Text('בחר צבע:', style: TextStyle(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: TagsService.availableColors.map((color) {
+                  final isSelected = selectedColor == color;
+                  return GestureDetector(
+                    onTap: () => setDialogState(() => selectedColor = color),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: isSelected 
+                            ? Border.all(color: Colors.white, width: 3)
+                            : null,
+                        boxShadow: isSelected ? [
+                          BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 8),
+                        ] : null,
+                      ),
+                      child: isSelected 
+                          ? const Icon(Icons.check, color: Colors.white, size: 18)
+                          : null,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('ביטול'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                
+                final newTag = CustomTag(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: name,
+                  color: selectedColor,
+                );
+                
+                await TagsService.instance.addTag(newTag);
+                Navigator.of(context).pop();
+                setModalState(() {});
+              },
+              child: const Text('צור'),
+            ),
+          ],
         ),
       ),
     );
@@ -2753,6 +3049,9 @@ class _SearchScreenState extends State<SearchScreen> {
     // בדיקה אם נבחר (מצב בחירה מרובה)
     final isSelected = _selectedFiles.contains(file.path);
     
+    // תגיות הקובץ
+    final fileTags = TagsService.instance.getFileTags(file.path);
+    
     final fileColor = _getFileColor(file.extension);
 
     return Container(
@@ -2882,6 +3181,36 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             ],
                           ),
+                          // תגיות (אם יש)
+                          if (fileTags.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: fileTags.take(3).map((tag) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: tag.color.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: tag.color.withValues(alpha: 0.3),
+                                    width: 0.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(tag.icon, size: 10, color: tag.color),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      tag.name,
+                                      style: TextStyle(fontSize: 9, color: tag.color),
+                                    ),
+                                  ],
+                                ),
+                              )).toList(),
+                            ),
+                          ],
                         ],
                       ),
                     ),
