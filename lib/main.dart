@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'screens/folder_selection_screen.dart';
+import 'screens/duplicates_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -459,6 +460,7 @@ class TheHunterApp extends StatelessWidget {
           routes: {
             '/subscription': (context) => const SubscriptionScreen(),
             '/folders': (context) => const FolderSelectionScreen(),
+            '/duplicates': (context) => const DuplicatesScreen(),
           },
         );
       },

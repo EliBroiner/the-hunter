@@ -147,6 +147,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             _buildSettingsSection(
               context,
+              'כלים',
+              [
+                _buildDuplicatesFinderTile(context, theme, _settingsService.isPremium),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            _buildSettingsSection(
+              context,
               'אודות',
               [
                 _buildSettingsTile(
@@ -297,6 +306,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? Icon(Icons.chevron_left, color: Colors.grey.shade600)
             : null,
         onTap: !_isRestoring ? () => _showRestoreConfirmation(context) : null,
+      ),
+    );
+  }
+
+  /// בונה כרטיס מחפש כפולים
+  Widget _buildDuplicatesFinderTile(BuildContext context, ThemeData theme, bool isPremium) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: isPremium ? null : Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            gradient: isPremium 
+                ? const LinearGradient(colors: [Colors.orange, Colors.red])
+                : null,
+            color: isPremium ? null : Colors.grey.shade800,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            Icons.find_replace,
+            color: isPremium ? Colors.white : Colors.grey,
+            size: 20,
+          ),
+        ),
+        title: Row(
+          children: [
+            Text(
+              'מחפש כפולים',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: isPremium ? null : Colors.grey,
+              ),
+            ),
+            if (!isPremium) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'PRO',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          isPremium 
+              ? 'מצא ומחק קבצים כפולים לפינוי מקום'
+              : 'שדרג לפרימיום',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        trailing: isPremium 
+            ? Icon(Icons.chevron_left, color: Colors.grey.shade600)
+            : null,
+        onTap: isPremium 
+            ? () => Navigator.of(context).pushNamed('/duplicates')
+            : _showPremiumRequired,
       ),
     );
   }
