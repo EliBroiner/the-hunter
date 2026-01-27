@@ -502,30 +502,35 @@ class TheHunterApp extends StatelessWidget {
       child: ValueListenableBuilder<ThemeMode>(
         valueListenable: SettingsService.instance.themeModeNotifier,
         builder: (context, themeMode, child) {
-          return MaterialApp(
-            title: 'The Hunter',
-            debugShowCheckedModeBanner: false,
-            // תמיכה בעברית - נדרש ל-DatePicker
-            localizationsDelegates: const [
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-            supportedLocales: const [
-              Locale('he', 'IL'),
-              Locale('en', 'US'),
-            ],
-            locale: const Locale('he', 'IL'),
-            theme: lightTheme,
-            darkTheme: darkTheme,
-            themeMode: themeMode,
-            home: const AuthWrapper(),
-            routes: {
-              '/subscription': (context) => const SubscriptionScreen(),
-              '/folders': (context) => const FolderSelectionScreen(),
-              '/duplicates': (context) => const DuplicatesScreen(),
-              '/secure': (context) => const SecureFolderScreen(),
-              '/cloud': (context) => const CloudStorageScreen(),
+          return ValueListenableBuilder<Locale>(
+            valueListenable: SettingsService.instance.localeNotifier,
+            builder: (context, locale, child) {
+              return MaterialApp(
+                title: 'The Hunter',
+                debugShowCheckedModeBanner: false,
+                // תמיכה בעברית - נדרש ל-DatePicker
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                supportedLocales: const [
+                  Locale('he', 'IL'),
+                  Locale('en', 'US'),
+                ],
+                locale: locale,
+                theme: TheHunterAppTheme.lightTheme,
+                darkTheme: TheHunterAppTheme.darkTheme,
+                themeMode: themeMode,
+                home: const AuthWrapper(),
+                routes: {
+                  '/subscription': (context) => const SubscriptionScreen(),
+                  '/folders': (context) => const FolderSelectionScreen(),
+                  '/duplicates': (context) => const DuplicatesScreen(),
+                  '/secure': (context) => const SecureFolderScreen(),
+                  '/cloud': (context) => const CloudStorageScreen(),
+                },
+              );
             },
           );
         },

@@ -22,6 +22,7 @@ class SettingsService {
   // Notifiers לשינויים
   final ValueNotifier<bool> isPremiumNotifier = ValueNotifier(false);
   final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.dark);
+  final ValueNotifier<Locale> localeNotifier = ValueNotifier(const Locale('he', 'IL'));
   
   /// מאתחל את השירות
   Future<void> init() async {
@@ -31,6 +32,10 @@ class SettingsService {
     // טעינת מצב התצוגה
     final themeModeIndex = _prefs?.getInt(_keyThemeMode) ?? 2; // ברירת מחדל: dark
     themeModeNotifier.value = ThemeMode.values[themeModeIndex];
+
+    // טעינת שפה
+    final localeCode = _prefs?.getString(_keyLocale) ?? 'he';
+    localeNotifier.value = Locale(localeCode, localeCode == 'he' ? 'IL' : 'US');
   }
   
   /// האם המשתמש פרימיום
@@ -43,11 +48,12 @@ class SettingsService {
   }
   
   /// שפת הזיהוי הקולי (he-IL / en-US)
-  String get locale => _prefs?.getString(_keyLocale) ?? 'he-IL';
+  String get locale => _prefs?.getString(_keyLocale) ?? 'he';
   
-  /// מגדיר שפת זיהוי קולי
-  Future<void> setLocale(String value) async {
-    await _prefs?.setString(_keyLocale, value);
+  /// מגדיר שפת אפליקציה
+  Future<void> setLocale(String languageCode) async {
+    await _prefs?.setString(_keyLocale, languageCode);
+    localeNotifier.value = Locale(languageCode, languageCode == 'he' ? 'IL' : 'US');
   }
   
   /// מצב התצוגה (בהיר/כהה/מערכת)

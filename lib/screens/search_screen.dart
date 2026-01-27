@@ -2611,8 +2611,6 @@ class _SearchScreenState extends State<SearchScreen> {
           _buildModernFilterChip('תמונות', LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
           _buildModernFilterChip('PDF', LocalFilter.pdfs, Icons.picture_as_pdf),
-          const SizedBox(width: 10),
-          _buildModernFilterChip('עם טקסט', LocalFilter.withText, Icons.text_snippet),
         ],
       ),
     );
