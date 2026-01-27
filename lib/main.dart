@@ -41,7 +41,8 @@ void main() async {
 }
 
 /// מנהל סריקה אוטומטית ומעקב קבצים
-class AutoScanManager {
+/// תומך ב-lifecycle - עיבוד רק כשהאפליקציה ברקע
+class AutoScanManager with WidgetsBindingObserver {
   static final AutoScanManager _instance = AutoScanManager._();
   static AutoScanManager get instance => _instance;
   
@@ -50,6 +51,8 @@ class AutoScanManager {
   bool _isInitialized = false;
   bool _isScanning = false;
   bool _isProcessing = false;
+  bool _isPaused = false;  // האם העיבוד מושהה
+  bool _hasLifecycleObserver = false;
   
   /// callback כשסריקה הושלמה
   Function(ScanResult result)? onScanComplete;
@@ -68,17 +71,65 @@ class AutoScanManager {
 
   bool get isScanning => _isScanning;
   bool get isProcessing => _isProcessing;
+  bool get isPaused => _isPaused;
 
   /// מאתחל סריקה אוטומטית ומעקב (non-blocking)
   Future<void> initialize() async {
     if (_isInitialized) return;
     _isInitialized = true;
+    
+    // רישום למעקב אחר lifecycle של האפליקציה
+    if (!_hasLifecycleObserver) {
+      WidgetsBinding.instance.addObserver(this);
+      _hasLifecycleObserver = true;
+    }
 
     // הרצת סריקה ועיבוד ברקע (non-blocking)
     _runBackgroundScanAndProcess();
     
     // התחלת מעקב אחר תיקיות
     _startFileWatcher();
+  }
+  
+  /// מגיב לשינויים ב-lifecycle של האפליקציה
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // המשתמש חזר לאפליקציה - משהים עיבוד כבד
+        _isPaused = true;
+        appLog('AutoScan: Paused (app resumed)');
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+        // האפליקציה ברקע - ממשיכים עיבוד
+        _isPaused = false;
+        appLog('AutoScan: Resumed (app in background)');
+        // אם יש קבצים ממתינים, ממשיכים עיבוד
+        _resumeProcessingIfNeeded();
+        break;
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        break;
+    }
+  }
+  
+  /// ממשיך עיבוד קבצים ממתינים אם צריך
+  Future<void> _resumeProcessingIfNeeded() async {
+    if (_isProcessing || _isPaused) return;
+    
+    final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+    if (pendingCount > 0) {
+      appLog('AutoScan: Resuming processing of $pendingCount pending files');
+      _isProcessing = true;
+      
+      final result = await FileScannerService.instance.processPendingFiles(
+        shouldPause: () => _isPaused,
+      );
+      onProcessComplete?.call(result);
+      
+      _isProcessing = false;
+    }
   }
 
   /// מריץ סריקה ועיבוד ברקע
@@ -119,7 +170,9 @@ class AutoScanManager {
             _isProcessing = true;
             onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים חדשים...');
             
-            final processResult = await FileScannerService.instance.processPendingFiles();
+            final processResult = await FileScannerService.instance.processPendingFiles(
+              shouldPause: () => _isPaused,
+            );
             onProcessComplete?.call(processResult);
           }
           
@@ -140,13 +193,18 @@ class AutoScanManager {
       
       onScanComplete?.call(result);
       
-      if (result.success && result.newFilesAdded > 0) {
-        // עיבוד טקסט (OCR + PDF + TXT) ברקע
+      // עיבוד קבצים ממתינים - תמיד! גם אם לא נוספו קבצים חדשים
+      // זה מבטיח המשכיות אחרי הפעלה מחדש של האפליקציה
+      final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+      
+      if (pendingCount > 0) {
         _isScanning = false;
         _isProcessing = true;
-        onStatusUpdate?.call('מחלץ טקסט מקבצים...');
+        onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים...');
         
-        final processResult = await FileScannerService.instance.processPendingFiles();
+        final processResult = await FileScannerService.instance.processPendingFiles(
+          shouldPause: () => _isPaused,
+        );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
         
@@ -154,7 +212,6 @@ class AutoScanManager {
         _runAutoBackupIfNeeded();
       } else {
         onStatusUpdate?.call('');
-        // גיבוי אוטומטי גם אם לא היו קבצים חדשים
         _runAutoBackupIfNeeded();
       }
     } finally {
@@ -207,7 +264,9 @@ class AutoScanManager {
         _isProcessing = true;
         onStatusUpdate?.call('מחלץ טקסט...');
         
-        final processResult = await FileScannerService.instance.processPendingFiles();
+        final processResult = await FileScannerService.instance.processPendingFiles(
+          shouldPause: () => _isPaused,
+        );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
       } else {
@@ -226,10 +285,12 @@ class AutoScanManager {
     watcher.onNewFile = (path) async {
       onNewFileFound?.call(path);
       
-      // עיבוד הקובץ החדש אוטומטית
-      if (!_isProcessing) {
+      // עיבוד הקובץ החדש אוטומטית - רק אם האפליקציה ברקע
+      if (!_isProcessing && !_isPaused) {
         _isProcessing = true;
-        await FileScannerService.instance.processPendingFiles();
+        await FileScannerService.instance.processPendingFiles(
+          shouldPause: () => _isPaused,
+        );
         _isProcessing = false;
       }
     };
@@ -285,26 +346,31 @@ class TheHunterApp extends StatelessWidget {
     ),
   );
 
-  // ערכת צבעים בהירה
+  // ערכת צבעים בהירה - מעוצבת יפה
   static ThemeData get lightTheme => ThemeData(
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.light,
-      surface: Colors.white,
+      surface: const Color(0xFFF1F5F9),
+      onSurface: const Color(0xFF1E293B),
       primary: const Color(0xFF6366F1),
+      onPrimary: Colors.white,
       secondary: const Color(0xFF10B981),
+      onSecondary: Colors.white,
+      surfaceContainerHighest: Colors.white,
     ),
     useMaterial3: true,
-    scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+    scaffoldBackgroundColor: const Color(0xFFF1F5F9),
     appBarTheme: const AppBarTheme(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Color(0xFFF1F5F9),
       elevation: 0,
       centerTitle: true,
-      foregroundColor: Color(0xFF1F2937),
+      foregroundColor: Color(0xFF1E293B),
+      iconTheme: IconThemeData(color: Color(0xFF6366F1)),
     ),
     cardTheme: CardThemeData(
       color: Colors.white,
-      elevation: 2,
+      elevation: 0,
       shadowColor: Colors.black12,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
@@ -314,11 +380,35 @@ class TheHunterApp extends StatelessWidget {
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
+    inputDecorationTheme: InputDecorationTheme(
+      fillColor: Colors.white,
+      filled: true,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      hintStyle: TextStyle(color: Colors.grey.shade500),
+    ),
+    listTileTheme: const ListTileThemeData(
+      textColor: Color(0xFF1E293B),
+      iconColor: Color(0xFF6366F1),
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Color(0xFF1E293B)),
+      bodyMedium: TextStyle(color: Color(0xFF475569)),
+      titleLarge: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
+    ),
     datePickerTheme: DatePickerThemeData(
       backgroundColor: Colors.white,
       headerBackgroundColor: const Color(0xFF6366F1),
       headerForegroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: const Color(0xFF1E293B),
+      contentTextStyle: const TextStyle(color: Colors.white),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      behavior: SnackBarBehavior.floating,
     ),
   );
 

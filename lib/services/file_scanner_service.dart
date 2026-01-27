@@ -611,8 +611,10 @@ class FileScannerService {
 
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
   /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
+  /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
+    bool Function()? shouldPause,
     int batchSize = 3,  // כמה קבצים לעבד בכל פעם
     int delayBetweenBatchesMs = 500,  // השהיה בין אצוות (מילישניות)
     int delayBetweenFilesMs = 100,  // השהיה בין קבצים (מילישניות)
@@ -640,6 +642,17 @@ class FileScannerService {
 
       // עיבוד תמונות עם OCR - בקצב מבוקר
       for (final file in pendingImages) {
+        // בדיקה אם צריך להשהות (משתמש פעיל באפליקציה)
+        if (shouldPause?.call() == true) {
+          appLog('PROCESS: Paused by user activity');
+          return ProcessResult(
+            success: true,
+            filesProcessed: filesProcessed,
+            filesWithText: filesWithText,
+            message: 'עיבוד הושהה - $filesProcessed קבצים עובדו',
+          );
+        }
+        
         onProgress?.call(filesProcessed + 1, totalPending);
 
         try {
@@ -674,6 +687,17 @@ class FileScannerService {
 
       // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
+        // בדיקה אם צריך להשהות
+        if (shouldPause?.call() == true) {
+          appLog('PROCESS: Paused by user activity');
+          return ProcessResult(
+            success: true,
+            filesProcessed: filesProcessed,
+            filesWithText: filesWithText,
+            message: 'עיבוד הושהה - $filesProcessed קבצים עובדו',
+          );
+        }
+        
         onProgress?.call(filesProcessed + 1, totalPending);
 
         try {
