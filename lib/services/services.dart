@@ -12,6 +12,7 @@ export 'recent_files_service.dart';
 export 'settings_service.dart';
 export 'tags_service.dart';
 export 'widget_service.dart';
+export 'secure_folder_service.dart';
 export 'smart_search_filter.dart';
 export 'smart_search_service.dart';
 export 'text_extraction_service.dart';

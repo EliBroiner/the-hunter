@@ -18,6 +18,7 @@ import '../services/settings_service.dart';
 import '../services/smart_search_filter.dart';
 import '../services/smart_search_service.dart';
 import '../services/tags_service.dart';
+import '../services/secure_folder_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -927,6 +928,9 @@ class _SearchScreenState extends State<SearchScreen> {
             // תגיות - פרימיום בלבד
             _buildTagsActionTile(file),
             const SizedBox(height: 8),
+            // תיקייה מאובטחת - פרימיום בלבד
+            _buildSecureFolderActionTile(file),
+            const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -1378,6 +1382,158 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
     );
+  }
+  
+  /// בונה פריט תיקייה מאובטחת
+  Widget _buildSecureFolderActionTile(FileMetadata file) {
+    final isPremium = _settingsService.isPremium;
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          if (!isPremium) {
+            Navigator.of(context).pop();
+            _showPremiumUpgradeMessage('תיקייה מאובטחת');
+            return;
+          }
+          
+          Navigator.of(context).pop();
+          _moveToSecureFolder(file);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F23),
+            borderRadius: BorderRadius.circular(12),
+            border: !isPremium 
+                ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.lock, color: Colors.purple, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'העבר לתיקייה מאובטחת',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isPremium ? null : Colors.grey,
+                          ),
+                        ),
+                        if (!isPremium) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'PRO',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPremium ? 'הסתר קובץ מאחורי קוד PIN' : 'שדרג לפרימיום',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (isPremium)
+                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// מעביר קובץ לתיקייה המאובטחת
+  Future<void> _moveToSecureFolder(FileMetadata file) async {
+    final secureFolderService = SecureFolderService.instance;
+    
+    // אם אין PIN - לנווט להגדרה
+    if (!secureFolderService.hasPin) {
+      Navigator.of(context).pushNamed('/secure');
+      return;
+    }
+    
+    // בקשת אישור
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        title: const Text('העברה לתיקייה מאובטחת'),
+        content: Text('האם להעביר את "${file.name}" לתיקייה המאובטחת?\n\nהקובץ יוסר מהחיפוש הרגיל.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('ביטול'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+            ),
+            child: const Text('העבר'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    // אם התיקייה נעולה - לבקש PIN
+    if (!secureFolderService.isUnlocked) {
+      Navigator.of(context).pushNamed('/secure');
+      return;
+    }
+    
+    // העברת הקובץ
+    final success = await secureFolderService.addFile(file.path, moveFile: true);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Text(success ? 'הקובץ הועבר לתיקייה המאובטחת' : 'שגיאה בהעברת הקובץ'),
+            ],
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      
+      if (success) {
+        setState(() {});
+      }
+    }
   }
 
   /// בונה פריט פעולה

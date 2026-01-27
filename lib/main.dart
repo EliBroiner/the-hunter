@@ -8,6 +8,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'screens/folder_selection_screen.dart';
 import 'screens/duplicates_screen.dart';
+import 'screens/secure_folder_screen.dart';
+import 'services/secure_folder_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -43,6 +45,7 @@ void main() async {
   await RecentFilesService.instance.init();
   await TagsService.instance.init();
   await WidgetService.instance.init();
+  await SecureFolderService.instance.init();
   
   runApp(const TheHunterApp());
 }
@@ -466,6 +469,7 @@ class TheHunterApp extends StatelessWidget {
             '/subscription': (context) => const SubscriptionScreen(),
             '/folders': (context) => const FolderSelectionScreen(),
             '/duplicates': (context) => const DuplicatesScreen(),
+            '/secure': (context) => const SecureFolderScreen(),
           },
         );
       },
