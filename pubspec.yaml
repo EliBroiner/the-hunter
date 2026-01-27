@@ -63,6 +63,10 @@ dependencies:
   # Home Widget - ווידג'ט למסך הבית
   home_widget: ^0.7.0
 
+  # Google APIs
+  googleapis: ^13.1.0
+  googleapis_auth: ^1.6.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

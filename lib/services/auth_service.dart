@@ -37,7 +37,12 @@ class AuthService {
   }
   
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: [
+      'email',
+      'https://www.googleapis.com/auth/drive.readonly',
+    ],
+  );
   
   /// המשתמש הנוכחי
   User? get currentUser => _auth.currentUser;

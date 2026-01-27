@@ -46,6 +46,18 @@ class FileMetadata {
   /// האם הקובץ עבר אינדוקס (חילוץ טקסט)
   bool isIndexed = false;
 
+  /// האם הקובץ נמצא בענן (Google Drive)
+  bool isCloud = false;
+
+  /// מזהה הקובץ בענן (אם קיים)
+  String? cloudId;
+
+  /// קישור לצפייה בקובץ בענן
+  String? cloudWebViewLink;
+
+  /// קישור לתמונה ממוזערת בענן
+  String? cloudThumbnailLink;
+
   FileMetadata();
 
   /// יוצר אובייקט FileMetadata מאובייקט File

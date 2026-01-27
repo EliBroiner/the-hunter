@@ -21,6 +21,7 @@ import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/widget_service.dart';
+import '../services/google_drive_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -49,12 +50,15 @@ class _SearchScreenState extends State<SearchScreen> {
   final _settingsService = SettingsService.instance;
   final _smartSearchService = SmartSearchService.instance;
   final _favoritesService = FavoritesService.instance;
+  final _googleDriveService = GoogleDriveService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
   Timer? _debounceTimer;
   
   // Stream לחיפוש ריאקטיבי
   Stream<List<FileMetadata>>? _searchStream;
+  List<FileMetadata> _cloudResults = []; // תוצאות ענן
+  bool _isSearchingCloud = false;
   String _currentQuery = '';
   
   // טווח תאריכים לסינון
@@ -191,16 +195,82 @@ class _SearchScreenState extends State<SearchScreen> {
     SearchFilter dbFilter = SearchFilter.all;
     if (_selectedFilter == LocalFilter.images) dbFilter = SearchFilter.images;
     if (_selectedFilter == LocalFilter.pdfs) dbFilter = SearchFilter.pdfs;
-    if (_selectedFilter == LocalFilter.withText) dbFilter = SearchFilter.ocrOnly;
     
+    // אם נבחר פילטר תמונות או PDF, נסנן גם את תוצאות הענן בהתאם
+    List<FileMetadata> filteredCloudResults = _cloudResults;
+    if (_selectedFilter == LocalFilter.images) {
+      filteredCloudResults = _cloudResults.where((f) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(f.extension)).toList();
+    } else if (_selectedFilter == LocalFilter.pdfs) {
+      filteredCloudResults = _cloudResults.where((f) => f.extension == 'pdf').toList();
+    }
+
     setState(() {
       _searchStream = _databaseService.watchSearch(
         query: query,
         filter: dbFilter,
         startDate: startDate,
         endDate: endDate,
-      ).map((results) => _applyLocalFilter(results));
+      ).map((results) {
+        // שילוב תוצאות ענן (אם יש)
+        final combined = [...results, ...filteredCloudResults];
+        // מיון לפי תאריך (חדש לישן)
+        combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+        return _applyLocalFilter(combined);
+      });
     });
+
+    // חיפוש בענן אם מחובר ויש שאילתה
+    if (query.isNotEmpty && query.length > 2 && _googleDriveService.isConnected) {
+      _searchCloud(query);
+    } else {
+      setState(() => _cloudResults = []);
+    }
+  }
+
+  /// חיפוש בענן
+  Future<void> _searchCloud(String query) async {
+    if (_isSearchingCloud) return;
+    setState(() => _isSearchingCloud = true);
+    
+    try {
+      final results = await _googleDriveService.searchFiles(query);
+      if (mounted) {
+        setState(() {
+          _cloudResults = results;
+          // רענון הסטרים כדי להציג את התוצאות החדשות
+          // (בגלל שהסטרים מבוסס על map, שינוי _cloudResults ישפיע בריצה הבאה)
+          // אבל אנחנו צריכים לעורר אותו.
+          // דרך פשוטה: קריאה חוזרת ל-_updateSearchStream (קצת בזבזני אבל עובד)
+          // או פשוט להסתמך על setState שיבנה מחדש אם היינו משתמשים ב-FutureBuilder
+          // כאן אנחנו ב-StreamBuilder, אז צריך טריק.
+          // הפתרון הנכון: StreamController משולב (RxDart) אבל נשמור על פשטות:
+          // נעדכן את ה-Stream מחדש.
+        });
+        // עדכון הסטרים עם התוצאות החדשות
+        final dbFilter = _selectedFilter == LocalFilter.images ? SearchFilter.images 
+                       : _selectedFilter == LocalFilter.pdfs ? SearchFilter.pdfs 
+                       : SearchFilter.all;
+                       
+        final queryStartDate = parseTimeQuery(query);
+        final startDate = _selectedDateRange?.start ?? queryStartDate;
+        final endDate = _selectedDateRange?.end;
+
+        setState(() {
+          _searchStream = _databaseService.watchSearch(
+            query: query,
+            filter: dbFilter,
+            startDate: startDate,
+            endDate: endDate,
+          ).map((results) {
+            final combined = [...results, ..._cloudResults];
+            combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+            return _applyLocalFilter(combined);
+          });
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isSearchingCloud = false);
+    }
   }
 
   /// מבצע חיפוש עם debounce
@@ -936,9 +1006,9 @@ class _SearchScreenState extends State<SearchScreen> {
             // תיקייה מאובטחת - פרימיום בלבד
             _buildSecureFolderActionTile(file),
             const SizedBox(height: 8),
-            // העלאה לענן - פרימיום בלבד
-            _buildCloudUploadActionTile(file),
-            const SizedBox(height: 8),
+            // העלאה לענן - פרימיום בלבד - הוסר
+            // _buildCloudUploadActionTile(file),
+            // const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
               title: 'שתף',
@@ -2573,6 +2643,13 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       // כפתור מיקרופון
                       _buildMicrophoneButton(),
+                      // כפתור חיבור ל-Drive
+                      if (!_googleDriveService.isConnected)
+                        IconButton(
+                          icon: const Icon(Icons.add_to_drive, size: 20),
+                          tooltip: 'חבר Google Drive',
+                          onPressed: _connectDrive,
+                        ),
                     ],
                   ),
                   border: InputBorder.none,
@@ -2592,6 +2669,36 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  /// חיבור ל-Google Drive
+  Future<void> _connectDrive() async {
+    if (!_settingsService.isPremium) {
+      _showPremiumUpgradeMessage('Google Drive');
+      return;
+    }
+
+    final success = await _googleDriveService.connect();
+    if (success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('מחובר ל-Google Drive בהצלחה!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {}); // רענון להסתרת הכפתור
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('שגיאה בחיבור ל-Google Drive'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
     final theme = Theme.of(context);
