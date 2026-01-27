@@ -62,7 +62,7 @@ class _SearchScreenState extends State<SearchScreen> {
   
   // חיפושים אחרונים
   static const String _recentSearchesKey = 'recent_searches';
-  static const int _maxRecentSearches = 5;
+  static const int _maxRecentSearches = 3;
   List<String> _recentSearches = [];
   bool _isSearchFocused = false;
   
@@ -2137,7 +2137,7 @@ class _SearchScreenState extends State<SearchScreen> {
             Text(
               query,
               style: TextStyle(
-                color: Colors.white70,
+                color: theme.colorScheme.onSurface,
                 fontSize: 13,
               ),
             ),
@@ -2148,13 +2148,13 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Container(
                 padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.3),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.close,
                   size: 12,
-                  color: Colors.white54,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
             ),
@@ -2540,37 +2540,45 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
               ],
             ),
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              textDirection: _isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
-              decoration: InputDecoration(
-                hintText: 'חפש קבצים, תמונות, מסמכים...',
-                hintStyle: TextStyle(color: Colors.grey.shade500),
-                prefixIcon: Icon(
-                  Icons.search,
-                  color: theme.colorScheme.primary,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                textDirection: _isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
+                decoration: InputDecoration(
+                  hintText: 'חפש קבצים, תמונות, מסמכים...',
+                  hintStyle: TextStyle(color: Colors.grey.shade500),
+                  prefixIcon: Icon(
+                    Icons.search,
+                    color: theme.colorScheme.primary,
+                  ),
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // כפתור ניקוי
+                      if (_searchController.text.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            _searchController.clear();
+                            _onSearchChanged('');
+                          },
+                        ),
+                      // כפתור מיקרופון
+                      _buildMicrophoneButton(),
+                    ],
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  filled: false,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // כפתור ניקוי
-                    if (_searchController.text.isNotEmpty)
-                      IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        onPressed: () {
-                          _searchController.clear();
-                          _onSearchChanged('');
-                        },
-                      ),
-                    // כפתור מיקרופון
-                    _buildMicrophoneButton(),
-                  ],
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                onChanged: _onSearchChanged,
               ),
-              onChanged: _onSearchChanged,
             ),
           ),
         ],
@@ -3490,11 +3498,13 @@ class _SearchScreenState extends State<SearchScreen> {
                               Text(
                                 file.readableSize,
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                textDirection: TextDirection.ltr,
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 12),
                               Text(
                                 _formatDate(file.lastModified),
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                textDirection: TextDirection.ltr,
                               ),
                             ],
                           ),

@@ -413,14 +413,39 @@ class TheHunterApp extends StatelessWidget {
       titleLarge: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
     ),
     datePickerTheme: DatePickerThemeData(
-      backgroundColor: const Color(0xFFFAFAFC),
+      backgroundColor: const Color(0xFFF8FAFC),
       headerBackgroundColor: const Color(0xFF6366F1),
       headerForegroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      dayForegroundColor: WidgetStateProperty.all(const Color(0xFF1E293B)),
+      dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return Colors.white;
+        if (states.contains(WidgetState.disabled)) return const Color(0xFFCBD5E1);
+        return const Color(0xFF1E293B);
+      }),
       yearForegroundColor: WidgetStateProperty.all(const Color(0xFF1E293B)),
-      weekdayStyle: const TextStyle(color: Color(0xFF64748B)),
+      weekdayStyle: const TextStyle(
+        color: Color(0xFF64748B),
+        fontWeight: FontWeight.w600,
+        fontSize: 13,
+      ),
       dayStyle: const TextStyle(color: Color(0xFF1E293B)),
+      todayForegroundColor: WidgetStateProperty.all(const Color(0xFF6366F1)),
+      todayBackgroundColor: WidgetStateProperty.all(Colors.transparent),
+      rangePickerHeaderForegroundColor: Colors.white,
+      rangePickerHeaderBackgroundColor: const Color(0xFF6366F1),
+      rangePickerBackgroundColor: const Color(0xFFF8FAFC),
+      rangeSelectionBackgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.2),
+      dividerColor: const Color(0xFFE2E8F0),
+      inputDecorationTheme: const InputDecorationTheme(
+        labelStyle: TextStyle(color: Color(0xFF64748B)),
+        hintStyle: TextStyle(color: Color(0xFF94A3B8)),
+      ),
+      cancelButtonStyle: ButtonStyle(
+        foregroundColor: WidgetStateProperty.all(const Color(0xFF64748B)),
+      ),
+      confirmButtonStyle: ButtonStyle(
+        foregroundColor: WidgetStateProperty.all(const Color(0xFF6366F1)),
+      ),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: const Color(0xFFFAFAFC),
