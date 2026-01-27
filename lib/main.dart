@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'screens/folder_selection_screen.dart';
 import 'screens/login_screen.dart';
@@ -250,6 +251,17 @@ class TheHunterApp extends StatelessWidget {
     return MaterialApp(
       title: 'The Hunter',
       debugShowCheckedModeBanner: false,
+      // תמיכה בעברית - נדרש ל-DatePicker
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('he', 'IL'),
+        Locale('en', 'US'),
+      ],
+      locale: const Locale('he', 'IL'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6366F1),
@@ -275,6 +287,17 @@ class TheHunterApp extends StatelessWidget {
           foregroundColor: Colors.white,
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        // תמיכה ב-DatePicker dark mode
+        datePickerTheme: DatePickerThemeData(
+          backgroundColor: const Color(0xFF1E1E3F),
+          headerBackgroundColor: const Color(0xFF6366F1),
+          headerForegroundColor: Colors.white,
+          dayForegroundColor: WidgetStateProperty.all(Colors.white),
+          yearForegroundColor: WidgetStateProperty.all(Colors.white),
+          surfaceTintColor: Colors.transparent,
+          rangePickerBackgroundColor: const Color(0xFF1E1E3F),
+          rangeSelectionBackgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
         ),
       ),
       home: const AuthWrapper(),

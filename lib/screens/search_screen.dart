@@ -1052,12 +1052,17 @@ class _SearchScreenState extends State<SearchScreen> {
         return Theme(
           data: theme.copyWith(
             colorScheme: theme.colorScheme.copyWith(
-              primary: theme.colorScheme.primary,
+              primary: const Color(0xFF6366F1),
               onPrimary: Colors.white,
               surface: const Color(0xFF1E1E3F),
               onSurface: Colors.white,
+              onSurfaceVariant: Colors.grey.shade300,
             ),
-            dialogBackgroundColor: const Color(0xFF0F0F23),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF818CF8),
+              ),
+            ),
           ),
           child: child!,
         );
