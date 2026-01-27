@@ -854,15 +854,20 @@ class _SearchScreenState extends State<SearchScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => Container(
         decoration: const BoxDecoration(
           color: Color(0xFF1E1E3F),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             // ידית למשיכה
             Container(
               width: 40,
@@ -970,6 +975,7 @@ class _SearchScreenState extends State<SearchScreen> {
             SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
           ],
         ),
+      ),
       ),
     );
   }

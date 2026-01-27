@@ -26,6 +26,7 @@ import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
 import 'services/permission_service.dart';
 import 'services/settings_service.dart';
+import 'services/user_activity_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,6 +96,9 @@ class AutoScanManager with WidgetsBindingObserver {
       _hasLifecycleObserver = true;
     }
 
+    // האזנה לפעילות משתמש
+    UserActivityService.instance.isUserActive.addListener(_onUserActivityChanged);
+
     // הרצת סריקה ועיבוד ברקע (non-blocking)
     _runBackgroundScanAndProcess();
     
@@ -102,22 +106,41 @@ class AutoScanManager with WidgetsBindingObserver {
     _startFileWatcher();
   }
   
+  void _onUserActivityChanged() {
+    final isActive = UserActivityService.instance.isUserActive.value;
+    if (isActive) {
+      // משתמש פעיל - להשהות
+      if (!_isPaused) {
+        _isPaused = true;
+        appLog('AutoScan: Paused (user active)');
+      }
+    } else {
+      // משתמש במנוחה - להמשיך
+      if (_isPaused) {
+        _isPaused = false;
+        appLog('AutoScan: Resumed (user idle)');
+        _resumeProcessingIfNeeded();
+      }
+    }
+  }
+  
   /// מגיב לשינויים ב-lifecycle של האפליקציה
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        // המשתמש חזר לאפליקציה - משהים עיבוד כבד
-        _isPaused = true;
-        appLog('AutoScan: Paused (app resumed)');
+        // המשתמש חזר לאפליקציה - מצב התחלתי הוא פעיל עד שיוכח אחרת
+        // אבל UserActivityService ינהל את זה
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
-        // האפליקציה ברקע - ממשיכים עיבוד
-        _isPaused = false;
-        appLog('AutoScan: Resumed (app in background)');
-        // אם יש קבצים ממתינים, ממשיכים עיבוד
-        _resumeProcessingIfNeeded();
+        // האפליקציה ברקע - אפשר להמשיך לעבוד (אלא אם כן מערכת ההפעלה תהרוג אותנו)
+        // במקרה הזה המשתמש לא פעיל באפליקציה
+        if (_isPaused) {
+          _isPaused = false;
+          appLog('AutoScan: Resumed (app backgrounded)');
+          _resumeProcessingIfNeeded();
+        }
         break;
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
@@ -315,6 +338,7 @@ class AutoScanManager with WidgetsBindingObserver {
   /// עוצר את כל השירותים
   Future<void> dispose() async {
     await FileWatcherService.instance.stopWatching();
+    UserActivityService.instance.isUserActive.removeListener(_onUserActivityChanged);
   }
 }
 
@@ -470,36 +494,42 @@ class TheHunterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: SettingsService.instance.themeModeNotifier,
-      builder: (context, themeMode, child) {
-        return MaterialApp(
-          title: 'The Hunter',
-          debugShowCheckedModeBanner: false,
-          // תמיכה בעברית - נדרש ל-DatePicker
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: const [
-            Locale('he', 'IL'),
-            Locale('en', 'US'),
-          ],
-          locale: const Locale('he', 'IL'),
-          theme: lightTheme,
-          darkTheme: darkTheme,
-          themeMode: themeMode,
-          home: const AuthWrapper(),
-          routes: {
-            '/subscription': (context) => const SubscriptionScreen(),
-            '/folders': (context) => const FolderSelectionScreen(),
-            '/duplicates': (context) => const DuplicatesScreen(),
-            '/secure': (context) => const SecureFolderScreen(),
-            '/cloud': (context) => const CloudStorageScreen(),
-          },
-        );
-      },
+    // עטיפה ב-Listener גלובלי לזיהוי נגיעות בכל מקום באפליקציה
+    return Listener(
+      onPointerDown: (_) => UserActivityService.instance.onUserInteraction(),
+      onPointerMove: (_) => UserActivityService.instance.onUserInteraction(),
+      onPointerUp: (_) => UserActivityService.instance.onUserInteraction(),
+      child: ValueListenableBuilder<ThemeMode>(
+        valueListenable: SettingsService.instance.themeModeNotifier,
+        builder: (context, themeMode, child) {
+          return MaterialApp(
+            title: 'The Hunter',
+            debugShowCheckedModeBanner: false,
+            // תמיכה בעברית - נדרש ל-DatePicker
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: const [
+              Locale('he', 'IL'),
+              Locale('en', 'US'),
+            ],
+            locale: const Locale('he', 'IL'),
+            theme: lightTheme,
+            darkTheme: darkTheme,
+            themeMode: themeMode,
+            home: const AuthWrapper(),
+            routes: {
+              '/subscription': (context) => const SubscriptionScreen(),
+              '/folders': (context) => const FolderSelectionScreen(),
+              '/duplicates': (context) => const DuplicatesScreen(),
+              '/secure': (context) => const SecureFolderScreen(),
+              '/cloud': (context) => const CloudStorageScreen(),
+            },
+          );
+        },
+      ),
     );
   }
 }

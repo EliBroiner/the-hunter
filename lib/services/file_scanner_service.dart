@@ -8,6 +8,8 @@ import 'ocr_service.dart';
 import 'permission_service.dart';
 import 'text_extraction_service.dart';
 
+import 'user_activity_service.dart';
+
 /// מפתח לשמירת תיקיות נבחרות
 const String _selectedFoldersKey = 'selected_scan_folders';
 
@@ -663,6 +665,13 @@ class FileScannerService {
 
       // עיבוד תמונות עם OCR - בקצב מבוקר
       for (final file in pendingImages) {
+        // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
+        if (UserActivityService.instance.isUserActive.value) {
+          appLog('PROCESS: Paused (user active), waiting for idle...');
+          await UserActivityService.instance.waitForIdle();
+          appLog('PROCESS: Resumed (user idle)');
+        }
+
         // בדיקה אם צריך להשהות (משתמש פעיל באפליקציה)
         if (shouldPause?.call() == true) {
           appLog('PROCESS: Paused by user activity');
@@ -716,6 +725,13 @@ class FileScannerService {
 
       // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
+        // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
+        if (UserActivityService.instance.isUserActive.value) {
+          appLog('PROCESS: Paused (user active), waiting for idle...');
+          await UserActivityService.instance.waitForIdle();
+          appLog('PROCESS: Resumed (user idle)');
+        }
+
         // בדיקה אם צריך להשהות
         if (shouldPause?.call() == true) {
           appLog('PROCESS: Paused by user activity');
