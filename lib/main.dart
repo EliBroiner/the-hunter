@@ -519,8 +519,8 @@ class TheHunterApp extends StatelessWidget {
                   Locale('en', 'US'),
                 ],
                 locale: locale,
-                theme: TheHunterAppTheme.lightTheme,
-                darkTheme: TheHunterAppTheme.darkTheme,
+                theme: TheHunterApp.lightTheme,
+                darkTheme: TheHunterApp.darkTheme,
                 themeMode: themeMode,
                 home: const AuthWrapper(),
                 routes: {
