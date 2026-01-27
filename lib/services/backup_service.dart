@@ -156,22 +156,18 @@ class BackupService {
     _isBackingUp = true;
 
     try {
-      // בדיקה אם יש קבצים בסריקה - רק מתריע, לא חוסם
-      final pendingCount = _databaseService.getAllPendingFiles().length;
-      if (pendingCount > 0) {
-        appLog('Backup: Warning - $pendingCount files still pending, backing up anyway');
-      }
-
       appLog('Backup: Starting cloud backup...');
       onProgress?.call(0.1);
 
-      // קבלת כל הקבצים מהמסד
-      final files = _databaseService.getAllFiles();
+      // קבלת כל הקבצים מהמסד וסינון רק קבצים שעברו סריקה
+      final allFiles = _databaseService.getAllFiles();
+      final files = allFiles.where((f) => f.isIndexed).toList();
+
       if (files.isEmpty) {
-        return BackupResult.failure('אין קבצים לגיבוי');
+        return BackupResult.failure('אין קבצים סרוקים לגיבוי');
       }
 
-      appLog('Backup: Exporting ${files.length} files...');
+      appLog('Backup: Exporting ${files.length} indexed files...');
       onProgress?.call(0.3);
 
       // המרה ל-JSON
@@ -252,19 +248,15 @@ class BackupService {
     _isBackingUp = true;
 
     try {
-      // בדיקה אם יש קבצים בסריקה - רק מתריע, לא חוסם
-      final pendingCount = _databaseService.getAllPendingFiles().length;
-      if (pendingCount > 0) {
-        appLog('SmartBackup: Warning - $pendingCount files still pending, backing up anyway');
-      }
-
       appLog('SmartBackup: Checking for changes...');
       onProgress?.call(0.1);
 
-      // קבלת מצב נוכחי
-      final files = _databaseService.getAllFiles();
+      // קבלת מצב נוכחי - רק קבצים סרוקים
+      final allFiles = _databaseService.getAllFiles();
+      final files = allFiles.where((f) => f.isIndexed).toList();
+
       if (files.isEmpty) {
-        return BackupResult.failure('אין קבצים לגיבוי');
+        return BackupResult.failure('אין קבצים סרוקים לגיבוי');
       }
 
       final currentCount = files.length;
