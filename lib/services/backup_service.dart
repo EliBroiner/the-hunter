@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -172,6 +173,7 @@ class BackupService {
       final bytes = utf8.encode(jsonString);
 
       appLog('Backup: Uploading ${bytes.length} bytes to cloud...');
+      appLog('Backup: Path=$_backupPath, Bucket=${_storage.bucket}');
       onProgress?.call(0.5);
 
       // ספירת קבצים עם טקסט מחולץ
@@ -185,7 +187,7 @@ class BackupService {
       // העלאה ל-Firebase Storage
       final ref = _storage.ref(_backupPath);
       final uploadTask = ref.putData(
-        bytes as dynamic,
+        Uint8List.fromList(bytes),
         SettableMetadata(
           contentType: 'application/json',
           customMetadata: {
@@ -412,10 +414,11 @@ class BackupService {
       final checksum = _calculateChecksum(files);
 
       appLog('IncrementalBackup: Uploading ${bytes.length} bytes...');
+      appLog('IncrementalBackup: Path=$_backupPath, Bucket=${_storage.bucket}');
 
       final ref = _storage.ref(_backupPath);
       await ref.putData(
-        bytes as dynamic,
+        Uint8List.fromList(bytes),
         SettableMetadata(
           contentType: 'application/json',
           customMetadata: {
