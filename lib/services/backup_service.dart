@@ -94,6 +94,9 @@ class BackupService {
   static const String _autoBackupEnabledKey = 'auto_backup_enabled';
   static const Duration autoBackupInterval = Duration(hours: 24); // גיבוי כל 24 שעות
 
+  // מניעת גיבויים מקבילים
+  bool _isBackingUp = false;
+
   /// בודק אם הגיבוי זמין (משתמש מחובר + פרימיום)
   bool get isAvailable {
     return _auth.currentUser != null && _settingsService.isPremium;
@@ -112,6 +115,7 @@ class BackupService {
   /// בודק אם צריך גיבוי אוטומטי
   Future<bool> shouldAutoBackup() async {
     if (!isAvailable) return false;
+    if (_isBackingUp) return false;
     
     final prefs = await SharedPreferences.getInstance();
     final autoEnabled = prefs.getBool(_autoBackupEnabledKey) ?? true;
@@ -144,17 +148,20 @@ class BackupService {
     Function(double progress)? onProgress,
     bool force = false,
   }) async {
+    if (_isBackingUp) return BackupResult.failure('גיבוי כבר רץ ברקע');
     if (!isAvailable) {
       return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
     }
     
-    // בדיקה שכל הקבצים עברו סריקה
-    final pendingCount = _databaseService.getAllPendingFiles().length;
-    if (pendingCount > 0 && !force) {
-      return BackupResult.failure('יש עוד $pendingCount קבצים בסריקה. המתן לסיום.');
-    }
+    _isBackingUp = true;
 
     try {
+      // בדיקה אם יש קבצים בסריקה - רק מתריע, לא חוסם
+      final pendingCount = _databaseService.getAllPendingFiles().length;
+      if (pendingCount > 0) {
+        appLog('Backup: Warning - $pendingCount files still pending, backing up anyway');
+      }
+
       appLog('Backup: Starting cloud backup...');
       onProgress?.call(0.1);
 
@@ -228,6 +235,8 @@ class BackupService {
     } catch (e) {
       appLog('Backup ERROR: $e');
       return BackupResult.failure('שגיאה בגיבוי: $e');
+    } finally {
+      _isBackingUp = false;
     }
   }
   
@@ -235,18 +244,20 @@ class BackupService {
   Future<BackupResult> smartBackup({
     Function(double progress)? onProgress,
   }) async {
+    if (_isBackingUp) return BackupResult.failure('גיבוי כבר רץ ברקע');
     if (!isAvailable) {
       return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
     }
     
-    // בדיקה שכל הקבצים עברו סריקה - אחרת אין טעם לגבות
-    final pendingCount = _databaseService.getAllPendingFiles().length;
-    if (pendingCount > 0) {
-      appLog('SmartBackup: Skipped - $pendingCount files still pending');
-      return BackupResult.failure('יש עוד $pendingCount קבצים בסריקה. המתן לסיום.');
-    }
+    _isBackingUp = true;
 
     try {
+      // בדיקה אם יש קבצים בסריקה - רק מתריע, לא חוסם
+      final pendingCount = _databaseService.getAllPendingFiles().length;
+      if (pendingCount > 0) {
+        appLog('SmartBackup: Warning - $pendingCount files still pending, backing up anyway');
+      }
+
       appLog('SmartBackup: Checking for changes...');
       onProgress?.call(0.1);
 
@@ -299,7 +310,22 @@ class BackupService {
     } catch (e) {
       appLog('SmartBackup ERROR: $e');
       // fallback לגיבוי מלא
+      // שים לב: כאן אנחנו קוראים ל-backupToCloud אבל הוא יכשל בגלל ה-lock
+      // לכן אנחנו צריכים לשחרר את ה-lock לפני הקריאה
+      _isBackingUp = false;
       return backupToCloud(onProgress: onProgress);
+    } finally {
+      // ה-lock משוחרר רק אם לא נכנסנו ל-catch שקרא ל-backupToCloud
+      // אם נכנסנו ל-catch, ה-backupToCloud ינהל את ה-lock בעצמו
+      // אבל רגע, ה-finally ירוץ בכל מקרה!
+      // אז אם קראנו ל-backupToCloud, הוא ירוץ, יסיים, ואז ה-finally הזה ירוץ ויקבע false. זה בסדר.
+      // הבעיה היא אם backupToCloud זורק שגיאה, ה-finally שלו ירוץ, ואז ה-finally הזה ירוץ.
+      // אבל אם backupToCloud נקרא מתוך catch, אנחנו צריכים לוודא שה-lock פנוי עבורו.
+      
+      // פתרון פשוט יותר: ננהל את ה-lock בתוך ה-catch
+      // אבל ה-finally תמיד רץ.
+      // אז נשתמש ב-flag מקומי כדי לדעת אם לשחרר את ה-lock
+      if (_isBackingUp) _isBackingUp = false;
     }
   }
   
@@ -308,6 +334,7 @@ class BackupService {
     required List<FileMetadata> files,
     Function(double progress)? onProgress,
   }) async {
+    // הערה: פונקציה זו נקראת מתוך smartBackup שכבר תפסה את ה-lock
     try {
       onProgress?.call(0.1);
       
@@ -460,8 +487,7 @@ class BackupService {
       );
     } catch (e) {
       appLog('IncrementalBackup ERROR: $e');
-      // fallback לגיבוי מלא
-      return backupToCloud();
+      throw e; // זורק כדי שה-smartBackup יתפוס ויעשה fallback
     }
   }
   

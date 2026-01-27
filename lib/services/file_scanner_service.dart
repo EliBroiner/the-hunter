@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
+import 'backup_service.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
@@ -609,6 +610,26 @@ class FileScannerService {
     );
   }
 
+  /// בודק ומפעיל גיבוי ביניים
+  Future<void> _checkAndTriggerBackup(int count) async {
+    // מפעיל כל 100 קבצים שעובדו
+    if (count > 0 && count % 100 == 0) {
+      final backupService = BackupService.instance;
+      // בודק אם גיבוי זמין ומופעל
+      if (backupService.isAvailable && await backupService.isAutoBackupEnabled()) {
+        appLog('PROCESS: Triggering intermediate backup (processed $count files)...');
+        // מפעיל ברקע - לא ממתין כדי לא לחסום את העיבוד
+        backupService.smartBackup().then((result) {
+          if (result.success) {
+            appLog('PROCESS: Intermediate backup success');
+          }
+        }).catchError((e) {
+          appLog('PROCESS: Intermediate backup failed: $e');
+        });
+      }
+    }
+  }
+
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
   /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
   /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד
@@ -664,12 +685,20 @@ class FileScannerService {
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
+          
+          // בדיקת גיבוי ביניים
+          _checkAndTriggerBackup(filesProcessed);
+          
         } catch (e) {
           // סימון הקובץ כמעובד גם אם נכשל - כדי לא לנסות שוב ושוב
           file.isIndexed = true;
           file.extractedText = '';
           _databaseService.updateFile(file);
           filesProcessed++;
+          
+          // בדיקת גיבוי ביניים גם במקרה כישלון (הקובץ סומן כמעובד)
+          _checkAndTriggerBackup(filesProcessed);
+          
           appLog('PROCESS: Failed to process ${file.name}: $e');
         }
 
@@ -709,11 +738,19 @@ class FileScannerService {
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
+          
+          // בדיקת גיבוי ביניים
+          _checkAndTriggerBackup(filesProcessed);
+          
         } catch (e) {
           file.isIndexed = true;
           file.extractedText = '';
           _databaseService.updateFile(file);
           filesProcessed++;
+          
+          // בדיקת גיבוי ביניים
+          _checkAndTriggerBackup(filesProcessed);
+          
           appLog('PROCESS: Failed to process ${file.name}: $e');
         }
 
