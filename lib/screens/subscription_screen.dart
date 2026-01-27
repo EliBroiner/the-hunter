@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import '../services/auth_service.dart';
 import '../services/settings_service.dart';
 
 /// סוג מנוי
@@ -203,6 +204,52 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// לחיצה על כפתור הרשמה
   Future<void> _onSubscribePressed() async {
     if (_selectedPackage == null) return;
+    
+    // בדיקה אם המשתמש הוא אורח
+    if (AuthService.instance.isGuest) {
+      final shouldLink = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('נדרש חשבון Google'),
+          content: const Text(
+            'כדי לרכוש מנוי Pro ולשמור עליו, עליך לקשר את החשבון לחשבון Google.\n\n'
+            'פעולה זו תבטיח שהמנוי יישמר גם אם תסיר את האפליקציה.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ביטול'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('קשר חשבון'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldLink != true) return;
+
+      setState(() => _isPurchasing = true);
+      
+      final result = await AuthService.instance.upgradeAnonymousToGoogle();
+      
+      setState(() => _isPurchasing = false);
+
+      if (!result.success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.errorMessage ?? 'שגיאה בקישור החשבון'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      
+      // אם הצליח - ממשיכים לרכישה
+    }
     
     setState(() => _isPurchasing = true);
 
