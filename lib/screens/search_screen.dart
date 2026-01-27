@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -345,6 +346,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// משנה פילטר
   void _onFilterChanged(LocalFilter filter) {
+    HapticFeedback.selectionClick();
     setState(() => _selectedFilter = filter);
     _currentQuery = _searchController.text;
     _updateSearchStream();
@@ -352,6 +354,7 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// מפעיל/מכבה מצב בחירה מרובה
   void _toggleSelectionMode() {
+    HapticFeedback.mediumImpact();
     setState(() {
       _isSelectionMode = !_isSelectionMode;
       if (!_isSelectionMode) {
@@ -362,6 +365,7 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בוחר/מבטל בחירת קובץ
   void _toggleFileSelection(String path) {
+    HapticFeedback.selectionClick();
     setState(() {
       if (_selectedFiles.contains(path)) {
         _selectedFiles.remove(path);
@@ -2270,7 +2274,23 @@ class _SearchScreenState extends State<SearchScreen> {
                   itemCount: results.length,
                   itemBuilder: (context, index) {
                     final file = results[index];
-                    return _buildResultItem(file);
+                    // אנימציית כניסה מדורגת
+                    return TweenAnimationBuilder<double>(
+                      key: ValueKey(file.path),
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      duration: Duration(milliseconds: 200 + (index.clamp(0, 10) * 30)),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, 20 * (1 - value)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _buildResultItem(file),
+                    );
                   },
                 ),
               ),
@@ -2763,6 +2783,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ? null 
               : () {
                   // כניסה למצב בחירה בלחיצה ארוכה
+                  HapticFeedback.mediumImpact();
                   setState(() {
                     _isSelectionMode = true;
                     _selectedFiles.add(file.path);
