@@ -1307,7 +1307,9 @@ class _SearchScreenState extends State<SearchScreen> {
                       ? _formatDateRange(_selectedDateRange!)
                       : 'כל הזמנים',
                   style: TextStyle(
-                    color: hasDateRange ? Colors.white : Colors.grey.shade400,
+                    color: hasDateRange 
+                        ? theme.colorScheme.onSurface 
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     fontSize: 14,
                   ),
                 ),
@@ -1318,10 +1320,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close, size: 14, color: Colors.white70),
+                    child: Icon(Icons.close, size: 14, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                   ),
                 )
               else
@@ -1757,7 +1759,7 @@ class _SearchScreenState extends State<SearchScreen> {
               style: TextStyle(
                 color: isSelected 
                     ? Colors.white 
-                    : (isPremium ? null : Colors.grey),
+                    : (isPremium ? theme.colorScheme.onSurface : Colors.grey),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 fontSize: 13,
               ),
@@ -1843,7 +1845,7 @@ class _SearchScreenState extends State<SearchScreen> {
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
+                color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.8),
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 fontSize: 13,
               ),
@@ -2342,7 +2344,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                 child: _buildHighlightedText(
                                   file.name,
                                   cleanQuery,
-                                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                  TextStyle(
+                                    fontWeight: FontWeight.w600, 
+                                    fontSize: 14,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
                                 ),
                               ),
                             ],

@@ -351,13 +351,13 @@ class TheHunterApp extends StatelessWidget {
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.light,
-      surface: const Color(0xFFF1F5F9),
-      onSurface: const Color(0xFF1E293B),
+      surface: const Color(0xFFFAFAFC),  // רקע רך יותר
+      onSurface: const Color(0xFF1E293B),  // טקסט כהה
       primary: const Color(0xFF6366F1),
       onPrimary: Colors.white,
       secondary: const Color(0xFF10B981),
       onSecondary: Colors.white,
-      surfaceContainerHighest: Colors.white,
+      surfaceContainerHighest: const Color(0xFFF8FAFC),
     ),
     useMaterial3: true,
     scaffoldBackgroundColor: const Color(0xFFF1F5F9),
@@ -369,7 +369,7 @@ class TheHunterApp extends StatelessWidget {
       iconTheme: IconThemeData(color: Color(0xFF6366F1)),
     ),
     cardTheme: CardThemeData(
-      color: Colors.white,
+      color: const Color(0xFFFAFAFC),  // לא לבן חזק
       elevation: 0,
       shadowColor: Colors.black12,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -381,13 +381,13 @@ class TheHunterApp extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     inputDecorationTheme: InputDecorationTheme(
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFFAFAFC),
       filled: true,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
-      hintStyle: TextStyle(color: Colors.grey.shade500),
+      hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
     ),
     listTileTheme: const ListTileThemeData(
       textColor: Color(0xFF1E293B),
@@ -399,16 +399,33 @@ class TheHunterApp extends StatelessWidget {
       titleLarge: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
     ),
     datePickerTheme: DatePickerThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFAFAFC),
       headerBackgroundColor: const Color(0xFF6366F1),
       headerForegroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
+      dayForegroundColor: WidgetStateProperty.all(const Color(0xFF1E293B)),
+      yearForegroundColor: WidgetStateProperty.all(const Color(0xFF1E293B)),
+      weekdayStyle: const TextStyle(color: Color(0xFF64748B)),
+      dayStyle: const TextStyle(color: Color(0xFF1E293B)),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: const Color(0xFFFAFAFC),
+      titleTextStyle: const TextStyle(color: Color(0xFF1E293B), fontSize: 20, fontWeight: FontWeight.bold),
+      contentTextStyle: const TextStyle(color: Color(0xFF475569)),
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: const Color(0xFF1E293B),
       contentTextStyle: const TextStyle(color: Colors.white),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       behavior: SnackBarBehavior.floating,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: const Color(0xFFF1F5F9),
+      labelStyle: const TextStyle(color: Color(0xFF475569)),
+      selectedColor: const Color(0xFF6366F1).withValues(alpha: 0.2),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Color(0xFFFAFAFC),
     ),
   );
 
