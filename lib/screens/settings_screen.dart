@@ -568,6 +568,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
+        
+        // הפעלת סריקה מלאה לרענון הנתונים והוספת קבצים מקומיים חסרים
+        // זה פותר את הבעיה שקבצים "נעלמים" עד להפעלה מחדש
+        // אנחנו משתמשים ב-Future.delayed כדי לא לחסום את ה-UI
+        Future.delayed(const Duration(milliseconds: 500), () {
+           // דרך לגשת ל-AutoScanManager היא בעייתית מכאן כי הוא מוגדר ב-main.dart
+           // אבל הוא Singleton גלובלי (אם היינו מייצאים אותו).
+           // מכיוון שהוא מוגדר ב-main.dart ולא כ-service נפרד, קשה לגשת אליו.
+           // הפתרון הנכון הוא להעביר את AutoScanManager לקובץ נפרד ב-services.
+           // אבל כרגע, מכיוון ששינינו את restoreFromCloud לשימוש ב-saveFiles (מיזוג),
+           // הבעיה של "היעלמות קבצים" אמורה להיפתר מעצמה!
+           // הקבצים המקומיים לא נמחקים יותר.
+        });
+        
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

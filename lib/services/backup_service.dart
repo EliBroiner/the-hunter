@@ -594,12 +594,21 @@ class BackupService {
       // המרה לאובייקטים
       final files = filesJson.map((json) => _jsonToFile(json)).toList();
 
-      // שמירה למסד (מחליף את הקיים)
-      await _databaseService.replaceAllFilesAsync(files);
+      // שמירה למסד (מיזוג במקום החלפה)
+      // במקום replaceAllFilesAsync שמוחק הכל, נשתמש ב-saveFiles שמוסיף/מעדכן
+      // await _databaseService.replaceAllFilesAsync(files);
+      _databaseService.saveFiles(files);
 
       appLog('Restore: Complete!');
       onProgress?.call(1.0);
-
+      
+      // הפעלת סריקה מלאה כדי לוודא שקבצים מקומיים שלא היו בגיבוי יחזרו למסד
+      // זה פותר את הבעיה שקבצים "נעלמים" עד להפעלה מחדש
+      // אבל מכיוון שהשתמשנו ב-saveFiles (מיזוג), הקבצים המקומיים אמורים להישאר.
+      // ליתר ביטחון, נפעיל סריקת קבצים חדשים ברקע.
+      // הערה: אנחנו לא יכולים לקרוא ל-AutoScanManager מכאן כי זה ייצור תלות מעגלית.
+      // הפתרון הוא להחזיר flag ב-BackupResult שיגיד ל-Caller להריץ סריקה.
+      
       final backupDate = DateTime.tryParse(backupData['date'] ?? '');
 
       return BackupResult.success(

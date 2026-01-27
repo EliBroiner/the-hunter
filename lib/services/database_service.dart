@@ -69,11 +69,13 @@ class DatabaseService {
     });
   }
 
-  /// שומר מספר קבצים למסד
+  /// שומר מספר קבצים למסד (ממזג אם קיים)
   void saveFiles(List<FileMetadata> files) {
     for (final file in files) {
       file.generateId(); // יצירת ID ייחודי לכל קובץ
     }
+    
+    // שימוש ב-putAll במקום replace כדי לא למחוק נתונים קיימים
     isar.write((isar) {
       isar.fileMetadatas.putAll(files);
     });

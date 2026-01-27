@@ -655,9 +655,9 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Column(
         children: [
-          // סטטוס סריקה (רק כשפעיל)
-          if (_showStatus)
-            _buildStatusBar(theme),
+          // סטטוס סריקה (רק כשפעיל) - הוסר לבקשת המשתמש
+          // if (_showStatus)
+          //   _buildStatusBar(theme),
           
           // מסך חיפוש
           const Expanded(
@@ -679,43 +679,10 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  /// בונה שורת סטטוס
-  Widget _buildStatusBar(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.2),
-            theme.colorScheme.secondary.withValues(alpha: 0.2),
-          ],
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _statusMessage,
-              style: TextStyle(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  /// בונה שורת סטטוס - הוסר לבקשת המשתמש
+  // Widget _buildStatusBar(ThemeData theme) {
+  //   return Container(...);
+  // }
   
   /// בונה פאנל לוגים
   Widget _buildLogPanel() {
