@@ -17,6 +17,7 @@ import 'services/database_service.dart';
 import 'services/favorites_service.dart';
 import 'services/recent_files_service.dart';
 import 'services/tags_service.dart';
+import 'services/widget_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
@@ -41,6 +42,7 @@ void main() async {
   await FavoritesService.instance.init();
   await RecentFilesService.instance.init();
   await TagsService.instance.init();
+  await WidgetService.instance.init();
   
   runApp(const TheHunterApp());
 }
@@ -219,6 +221,9 @@ class AutoScanManager with WidgetsBindingObserver {
         onStatusUpdate?.call('');
         _runAutoBackupIfNeeded();
       }
+      
+      // עדכון הווידג'ט עם הנתונים החדשים
+      await WidgetService.instance.updateWidget();
     } finally {
       _isScanning = false;
       _isProcessing = false;
