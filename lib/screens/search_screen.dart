@@ -3596,16 +3596,16 @@ class _SearchScreenState extends State<SearchScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      isWhatsApp ? Icons.chat_bubble : Icons.folder,
+                                      isWhatsApp ? Icons.chat_bubble : (file.isCloud ? Icons.cloud : Icons.folder),
                                       size: 10,
-                                      color: isWhatsApp ? Colors.green : Colors.grey.shade500,
+                                      color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      folderName,
+                                      file.isCloud ? 'Google Drive' : folderName,
                                       style: TextStyle(
                                         fontSize: 10,
-                                        color: isWhatsApp ? Colors.green : Colors.grey.shade500,
+                                        color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
                                       ),
                                     ),
                                   ],

@@ -98,6 +98,7 @@ class GoogleDriveService {
           ..lastModified = driveFile.modifiedTime ?? DateTime.now()
           ..addedAt = DateTime.now()
           ..isIndexed = false // לא סרקנו תוכן
+          ..extractedText = null // וודא שאין טקסט מחולץ
           ..isCloud = true
           ..cloudId = driveFile.id
           ..cloudWebViewLink = driveFile.webViewLink
