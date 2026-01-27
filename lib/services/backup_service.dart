@@ -147,6 +147,12 @@ class BackupService {
     if (!isAvailable) {
       return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
     }
+    
+    // בדיקה שכל הקבצים עברו סריקה
+    final pendingCount = _databaseService.getAllPendingFiles().length;
+    if (pendingCount > 0 && !force) {
+      return BackupResult.failure('יש עוד $pendingCount קבצים בסריקה. המתן לסיום.');
+    }
 
     try {
       appLog('Backup: Starting cloud backup...');
@@ -231,6 +237,13 @@ class BackupService {
   }) async {
     if (!isAvailable) {
       return BackupResult.failure('גיבוי זמין רק למשתמשי פרימיום');
+    }
+    
+    // בדיקה שכל הקבצים עברו סריקה - אחרת אין טעם לגבות
+    final pendingCount = _databaseService.getAllPendingFiles().length;
+    if (pendingCount > 0) {
+      appLog('SmartBackup: Skipped - $pendingCount files still pending');
+      return BackupResult.failure('יש עוד $pendingCount קבצים בסריקה. המתן לסיום.');
     }
 
     try {
