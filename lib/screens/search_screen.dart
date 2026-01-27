@@ -20,6 +20,7 @@ import '../services/smart_search_service.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
 import '../services/cloud_storage_service.dart';
+import '../services/widget_service.dart';
 import 'settings_screen.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
@@ -550,6 +551,8 @@ class _SearchScreenState extends State<SearchScreen> {
         name: file.name,
         extension: file.extension,
       );
+      // עדכון הווידג'ט עם הקובץ האחרון
+      WidgetService.instance.updateRecentFile(file.name, file.path, file.extension);
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
