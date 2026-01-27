@@ -701,6 +701,13 @@ class _MainScreenState extends State<MainScreen> {
                 const Text('לוגים', style: TextStyle(color: Colors.white, fontSize: 12)),
                 const Spacer(),
                 IconButton(
+                  icon: const Icon(Icons.share, size: 16, color: Colors.white70),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: 'שתף לוגים',
+                  onPressed: () => LogService.instance.exportLogs(),
+                ),
+                IconButton(
                   icon: const Icon(Icons.copy, size: 16, color: Colors.white70),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

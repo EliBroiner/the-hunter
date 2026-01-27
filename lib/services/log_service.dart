@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/foundation.dart';
 
 /// שירות לוגים פשוט לאבחון
@@ -16,8 +19,8 @@ class LogService {
     final logEntry = '[$timestamp] $message';
     _logs.add(logEntry);
     
-    // שומר רק 100 לוגים אחרונים
-    if (_logs.length > 100) _logs.removeAt(0);
+    // שומר רק 500 לוגים אחרונים (הגדלתי מ-100 כדי לתפוס יותר היסטוריה)
+    if (_logs.length > 500) _logs.removeAt(0);
     
     logsNotifier.value = List.from(_logs);
     
@@ -34,6 +37,25 @@ class LogService {
   /// מחזיר את כל הלוגים כטקסט
   String getAllLogs() {
     return _logs.join('\n');
+  }
+  
+  /// מייצא את הלוגים לקובץ ומשתף אותו
+  Future<void> exportLogs() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/app_logs.txt');
+      
+      final logContent = getAllLogs();
+      await file.writeAsString(logContent);
+      
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'The Hunter App Logs',
+        text: 'מצורף קובץ לוגים לאבחון תקלה.',
+      );
+    } catch (e) {
+      log('Error exporting logs: $e');
+    }
   }
   
   /// מחזיר את מספר הלוגים
