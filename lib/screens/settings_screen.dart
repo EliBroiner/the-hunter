@@ -567,24 +567,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
   
-  /// מציג הודעה שהפיצ'ר בפיתוח
-  void _showComingSoon(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.construction, color: Colors.amber, size: 20),
-            const SizedBox(width: 12),
-            Text('$feature - בקרוב!'),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF1E1E3F),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-  
   /// בונה פרופיל משתמש
   Widget _buildUserProfile(
     BuildContext context, 
@@ -776,6 +758,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    Widget? trailing,
   }) {
     final theme = Theme.of(context);
     
@@ -805,7 +788,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             color: Colors.grey.shade500,
           ),
         ),
-        trailing: Icon(Icons.chevron_left, color: Colors.grey.shade600),
+        trailing: trailing ?? Icon(Icons.chevron_left, color: Colors.grey.shade600),
         onTap: onTap,
       ),
     );
