@@ -3,33 +3,66 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'log_service.dart';
 
+/// מיפוי שמות אייקונים לאייקונים קבועים (נדרש ל-tree shaking)
+const Map<String, IconData> _iconMap = {
+  'label': Icons.label,
+  'work': Icons.work,
+  'person': Icons.person,
+  'priority_high': Icons.priority_high,
+  'attach_money': Icons.attach_money,
+  'family_restroom': Icons.family_restroom,
+  'folder': Icons.folder,
+  'star': Icons.star,
+  'favorite': Icons.favorite,
+  'home': Icons.home,
+  'school': Icons.school,
+  'shopping_cart': Icons.shopping_cart,
+  'flight': Icons.flight,
+  'restaurant': Icons.restaurant,
+  'sports': Icons.sports,
+  'music_note': Icons.music_note,
+  'photo': Icons.photo,
+  'movie': Icons.movie,
+  'book': Icons.book,
+  'medical_services': Icons.medical_services,
+};
+
 /// תגית מותאמת אישית
 class CustomTag {
   final String id;
   final String name;
   final Color color;
-  final IconData icon;
+  final String iconName;
 
   CustomTag({
     required this.id,
     required this.name,
     required this.color,
-    this.icon = Icons.label,
+    this.iconName = 'label',
   });
+
+  /// מחזיר את האייקון לפי השם
+  IconData get icon => _iconMap[iconName] ?? Icons.label;
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'color': color.value,
-    'icon': icon.codePoint,
+    'iconName': iconName,
   };
 
   factory CustomTag.fromJson(Map<String, dynamic> json) => CustomTag(
     id: json['id'] ?? '',
     name: json['name'] ?? '',
     color: Color(json['color'] ?? 0xFF6366F1),
-    icon: IconData(json['icon'] ?? Icons.label.codePoint, fontFamily: 'MaterialIcons'),
+    iconName: json['iconName'] ?? 'label',
   );
+  
+  /// רשימת שמות אייקונים זמינים
+  static List<String> get availableIconNames => _iconMap.keys.toList();
+  
+  /// מחזיר אייקון לפי שם
+  static IconData getIconByName(String name) => _iconMap[name] ?? Icons.label;
 }
 
 /// שירות ניהול תגיות
@@ -53,11 +86,11 @@ class TagsService {
   
   /// תגיות ברירת מחדל
   static List<CustomTag> get defaultTags => [
-    CustomTag(id: 'work', name: 'עבודה', color: Colors.blue, icon: Icons.work),
-    CustomTag(id: 'personal', name: 'אישי', color: Colors.green, icon: Icons.person),
-    CustomTag(id: 'important', name: 'חשוב', color: Colors.red, icon: Icons.priority_high),
-    CustomTag(id: 'finance', name: 'כספים', color: Colors.amber, icon: Icons.attach_money),
-    CustomTag(id: 'family', name: 'משפחה', color: Colors.pink, icon: Icons.family_restroom),
+    CustomTag(id: 'work', name: 'עבודה', color: Colors.blue, iconName: 'work'),
+    CustomTag(id: 'personal', name: 'אישי', color: Colors.green, iconName: 'person'),
+    CustomTag(id: 'important', name: 'חשוב', color: Colors.red, iconName: 'priority_high'),
+    CustomTag(id: 'finance', name: 'כספים', color: Colors.amber, iconName: 'attach_money'),
+    CustomTag(id: 'family', name: 'משפחה', color: Colors.pink, iconName: 'family_restroom'),
   ];
 
   /// צבעים זמינים לבחירה
