@@ -528,7 +528,7 @@ class FileScannerService {
     );
   }
 
-  /// מעבד קובץ בודד - סריקה + OCR
+  /// מעבד קובץ בודד - סריקה + OCR + תיוג אוטומטי
   Future<FileMetadata?> processNewFile(String filePath) async {
     try {
       final file = File(filePath);
@@ -552,6 +552,9 @@ class FileScannerService {
         lastModified: stat.modified,
       );
 
+      // תיוג אוטומטי בסיסי (לפי שם)
+      metadata.tags = _generateAutoTags(fileName, extension, null);
+
       // שמירה למסד
       _databaseService.saveFile(metadata);
 
@@ -560,6 +563,17 @@ class FileScannerService {
         final extractedText = await _ocrService.extractText(filePath);
         metadata.extractedText = extractedText;
         metadata.isIndexed = true;
+        
+        // תיוג אוטומטי מתקדם (לפי תוכן)
+        final contentTags = _generateAutoTags(fileName, extension, extractedText);
+        if (contentTags.isNotEmpty) {
+          final currentTags = metadata.tags ?? [];
+          final newTags = contentTags.where((t) => !currentTags.contains(t)).toList();
+          if (newTags.isNotEmpty) {
+            metadata.tags = [...currentTags, ...newTags];
+          }
+        }
+        
         _databaseService.updateFile(metadata);
       }
 
@@ -567,6 +581,47 @@ class FileScannerService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// מייצר תגיות אוטומטיות לפי שם ותוכן
+  List<String> _generateAutoTags(String fileName, String extension, String? content) {
+    final tags = <String>{};
+    final lowerName = fileName.toLowerCase();
+    final lowerContent = content?.toLowerCase() ?? '';
+    
+    // מילות מפתח פיננסיות
+    if (lowerName.contains('invoice') || lowerName.contains('חשבונית') || 
+        lowerName.contains('receipt') || lowerName.contains('קבלה') ||
+        lowerContent.contains('חשבונית') || lowerContent.contains('קבלה') || lowerContent.contains('סה"כ לתשלום')) {
+      tags.add('פיננסי');
+    }
+    
+    // מסמכים אישיים
+    if (lowerName.contains('id') || lowerName.contains('passport') || lowerName.contains('תעודת זהות') ||
+        lowerContent.contains('תעודת זהות') || lowerContent.contains('דרכון')) {
+      tags.add('אישי');
+    }
+    
+    // חוזים
+    if (lowerName.contains('contract') || lowerName.contains('agreement') || lowerName.contains('חוזה') || lowerName.contains('הסכם') ||
+        lowerContent.contains('חוזה') || lowerContent.contains('הסכם')) {
+      tags.add('חוזים');
+    }
+    
+    // מקורות
+    if (lowerName.contains('whatsapp')) tags.add('WhatsApp');
+    if (lowerName.contains('screenshot') || lowerName.contains('screen_shot') || lowerName.contains('צילום מסך')) tags.add('צילומי מסך');
+    if (lowerName.contains('telegram')) tags.add('Telegram');
+    if (lowerName.contains('facebook')) tags.add('Facebook');
+    if (lowerName.contains('instagram')) tags.add('Instagram');
+    if (lowerName.contains('camera') || lowerName.contains('dcim')) tags.add('מצלמה');
+    
+    // סוגי קבצים
+    if (extension == 'pdf') tags.add('PDF');
+    if (['doc', 'docx'].contains(extension)) tags.add('Word');
+    if (['xls', 'xlsx', 'csv'].contains(extension)) tags.add('Excel');
+    
+    return tags.toList();
   }
 
   /// סורק את תיקיית Downloads בלבד (תאימות לאחור)
@@ -690,6 +745,17 @@ class FileScannerService {
 
           file.extractedText = extractedText;
           file.isIndexed = true;
+          
+          // עדכון תגיות אוטומטיות עם התוכן החדש
+          final contentTags = _generateAutoTags(file.name, file.extension, extractedText);
+          if (contentTags.isNotEmpty) {
+            final currentTags = file.tags ?? [];
+            final newTags = contentTags.where((t) => !currentTags.contains(t)).toList();
+            if (newTags.isNotEmpty) {
+              file.tags = [...currentTags, ...newTags];
+            }
+          }
+          
           _databaseService.updateFile(file);
 
           filesProcessed++;
@@ -750,6 +816,17 @@ class FileScannerService {
 
           file.extractedText = extractedText;
           file.isIndexed = true;
+          
+          // עדכון תגיות אוטומטיות עם התוכן החדש
+          final contentTags = _generateAutoTags(file.name, file.extension, extractedText);
+          if (contentTags.isNotEmpty) {
+            final currentTags = file.tags ?? [];
+            final newTags = contentTags.where((t) => !currentTags.contains(t)).toList();
+            if (newTags.isNotEmpty) {
+              file.tags = [...currentTags, ...newTags];
+            }
+          }
+          
           _databaseService.updateFile(file);
 
           filesProcessed++;
