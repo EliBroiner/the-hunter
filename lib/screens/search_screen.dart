@@ -211,8 +211,11 @@ class _SearchScreenState extends State<SearchScreen> {
         startDate: startDate,
         endDate: endDate,
       ).map((results) {
-        // שילוב תוצאות ענן (אם יש)
-        final combined = [...results, ...filteredCloudResults];
+          // שילוב תוצאות ענן (אם יש) - תוך סינון כפילויות
+          final localPaths = results.map((f) => f.name.toLowerCase()).toSet();
+          final uniqueCloudResults = filteredCloudResults.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
+          
+          final combined = [...results, ...uniqueCloudResults];
         // מיון לפי תאריך (חדש לישן)
         combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
         return _applyLocalFilter(combined);
@@ -262,7 +265,10 @@ class _SearchScreenState extends State<SearchScreen> {
             startDate: startDate,
             endDate: endDate,
           ).map((results) {
-            final combined = [...results, ..._cloudResults];
+            final localPaths = results.map((f) => f.name.toLowerCase()).toSet();
+            final uniqueCloudResults = _cloudResults.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
+            
+            final combined = [...results, ...uniqueCloudResults];
             combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
             return _applyLocalFilter(combined);
           });
