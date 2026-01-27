@@ -493,16 +493,15 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(
+          content: const Row(
             children: [
-              const Icon(Icons.refresh, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              const Text('התוצאות עודכנו'),
+              Icon(Icons.refresh, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('התוצאות עודכנו'),
             ],
           ),
           duration: const Duration(seconds: 1),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF1E1E3F),
         ),
       );
     }
@@ -642,23 +641,28 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// מציג דיאלוג אישור מחיקה
   Future<void> _showDeleteConfirmation(FileMetadata file) async {
+    final theme = Theme.of(context);
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E3F),
+        backgroundColor: theme.colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-            SizedBox(width: 12),
-            Text('מחיקת קובץ'),
+            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            const SizedBox(width: 12),
+            Text('מחיקת קובץ', style: TextStyle(color: theme.colorScheme.onSurface)),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('האם אתה בטוח שברצונך למחוק את הקובץ?'),
+            Text(
+              'האם אתה בטוח שברצונך למחוק את הקובץ?',
+              style: TextStyle(color: theme.colorScheme.onSurface),
+            ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -674,7 +678,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Expanded(
                     child: Text(
                       file.name,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: TextStyle(fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -684,7 +688,7 @@ class _SearchScreenState extends State<SearchScreen> {
             const SizedBox(height: 8),
             Text(
               'פעולה זו לא ניתנת לביטול!',
-              style: TextStyle(color: Colors.red.shade300, fontSize: 12),
+              style: TextStyle(color: Colors.red.shade400, fontSize: 12),
             ),
           ],
         ),
@@ -713,14 +717,15 @@ class _SearchScreenState extends State<SearchScreen> {
   /// מציג פרטי קובץ
   void _showFileDetails(FileMetadata file) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -731,7 +736,7 @@ class _SearchScreenState extends State<SearchScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade600,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -758,6 +763,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     'פרטי קובץ',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -769,22 +775,22 @@ class _SearchScreenState extends State<SearchScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F0F23),
+                color: isDark ? const Color(0xFF0F0F23) : theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
                   _buildDetailRow('שם', file.name, Icons.insert_drive_file),
-                  const Divider(height: 20, color: Colors.white12),
+                  Divider(height: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
                   _buildDetailRow('סוג', file.extension.toUpperCase(), Icons.category),
-                  const Divider(height: 20, color: Colors.white12),
+                  Divider(height: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
                   _buildDetailRow('גודל', file.readableSize, Icons.data_usage),
-                  const Divider(height: 20, color: Colors.white12),
+                  Divider(height: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
                   _buildDetailRow('תאריך שינוי', _formatDate(file.lastModified), Icons.calendar_today),
-                  const Divider(height: 20, color: Colors.white12),
+                  Divider(height: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
                   _buildDetailRow('נתיב', file.path, Icons.folder_open, isPath: true),
                   if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
-                    const Divider(height: 20, color: Colors.white12),
+                    Divider(height: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
                     _buildDetailRow(
                       'טקסט מחולץ', 
                       '${file.extractedText!.length} תווים',
@@ -822,22 +828,24 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בונה שורת פרט
   Widget _buildDetailRow(String label, String value, IconData icon, {bool isPath = false}) {
+    final theme = Theme.of(context);
+    
     return Row(
       crossAxisAlignment: isPath ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade500),
+        Icon(icon, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
         const SizedBox(width: 12),
         SizedBox(
           width: 80,
           child: Text(
             label,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 13),
           ),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface),
             textDirection: _isHebrew(value) ? TextDirection.rtl : TextDirection.ltr,
             maxLines: isPath ? 3 : 1,
             overflow: TextOverflow.ellipsis,
@@ -854,121 +862,143 @@ class _SearchScreenState extends State<SearchScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ידית למשיכה
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade600,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            
-            // שם הקובץ
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ידית למשיכה
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 8),
+                child: Container(
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: _getFileColor(file.extension).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        file.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                        overflow: TextOverflow.ellipsis,
+              ),
+              
+              // שם הקובץ - קבוע למעלה
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _getFileColor(file.extension).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        file.readableSize,
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      child: Center(
+                        child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            file.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600, 
+                              fontSize: 15,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            file.readableSize,
+                            style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            
-            // פעולות
-            _buildActionTile(
-              icon: Icons.open_in_new,
-              title: 'פתח',
-              subtitle: 'פתח עם אפליקציה מתאימה',
-              color: theme.colorScheme.primary,
-              onTap: () {
-                Navigator.of(context).pop();
-                _openFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            // מועדפים - פרימיום בלבד
-            _buildFavoriteActionTile(file),
-            const SizedBox(height: 8),
-            // תגיות - פרימיום בלבד
-            _buildTagsActionTile(file),
-            const SizedBox(height: 8),
-            // תיקייה מאובטחת - פרימיום בלבד
-            _buildSecureFolderActionTile(file),
-            const SizedBox(height: 8),
-            // העלאה לענן - פרימיום בלבד
-            _buildCloudUploadActionTile(file),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.share,
-              title: 'שתף',
-              subtitle: 'שלח לאפליקציה אחרת',
-              color: Colors.blue,
-              onTap: () {
-                Navigator.of(context).pop();
-                _shareFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.info_outline,
-              title: 'פרטים',
-              subtitle: 'הצג מידע על הקובץ',
-              color: Colors.teal,
-              onTap: () {
-                Navigator.of(context).pop();
-                _showFileDetails(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.delete_outline,
-              title: 'מחק',
-              subtitle: 'מחק את הקובץ לצמיתות',
-              color: Colors.red,
-              onTap: () {
-                Navigator.of(context).pop();
-                _showDeleteConfirmation(file);
-              },
-            ),
-            
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
-          ],
+              ),
+              
+              Divider(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+              
+              // פעולות - ניתנות לגלילה
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  children: [
+                    _buildActionTile(
+                      icon: Icons.open_in_new,
+                      title: 'פתח',
+                      subtitle: 'פתח עם אפליקציה מתאימה',
+                      color: theme.colorScheme.primary,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        _openFile(file);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    // מועדפים - פרימיום בלבד
+                    _buildFavoriteActionTile(file),
+                    const SizedBox(height: 8),
+                    // תגיות - פרימיום בלבד
+                    _buildTagsActionTile(file),
+                    const SizedBox(height: 8),
+                    // תיקייה מאובטחת - פרימיום בלבד
+                    _buildSecureFolderActionTile(file),
+                    const SizedBox(height: 8),
+                    // העלאה לענן - פרימיום בלבד
+                    _buildCloudUploadActionTile(file),
+                    const SizedBox(height: 8),
+                    _buildActionTile(
+                      icon: Icons.share,
+                      title: 'שתף',
+                      subtitle: 'שלח לאפליקציה אחרת',
+                      color: Colors.blue,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        _shareFile(file);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _buildActionTile(
+                      icon: Icons.info_outline,
+                      title: 'פרטים',
+                      subtitle: 'הצג מידע על הקובץ',
+                      color: Colors.teal,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        _showFileDetails(file);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _buildActionTile(
+                      icon: Icons.delete_outline,
+                      title: 'מחק',
+                      subtitle: 'מחק את הקובץ לצמיתות',
+                      color: Colors.red,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        _showDeleteConfirmation(file);
+                      },
+                    ),
+                    SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -976,6 +1006,8 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בונה פריט פעולה מועדפים
   Widget _buildFavoriteActionTile(FileMetadata file) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isPremium = _settingsService.isPremium;
     final isFavorite = _favoritesService.isFavorite(file.path);
     
@@ -1007,7 +1039,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   Text(isFavorite ? 'הוסר מהמועדפים' : 'נוסף למועדפים'),
                 ],
               ),
-              backgroundColor: const Color(0xFF1E1E3F),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -1016,7 +1047,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: isDark ? const Color(0xFF0F0F23) : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.amber.withValues(alpha: 0.3))
@@ -1047,7 +1078,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           isFavorite ? 'הסר מהמועדפים' : 'הוסף למועדפים',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? theme.colorScheme.onSurface : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1076,7 +1107,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           ? (isFavorite ? 'הקובץ במועדפים שלך' : 'גישה מהירה לקבצים חשובים')
                           : 'שדרג לפרימיום',
                       style: TextStyle(
-                        color: Colors.grey.shade500,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                         fontSize: 12,
                       ),
                     ),
@@ -1086,7 +1117,7 @@ class _SearchScreenState extends State<SearchScreen> {
               if (isPremium)
                 Icon(
                   Icons.chevron_left,
-                  color: Colors.grey.shade600,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                 ),
             ],
           ),
@@ -1097,6 +1128,8 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בונה פריט תגיות
   Widget _buildTagsActionTile(FileMetadata file) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isPremium = _settingsService.isPremium;
     final tagsService = TagsService.instance;
     final fileTags = tagsService.getFileTags(file.path);
@@ -1117,7 +1150,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: isDark ? const Color(0xFF0F0F23) : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
@@ -1144,7 +1177,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           'תגיות',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? theme.colorScheme.onSurface : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1182,13 +1215,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     else
                       Text(
                         isPremium ? 'הוסף תגיות לארגון קבצים' : 'שדרג לפרימיום',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                        style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
                       ),
                   ],
                 ),
               ),
               if (isPremium)
-                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+                Icon(Icons.chevron_left, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
             ],
           ),
         ),
@@ -1389,6 +1422,8 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בונה פריט תיקייה מאובטחת
   Widget _buildSecureFolderActionTile(FileMetadata file) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isPremium = _settingsService.isPremium;
     
     return Material(
@@ -1408,7 +1443,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: isDark ? const Color(0xFF0F0F23) : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
@@ -1435,7 +1470,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           'העבר לתיקייה מאובטחת',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? theme.colorScheme.onSurface : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1457,13 +1492,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 2),
                     Text(
                       isPremium ? 'הסתר קובץ מאחורי קוד PIN' : 'שדרג לפרימיום',
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
                     ),
                   ],
                 ),
               ),
               if (isPremium)
-                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+                Icon(Icons.chevron_left, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
             ],
           ),
         ),
@@ -1541,6 +1576,8 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// בונה פריט העלאה לענן
   Widget _buildCloudUploadActionTile(FileMetadata file) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isPremium = _settingsService.isPremium;
     
     return Material(
@@ -1560,7 +1597,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: isDark ? const Color(0xFF0F0F23) : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.blue.withValues(alpha: 0.3))
@@ -1587,7 +1624,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           'העלה לענן',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? theme.colorScheme.onSurface : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1609,13 +1646,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 2),
                     Text(
                       isPremium ? 'שמור העתק בענן לגישה מכל מקום' : 'שדרג לפרימיום',
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
                     ),
                   ],
                 ),
               ),
               if (isPremium)
-                Icon(Icons.chevron_left, color: Colors.grey.shade600),
+                Icon(Icons.chevron_left, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
             ],
           ),
         ),
@@ -1705,6 +1742,9 @@ class _SearchScreenState extends State<SearchScreen> {
     required Color color,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1713,7 +1753,9 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: isDark 
+                ? const Color(0xFF0F0F23) 
+                : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -1733,16 +1775,23 @@ class _SearchScreenState extends State<SearchScreen> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600, 
+                        fontSize: 15,
+                        color: theme.colorScheme.onSurface,
+                      ),
                     ),
                     Text(
                       subtitle,
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6), 
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_left, color: Colors.grey.shade600),
+              Icon(Icons.chevron_left, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
             ],
           ),
         ),
@@ -1805,25 +1854,6 @@ class _SearchScreenState extends State<SearchScreen> {
       lastDate: now,
       initialDateRange: _selectedDateRange,
       locale: const Locale('he', 'IL'),
-      builder: (context, child) {
-        return Theme(
-          data: theme.copyWith(
-            colorScheme: theme.colorScheme.copyWith(
-              primary: const Color(0xFF6366F1),
-              onPrimary: Colors.white,
-              surface: const Color(0xFF1E1E3F),
-              onSurface: Colors.white,
-              onSurfaceVariant: Colors.grey.shade300,
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF818CF8),
-              ),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
     
     if (picked != null) {
@@ -1840,17 +1870,19 @@ class _SearchScreenState extends State<SearchScreen> {
   
   /// מציג הודעת שדרוג לפרימיום
   void _showPremiumUpgradeMessage(String feature) {
+    final theme = Theme.of(context);
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E3F),
+        backgroundColor: theme.colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                gradient: const LinearGradient(
                   colors: [Colors.amber, Colors.orange],
                 ),
                 borderRadius: BorderRadius.circular(8),
@@ -1858,12 +1890,15 @@ class _SearchScreenState extends State<SearchScreen> {
               child: const Icon(Icons.star, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text('שדרג לפרימיום'),
+            Text(
+              'שדרג לפרימיום',
+              style: TextStyle(color: theme.colorScheme.onSurface),
+            ),
           ],
         ),
         content: Text(
           'פיצ\'ר "$feature" זמין רק למשתמשי פרימיום.\n\nשדרג עכשיו כדי ליהנות מכל היכולות המתקדמות!',
-          style: const TextStyle(color: Colors.white70),
+          style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
         ),
         actions: [
           TextButton(
