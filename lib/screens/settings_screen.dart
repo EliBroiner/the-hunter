@@ -115,13 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'עברית',
                   onTap: () => _showComingSoon(context, 'בחירת שפה'),
                 ),
-                _buildSettingsTile(
-                  context,
-                  icon: Icons.dark_mode,
-                  title: 'מצב כהה',
-                  subtitle: 'פעיל תמיד',
-                  onTap: () => _showComingSoon(context, 'מצב בהיר'),
-                ),
+                _buildThemeModeTile(context),
               ],
             ),
             const SizedBox(height: 16),
@@ -748,6 +742,145 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         ...children,
       ],
+    );
+  }
+
+  /// בונה פריט בחירת מצב תצוגה (כהה/בהיר/מערכת)
+  Widget _buildThemeModeTile(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: _settingsService.themeModeNotifier,
+      builder: (context, currentMode, child) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    currentMode == ThemeMode.dark 
+                        ? Icons.dark_mode 
+                        : currentMode == ThemeMode.light
+                            ? Icons.light_mode
+                            : Icons.brightness_auto,
+                    color: theme.colorScheme.primary, 
+                    size: 20,
+                  ),
+                ),
+                title: const Text(
+                  'מצב תצוגה',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  currentMode == ThemeMode.dark 
+                      ? 'כהה' 
+                      : currentMode == ThemeMode.light
+                          ? 'בהיר'
+                          : 'לפי המערכת',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Row(
+                  children: [
+                    _buildThemeModeChip(
+                      context,
+                      icon: Icons.light_mode,
+                      label: 'בהיר',
+                      mode: ThemeMode.light,
+                      isSelected: currentMode == ThemeMode.light,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildThemeModeChip(
+                      context,
+                      icon: Icons.dark_mode,
+                      label: 'כהה',
+                      mode: ThemeMode.dark,
+                      isSelected: currentMode == ThemeMode.dark,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildThemeModeChip(
+                      context,
+                      icon: Icons.brightness_auto,
+                      label: 'מערכת',
+                      mode: ThemeMode.system,
+                      isSelected: currentMode == ThemeMode.system,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// בונה צ'יפ לבחירת מצב תצוגה
+  Widget _buildThemeModeChip(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required ThemeMode mode,
+    required bool isSelected,
+  }) {
+    final theme = Theme.of(context);
+    
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _settingsService.setThemeMode(mode),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected 
+                ? theme.colorScheme.primary.withValues(alpha: 0.2)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected 
+                  ? theme.colorScheme.primary 
+                  : Colors.grey.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected 
+                    ? theme.colorScheme.primary 
+                    : Colors.grey.shade400,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  color: isSelected 
+                      ? theme.colorScheme.primary 
+                      : Colors.grey.shade400,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

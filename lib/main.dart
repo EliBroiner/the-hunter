@@ -246,64 +246,110 @@ class AutoScanManager {
 class TheHunterApp extends StatelessWidget {
   const TheHunterApp({super.key});
 
+  // ערכת צבעים כהה
+  static ThemeData get darkTheme => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF6366F1),
+      brightness: Brightness.dark,
+      surface: const Color(0xFF0F0F23),
+      primary: const Color(0xFF818CF8),
+      secondary: const Color(0xFF34D399),
+    ),
+    useMaterial3: true,
+    scaffoldBackgroundColor: const Color(0xFF0F0F23),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: true,
+    ),
+    cardTheme: CardThemeData(
+      color: const Color(0xFF1E1E3F),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: const Color(0xFF6366F1),
+      foregroundColor: Colors.white,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: const Color(0xFF1E1E3F),
+      headerBackgroundColor: const Color(0xFF6366F1),
+      headerForegroundColor: Colors.white,
+      dayForegroundColor: WidgetStateProperty.all(Colors.white),
+      yearForegroundColor: WidgetStateProperty.all(Colors.white),
+      surfaceTintColor: Colors.transparent,
+      rangePickerBackgroundColor: const Color(0xFF1E1E3F),
+      rangeSelectionBackgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
+    ),
+  );
+
+  // ערכת צבעים בהירה
+  static ThemeData get lightTheme => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF6366F1),
+      brightness: Brightness.light,
+      surface: Colors.white,
+      primary: const Color(0xFF6366F1),
+      secondary: const Color(0xFF10B981),
+    ),
+    useMaterial3: true,
+    scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: true,
+      foregroundColor: Color(0xFF1F2937),
+    ),
+    cardTheme: CardThemeData(
+      color: Colors.white,
+      elevation: 2,
+      shadowColor: Colors.black12,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: const Color(0xFF6366F1),
+      foregroundColor: Colors.white,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: Colors.white,
+      headerBackgroundColor: const Color(0xFF6366F1),
+      headerForegroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'The Hunter',
-      debugShowCheckedModeBanner: false,
-      // תמיכה בעברית - נדרש ל-DatePicker
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('he', 'IL'),
-        Locale('en', 'US'),
-      ],
-      locale: const Locale('he', 'IL'),
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1),
-          brightness: Brightness.dark,
-          surface: const Color(0xFF0F0F23),
-          primary: const Color(0xFF818CF8),
-          secondary: const Color(0xFF34D399),
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFF0F0F23),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-        ),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF1E1E3F),
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
-          backgroundColor: const Color(0xFF6366F1),
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-        // תמיכה ב-DatePicker dark mode
-        datePickerTheme: DatePickerThemeData(
-          backgroundColor: const Color(0xFF1E1E3F),
-          headerBackgroundColor: const Color(0xFF6366F1),
-          headerForegroundColor: Colors.white,
-          dayForegroundColor: WidgetStateProperty.all(Colors.white),
-          yearForegroundColor: WidgetStateProperty.all(Colors.white),
-          surfaceTintColor: Colors.transparent,
-          rangePickerBackgroundColor: const Color(0xFF1E1E3F),
-          rangeSelectionBackgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
-        ),
-      ),
-      home: const AuthWrapper(),
-      routes: {
-        '/subscription': (context) => const SubscriptionScreen(),
-        '/folders': (context) => const FolderSelectionScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: SettingsService.instance.themeModeNotifier,
+      builder: (context, themeMode, child) {
+        return MaterialApp(
+          title: 'The Hunter',
+          debugShowCheckedModeBanner: false,
+          // תמיכה בעברית - נדרש ל-DatePicker
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('he', 'IL'),
+            Locale('en', 'US'),
+          ],
+          locale: const Locale('he', 'IL'),
+          theme: lightTheme,
+          darkTheme: darkTheme,
+          themeMode: themeMode,
+          home: const AuthWrapper(),
+          routes: {
+            '/subscription': (context) => const SubscriptionScreen(),
+            '/folders': (context) => const FolderSelectionScreen(),
+          },
+        );
       },
     );
   }

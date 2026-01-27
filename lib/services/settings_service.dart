@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// שירות הגדרות - מנהל הגדרות המשתמש וסטטוס פרימיום
@@ -16,15 +17,20 @@ class SettingsService {
   // מפתחות SharedPreferences
   static const String _keyIsPremium = 'is_premium';
   static const String _keyLocale = 'locale';
-  static const String _keyDarkMode = 'dark_mode';
+  static const String _keyThemeMode = 'theme_mode';
   
-  // Notifier לשינויים בסטטוס פרימיום
+  // Notifiers לשינויים
   final ValueNotifier<bool> isPremiumNotifier = ValueNotifier(false);
+  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.dark);
   
   /// מאתחל את השירות
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     isPremiumNotifier.value = _prefs?.getBool(_keyIsPremium) ?? false;
+    
+    // טעינת מצב התצוגה
+    final themeModeIndex = _prefs?.getInt(_keyThemeMode) ?? 2; // ברירת מחדל: dark
+    themeModeNotifier.value = ThemeMode.values[themeModeIndex];
   }
   
   /// האם המשתמש פרימיום
@@ -44,11 +50,15 @@ class SettingsService {
     await _prefs?.setString(_keyLocale, value);
   }
   
-  /// מצב כהה מופעל
-  bool get isDarkMode => _prefs?.getBool(_keyDarkMode) ?? true;
+  /// מצב התצוגה (בהיר/כהה/מערכת)
+  ThemeMode get themeMode => themeModeNotifier.value;
   
-  /// מגדיר מצב כהה
-  Future<void> setDarkMode(bool value) async {
-    await _prefs?.setBool(_keyDarkMode, value);
+  /// מגדיר מצב תצוגה
+  Future<void> setThemeMode(ThemeMode mode) async {
+    await _prefs?.setInt(_keyThemeMode, mode.index);
+    themeModeNotifier.value = mode;
   }
+  
+  /// מצב כהה מופעל (תאימות לאחור)
+  bool get isDarkMode => themeMode == ThemeMode.dark;
 }
