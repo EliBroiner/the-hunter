@@ -257,6 +257,34 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       if (_isMockMode) {
         // מצב Mock - סימולציה של רכישה
         await Future.delayed(const Duration(seconds: 1));
+        
+        // בדיקה אם כבר יש מנוי (במצב Mock אנחנו מדמים שאין, אבל אם היה שרת אמיתי היינו בודקים)
+        // במצב Mock, אם המשתמש כבר "רכש", ה-SettingsService כבר מעודכן.
+        // אבל כאן אנחנו רוצים לדמות מצב שבו המשתמש לוחץ על רכישה למרות שיש לו מנוי.
+        // במערכת אמיתית, RevenueCat יחזיר שגיאה או יגיד שהרכישה שוחזרה.
+        
+        // נבדוק אם כבר פרימיום
+        if (SettingsService.instance.isPremium) {
+           if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.info, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('You already have an active subscription!'),
+                  ],
+                ),
+                backgroundColor: Colors.blue,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            );
+            setState(() => _isPurchasing = false);
+            return;
+           }
+        }
+
         await SettingsService.instance.setIsPremium(true);
         
         if (mounted) {
@@ -281,11 +309,37 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         }
       } else {
         // רכישה אמיתית דרך RevenueCat
-        final customerInfo = await Purchases.purchasePackage(_selectedPackage!.rcPackage!);
+        
+        // בדיקה מקדימה אם כבר יש מנוי פעיל
+        final customerInfo = await Purchases.getCustomerInfo();
+        if (customerInfo.entitlements.active.containsKey('pro') ||
+            customerInfo.entitlements.active.containsKey('premium')) {
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.info, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text('You already have an active subscription!'),
+                    ],
+                  ),
+                  backgroundColor: Colors.blue,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+              setState(() => _isPurchasing = false);
+              return;
+            }
+        }
+
+        final purchaseInfo = await Purchases.purchasePackage(_selectedPackage!.rcPackage!);
         
         // בדיקה אם יש entitlement פעיל
-        final isPro = customerInfo.entitlements.active.containsKey('pro') ||
-                      customerInfo.entitlements.active.containsKey('premium');
+        final isPro = purchaseInfo.entitlements.active.containsKey('pro') ||
+                      purchaseInfo.entitlements.active.containsKey('premium');
         
         if (isPro) {
           await SettingsService.instance.setIsPremium(true);
