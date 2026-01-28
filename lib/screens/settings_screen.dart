@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
 import '../services/settings_service.dart';
+import '../services/localization_service.dart';
 
 /// מסך הגדרות
 class SettingsScreen extends StatefulWidget {
@@ -69,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          'הגדרות',
+          tr('settings_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -90,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // גיבוי ושחזור (פרימיום בלבד)
             _buildSettingsSection(
               context,
-              'גיבוי ושחזור',
+              tr('section_backup'),
               [
                 _buildBackupTile(context, theme, isPremium),
                 if (isPremium && _backupInfo != null)
@@ -106,12 +107,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // הגדרות כלליות
             _buildSettingsSection(
               context,
-              'כללי',
+              tr('section_general'),
               [
                 _buildSettingsTile(
                   context,
                   icon: Icons.language,
-                  title: 'שפה',
+                  title: tr('language'),
                   subtitle: _settingsService.locale == 'he' ? 'עברית' : 'English',
                   onTap: () => _showLanguageDialog(context),
                 ),
@@ -122,13 +123,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             _buildSettingsSection(
               context,
-              'סריקה',
+              tr('section_scan'),
               [
                 _buildSettingsTile(
                   context,
                   icon: Icons.folder,
-                  title: 'תיקיות לסריקה',
-                  subtitle: 'לחץ לבחירת תיקיות',
+                  title: tr('scan_folders'),
+                  subtitle: tr('scan_folders_subtitle'),
                   trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                   onTap: () {
                     Navigator.of(context).pushNamed('/folders');
@@ -140,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             _buildSettingsSection(
               context,
-              'כלים',
+              tr('section_tools'),
               [
                 _buildDuplicatesFinderTile(context, theme, _settingsService.isPremium),
                 _buildSecureFolderTile(context, theme, _settingsService.isPremium),
@@ -150,13 +151,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             _buildSettingsSection(
               context,
-              'אודות',
+              tr('section_about'),
               [
                 _buildSettingsTile(
                   context,
                   icon: Icons.info_outline,
-                  title: 'אודות האפליקציה',
-                  subtitle: 'גרסה ומידע',
+                  title: tr('about_app'),
+                  subtitle: 'v1.0.0',
                   onTap: () => _showAboutSheet(context),
                 ),
               ],
@@ -209,7 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Row(
           children: [
             Text(
-              'גיבוי לענן',
+              tr('backup_cloud'),
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: isPremium ? null : Colors.grey,
@@ -224,7 +225,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
-                  'PRO',
+                  tr('pro_badge'),
                   style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.bold,
@@ -237,12 +238,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: Text(
           _isBackingUp 
-              ? 'מגבה... ${(_backupProgress * 100).toInt()}%'
+              ? '${tr("loading")} ${(_backupProgress * 100).toInt()}%'
               : (isPremium 
                   ? (_backupInfo != null 
-                      ? 'גיבוי אחרון: ${_backupInfo!.formattedDate}'
-                      : 'לחץ כדי לגבות את הנתונים')
-                  : 'שדרג לפרימיום כדי לגבות'),
+                      ? 'Last backup: ${_backupInfo!.formattedDate}'
+                      : 'Tap to backup')
+                  : tr('upgrade_premium')),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -283,14 +284,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 )
               : const Icon(Icons.cloud_download, color: Colors.white, size: 20),
         ),
-        title: const Text(
-          'שחזור מהענן',
-          style: TextStyle(fontWeight: FontWeight.w600),
+        title: Text(
+          tr('restore_cloud'),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
           _isRestoring
-              ? 'משחזר... ${(_backupProgress * 100).toInt()}%'
-              : '${_backupInfo!.filesCount} קבצים • ${_backupInfo!.formattedSize}',
+              ? '${tr("loading")} ${(_backupProgress * 100).toInt()}%'
+              : '${_backupInfo!.filesCount} ${tr("found_files")} • ${_backupInfo!.formattedSize}',
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -332,7 +333,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Row(
           children: [
             Text(
-              'מחפש כפולים',
+              tr('duplicates_finder'),
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: isPremium ? null : Colors.grey,
@@ -360,8 +361,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: Text(
           isPremium 
-              ? 'מצא ומחק קבצים כפולים לפינוי מקום'
-              : 'שדרג לפרימיום',
+              ? tr('duplicates_subtitle')
+              : tr('upgrade_premium'),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -405,7 +406,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Row(
           children: [
             Text(
-              'תיקייה מאובטחת',
+              tr('secure_folder'),
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: isPremium ? null : Colors.grey,
@@ -433,8 +434,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: Text(
           isPremium 
-              ? 'הסתר קבצים רגישים מאחורי קוד PIN'
-              : 'שדרג לפרימיום',
+              ? tr('secure_folder_subtitle')
+              : tr('upgrade_premium'),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -616,12 +617,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           child: const Icon(Icons.schedule, color: Colors.green, size: 20),
         ),
-        title: const Text(
-          'גיבוי אוטומטי',
-          style: TextStyle(fontWeight: FontWeight.w600),
+        title: Text(
+          tr('auto_backup'),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
-          _autoBackupEnabled ? 'פעיל - כל 24 שעות' : 'כבוי',
+          _autoBackupEnabled ? tr('auto_backup_subtitle') : tr('auto_backup_off'),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -736,8 +737,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool isGuest,
   ) {
     final displayName = isGuest 
-        ? 'אורח' 
-        : (user?.displayName ?? user?.email?.split('@').first ?? 'משתמש');
+        ? tr('guest') 
+        : (user?.displayName ?? user?.email?.split('@').first ?? 'User');
     final email = isGuest ? 'Guest' : (user?.email ?? '');
     final photoUrl = user?.photoURL;
     
@@ -803,9 +804,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: Colors.orange.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Text(
-                          'אורח',
-                          style: TextStyle(
+                        child: Text(
+                          tr('guest'),
+                          style: const TextStyle(
                             fontSize: 10,
                             color: Colors.orange,
                             fontWeight: FontWeight.bold,
@@ -849,7 +850,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: TextButton.icon(
                       onPressed: () => _upgradeToGoogle(context),
                       icon: const Icon(Icons.upgrade, size: 16),
-                      label: const Text('שדרג לחשבון Google'),
+                      label: Text(tr('upgrade_to_google')),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         visualDensity: VisualDensity.compact,
@@ -944,16 +945,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     size: 20,
                   ),
                 ),
-                title: const Text(
-                  'מצב תצוגה',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                title: Text(
+                  tr('theme'),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 subtitle: Text(
                   currentMode == ThemeMode.dark 
-                      ? 'כהה' 
+                      ? tr('theme_dark')
                       : currentMode == ThemeMode.light
-                          ? 'בהיר'
-                          : 'לפי המערכת',
+                          ? tr('theme_light')
+                          : tr('theme_system'),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade500,
@@ -967,7 +968,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _buildThemeModeChip(
                       context,
                       icon: Icons.light_mode,
-                      label: 'בהיר',
+                      label: tr('theme_light'),
                       mode: ThemeMode.light,
                       isSelected: currentMode == ThemeMode.light,
                     ),
@@ -975,7 +976,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _buildThemeModeChip(
                       context,
                       icon: Icons.dark_mode,
-                      label: 'כהה',
+                      label: tr('theme_dark'),
                       mode: ThemeMode.dark,
                       isSelected: currentMode == ThemeMode.dark,
                     ),
@@ -983,7 +984,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _buildThemeModeChip(
                       context,
                       icon: Icons.brightness_auto,
-                      label: 'מערכת',
+                      label: tr('theme_system'),
                       mode: ThemeMode.system,
                       isSelected: currentMode == ThemeMode.system,
                     ),
@@ -1156,9 +1157,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: OutlinedButton.icon(
         onPressed: () => _showLogoutDialog(context),
         icon: const Icon(Icons.logout, color: Colors.red),
-        label: const Text(
-          'התנתק',
-          style: TextStyle(color: Colors.red),
+        label: Text(
+          tr('logout'),
+          style: const TextStyle(color: Colors.red),
         ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: Colors.red),
@@ -1178,12 +1179,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: Theme.of(context).colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('התנתקות'),
-        content: const Text('האם אתה בטוח שברצונך להתנתק?'),
+        title: Text(tr('logout_dialog_title')),
+        content: Text(tr('logout_dialog_content')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -1196,7 +1197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
             ),
-            child: const Text('התנתק'),
+            child: Text(tr('logout')),
           ),
         ],
       ),
@@ -1244,9 +1245,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
             
             // שם
-            const Text(
-              'The Hunter',
-              style: TextStyle(
+            Text(
+              tr('app_name'),
+              style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
@@ -1260,7 +1261,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 final version = snapshot.data?.version ?? '1.0.0';
                 final buildNumber = snapshot.data?.buildNumber ?? '1';
                 return Text(
-                  'גרסה $version ($buildNumber)',
+                  'Version $version ($buildNumber)',
                   style: TextStyle(color: Colors.grey.shade500),
                 );
               },
@@ -1273,12 +1274,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade400),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'כלי החיפוש המקומי האולטימטיבי למציאת קבצים.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade400),
-            ),
             const SizedBox(height: 24),
             
             // כפתור סגירה
@@ -1286,7 +1281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('סגור'),
+                child: Text(tr('close')),
               ),
             ),
             const SizedBox(height: 16),

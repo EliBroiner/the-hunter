@@ -23,6 +23,7 @@ import '../services/cloud_storage_service.dart';
 import '../services/widget_service.dart';
 import '../services/google_drive_service.dart';
 import 'settings_screen.dart';
+import '../services/localization_service.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
 enum LocalFilter {
@@ -2513,9 +2514,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                 color: Colors.white.withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
-                                'ביטול',
-                                style: TextStyle(
+                              child: Text(
+                                tr('cancel'),
+                                style: const TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
