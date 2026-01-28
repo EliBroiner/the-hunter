@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/localization_service.dart';
 
-class _PopupMenuItemText extends StatelessWidget {
+class PopupMenuItemText extends StatelessWidget {
   final String textKey;
   final Color? color;
 
-  const _PopupMenuItemText({
+  const PopupMenuItemText({
     required this.textKey,
     this.color,
   });

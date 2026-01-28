@@ -472,7 +472,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text(tr('restore_error').replaceFirst('\$error', e.toString()))),
+                Expanded(child: Text(tr('restore_error_with_details').replaceFirst('\$error', e.toString()))),
               ],
             ),
             backgroundColor: Colors.red,
@@ -523,7 +523,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                   SizedBox(width: 4),
                                   Text(
                                     tr('dev_mode_badge'),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       color: Colors.orange,
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
@@ -873,7 +873,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       SizedBox(width: 10),
                       Text(
                         tr('subscribe_now'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.black,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,

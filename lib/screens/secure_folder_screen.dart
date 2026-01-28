@@ -343,7 +343,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   const Icon(Icons.open_in_new, size: 20),
                   const SizedBox(width: 12),
-                  _PopupMenuItemText(textKey: 'open'),
+                  PopupMenuItemText(textKey: 'open'),
                 ],
               ),
             ),
@@ -353,7 +353,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   const Icon(Icons.share, size: 20),
                   const SizedBox(width: 12),
-                  _PopupMenuItemText(textKey: 'share'),
+                  PopupMenuItemText(textKey: 'share'),
                 ],
               ),
             ),
@@ -363,7 +363,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   const Icon(Icons.restore, size: 20, color: Colors.blue),
                   const SizedBox(width: 12),
-                  _PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
+                  PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
                 ],
               ),
             ),
@@ -373,7 +373,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   const Icon(Icons.delete, size: 20, color: Colors.red),
                   const SizedBox(width: 12),
-                  _PopupMenuItemText(textKey: 'delete', color: Colors.red),
+                  PopupMenuItemText(textKey: 'delete', color: Colors.red),
                 ],
               ),
             ),

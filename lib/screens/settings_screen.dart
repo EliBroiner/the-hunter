@@ -224,9 +224,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: Colors.amber,
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Text(
+                child: Text(
                   tr('pro_badge'),
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.bold,
                     color: Colors.black,
