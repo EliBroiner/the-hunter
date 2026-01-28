@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/settings_service.dart';
+import '../services/localization_service.dart';
 
 /// סוג מנוי
 enum SubscriptionPlan { monthly, yearly }
@@ -97,7 +98,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       _packages = _getMockPackages();
       _isMockMode = true;
       _selectedPackage = _packages.last;
-      _errorMessage = 'מצב פיתוח פעיל';
+      _errorMessage = tr('dev_mode_active');
     }
 
     if (mounted) {
@@ -116,8 +117,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       if (isMonthly || isYearly) {
         packages.add(PricingPackage(
           id: pkg.identifier,
-          title: isMonthly ? 'Monthly' : 'Yearly',
-          titleHe: isMonthly ? 'חודשי' : 'שנתי',
+          title: isMonthly ? tr('plan_monthly') : tr('plan_yearly'),
+          titleHe: isMonthly ? tr('plan_monthly_he') : tr('plan_yearly_he'),
           price: pkg.storeProduct.priceString,
           period: isMonthly ? '/month' : '/year',
           savings: isYearly ? 'Save 37%' : null,
@@ -211,18 +212,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('נדרש חשבון Google'),
-          content: const Text(
-            'כדי לרכוש מנוי Pro ולשמור עליו, עליך לקשר את החשבון לחשבון Google.\n\n'
-            'פעולה זו תבטיח שהמנוי יישמר גם אם תסיר את האפליקציה.',
-          ),
+          content: Text(tr('google_account_required_desc')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('ביטול'),
+              child: Text(tr('cancel')),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('קשר חשבון'),
+              child: Text(tr('link_account')),
             ),
           ],
         ),
@@ -240,7 +238,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(result.errorMessage ?? 'שגיאה בקישור החשבון'),
+              content: Text(result.errorMessage ?? tr('link_account_error')),
               backgroundColor: Colors.red,
             ),
           );
@@ -351,7 +349,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   children: [
                     Icon(Icons.check_circle, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('🎉 Purchase Successful! Welcome to Pro'),
+                    Text(tr('purchase_success')),
                   ],
                 ),
                 backgroundColor: Colors.green,
@@ -375,7 +373,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('שגיאה ברכישה: $e')),
+                Expanded(child: Text(tr('purchase_error').replaceFirst('\$error', e.toString()))),
               ],
             ),
             backgroundColor: Colors.red,
@@ -433,7 +431,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   children: [
                     Icon(Icons.check_circle, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('✨ Pro subscription restored!'),
+                    Text(tr('restore_success')),
                   ],
                 ),
                 backgroundColor: Colors.green,
@@ -454,7 +452,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   children: [
                     Icon(Icons.info_outline, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('No active subscription found'),
+                    Text(tr('no_subscription_found')),
                   ],
                 ),
                 backgroundColor: Colors.blueGrey,
@@ -474,7 +472,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('שגיאה בשחזור: $e')),
+                Expanded(child: Text(tr('restore_error').replaceFirst('\$error', e.toString()))),
               ],
             ),
             backgroundColor: Colors.red,
@@ -524,7 +522,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                   Icon(Icons.developer_mode, color: Colors.orange, size: 14),
                                   SizedBox(width: 4),
                                   Text(
-                                    'DEV MODE',
+                                    tr('dev_mode_badge'),
                                     style: TextStyle(
                                       color: Colors.orange,
                                       fontSize: 10,
@@ -610,7 +608,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               colors: [_goldLight, _goldPrimary, _goldDark],
             ).createShader(bounds),
             child: const Text(
-              'Hunter Pro',
+              tr('subscription_title'),
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
@@ -621,7 +619,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Upgrade to unlock all features',
+            tr('subscription_subtitle'),
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey.shade400,
@@ -635,11 +633,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// רשימת יתרונות
   Widget _buildBenefitsList() {
     final benefits = [
-      ('Smart AI Search', 'חיפוש חכם עם בינה מלאכותית'),
-      ('Voice Search', 'חיפוש קולי בעברית ואנגלית'),
-      ('Unlimited History', 'היסטוריית חיפושים ללא הגבלה'),
-      ('Priority Support', 'תמיכה מועדפת 24/7'),
-      ('No Ads', 'ללא פרסומות'),
+      (tr('benefit_smart_search'), tr('benefit_smart_search_desc')),
+      (tr('benefit_voice_search'), tr('benefit_voice_search_desc')),
+      (tr('benefit_history'), tr('benefit_history_desc')),
+      (tr('benefit_support'), tr('benefit_support_desc')),
+      (tr('benefit_no_ads'), tr('benefit_no_ads_desc')),
     ];
 
     return Container(
@@ -874,7 +872,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       Icon(Icons.star, color: Colors.black, size: 22),
                       SizedBox(width: 10),
                       Text(
-                        'Subscribe Now',
+                        tr('subscribe_now'),
                         style: TextStyle(
                           color: Colors.black,
                           fontSize: 18,
@@ -894,7 +892,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return TextButton(
       onPressed: _isPurchasing ? null : _onRestorePurchases,
       child: Text(
-        'Restore Purchases',
+        tr('restore_purchases'),
         style: TextStyle(
           color: Colors.grey.shade500,
           fontSize: 14,
@@ -908,11 +906,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Widget _buildDisclaimer() {
     return Text(
       _isMockMode
-          ? 'DEV MODE: No real charges will be made. '
-            'This is a simulated purchase flow for testing.'
-          : 'Payment will be charged to your Google Play account. '
-            'Subscription automatically renews unless canceled at least '
-            '24 hours before the end of the current period.',
+          ? tr('dev_mode_desc')
+          : tr('subscription_disclaimer'),
       textAlign: TextAlign.center,
       style: TextStyle(
         color: _isMockMode ? Colors.orange.shade300 : Colors.grey.shade600,

@@ -5,6 +5,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/secure_folder_service.dart';
 import '../services/log_service.dart';
+import '../services/localization_service.dart';
 
 /// מסך תיקייה מאובטחת
 class SecureFolderScreen extends StatefulWidget {
@@ -84,7 +85,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
             ),
             const SizedBox(height: 32),
             Text(
-              'הגדר קוד PIN',
+              tr('setup_pin'),
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -93,7 +94,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'בחר קוד בן 4 ספרות לאבטחת הקבצים שלך',
+              tr('setup_pin_desc'),
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
               ),
@@ -125,7 +126,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('הגדר PIN'),
+                    : Text(tr('set_pin_button')),
               ),
             ),
           ],
@@ -168,7 +169,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
             ),
             const SizedBox(height: 32),
             Text(
-              'הזן קוד PIN',
+              tr('enter_pin'),
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -177,7 +178,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '${_secureFolderService.fileCount} קבצים מאובטחים',
+              tr('secured_files_count').replaceFirst('\${count}', _secureFolderService.fileCount.toString()),
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
               ),
@@ -208,7 +209,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('פתח'),
+                    : Text(tr('unlock')),
               ),
             ),
           ],
@@ -231,7 +232,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
           children: [
             const Icon(Icons.lock_open, color: Colors.green, size: 20),
             const SizedBox(width: 8),
-            const Text('תיקייה מאובטחת'),
+            Text(tr('secure_folder')),
           ],
         ),
         centerTitle: true,
@@ -242,7 +243,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
               _secureFolderService.lock();
               setState(() {});
             },
-            tooltip: 'נעל',
+            tooltip: tr('lock'),
           ),
         ],
       ),
@@ -264,7 +265,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'התיקייה ריקה',
+            tr('folder_empty'),
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -273,7 +274,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'הוסף קבצים מתוצאות החיפוש',
+            tr('add_files_hint'),
             style: TextStyle(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
@@ -341,7 +342,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.open_in_new, size: 20),
                   SizedBox(width: 12),
-                  Text('פתח'),
+                  Text(tr('open')),
                 ],
               ),
             ),
@@ -351,7 +352,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.share, size: 20),
                   SizedBox(width: 12),
-                  Text('שתף'),
+                  Text(tr('share')),
                 ],
               ),
             ),
@@ -361,7 +362,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.restore, size: 20, color: Colors.blue),
                   SizedBox(width: 12),
-                  Text('שחזר למיקום מקורי', style: TextStyle(color: Colors.blue)),
+                  Text(tr('restore_original'), style: TextStyle(color: Colors.blue)),
                 ],
               ),
             ),
@@ -371,7 +372,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.delete, size: 20, color: Colors.red),
                   SizedBox(width: 12),
-                  Text('מחק', style: TextStyle(color: Colors.red)),
+                  Text(tr('delete'), style: TextStyle(color: Colors.red)),
                 ],
               ),
             ),
@@ -419,7 +420,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     final pin = _pinController.text;
     
     if (pin.length < 4) {
-      setState(() => _error = 'הקוד חייב להיות בן 4 ספרות');
+      setState(() => _error = tr('pin_length_error'));
       return;
     }
     
@@ -433,7 +434,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     setState(() {
       _isLoading = false;
       if (!success) {
-        _error = 'שגיאה בהגדרת הקוד';
+        _error = tr('pin_setup_error');
       }
       _pinController.clear();
     });
@@ -443,7 +444,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     final pin = _pinController.text;
     
     if (pin.length < 4) {
-      setState(() => _error = 'הקוד חייב להיות בן 4 ספרות');
+      setState(() => _error = tr('pin_length_error'));
       return;
     }
     
@@ -459,7 +460,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     setState(() {
       _isLoading = false;
       if (!success) {
-        _error = 'קוד שגוי';
+        _error = tr('pin_incorrect');
         HapticFeedback.heavyImpact();
       }
       _pinController.clear();
@@ -492,7 +493,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
       if (result.type != ResultType.done) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('לא ניתן לפתוח את הקובץ')),
+            SnackBar(content: Text(tr('open_error_short'))),
           );
         }
       }
@@ -516,16 +517,16 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('שחזור קובץ'),
-        content: Text('האם לשחזר את "${file.name}" למיקום המקורי?'),
+        title: Text(tr('restore_file_title')),
+        content: Text(tr('restore_file_confirm').replaceFirst('\${name}', file.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('שחזר'),
+            child: Text(tr('restore')),
           ),
         ],
       ),
@@ -539,7 +540,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'הקובץ שוחזר בהצלחה' : 'שגיאה בשחזור הקובץ'),
+          content: Text(success ? tr('restore_success_short') : tr('restore_error_short')),
         ),
       );
     }
@@ -549,17 +550,17 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('מחיקת קובץ'),
-        content: Text('האם למחוק את "${file.name}" לצמיתות?\n\nפעולה זו בלתי הפיכה!'),
+        title: Text(tr('delete_file_title')),
+        content: Text(tr('delete_secure_file_confirm').replaceFirst('\${name}', file.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('מחק'),
+            child: Text(tr('delete')),
           ),
         ],
       ),
@@ -573,7 +574,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'הקובץ נמחק' : 'שגיאה במחיקה'),
+          content: Text(success ? tr('file_deleted') : tr('delete_error_short')),
         ),
       );
     }

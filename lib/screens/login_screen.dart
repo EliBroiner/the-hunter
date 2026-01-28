@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/localization_service.dart';
 
 /// מסך התחברות
 class LoginScreen extends StatefulWidget {
@@ -159,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         // שם האפליקציה
         Text(
-          'The Hunter',
+          tr('app_name'),
           style: theme.textTheme.headlineLarge?.copyWith(
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -169,7 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         // תיאור
         Text(
-          'חפש כל קובץ במכשיר שלך',
+          tr('app_description'),
           style: theme.textTheme.bodyLarge?.copyWith(
             color: Colors.grey.shade400,
           ),
@@ -193,7 +194,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'או',
+                tr('or'),
                 style: TextStyle(color: Colors.grey.shade500),
               ),
             ),
@@ -252,7 +253,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(width: 12),
                   const Text(
-                    'Continue with Google',
+                    tr('continue_google'),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -287,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(width: 12),
             const Text(
-              'Continue as Guest',
+              tr('continue_guest'),
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -302,7 +303,7 @@ class _LoginScreenState extends State<LoginScreen> {
   /// טקסט תנאי שימוש
   Widget _buildTermsText(ThemeData theme) {
     return Text(
-      'בהתחברות אתה מסכים לתנאי השימוש ומדיניות הפרטיות',
+      tr('terms_agreement'),
       style: TextStyle(
         color: Colors.grey.shade600,
         fontSize: 12,

@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/file_metadata.dart';
 import '../services/database_service.dart';
 import '../services/log_service.dart';
+import '../services/localization_service.dart';
 
 /// קבוצת קבצים כפולים
 class DuplicateGroup {
@@ -35,7 +36,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
   
   bool _isScanning = false;
   double _progress = 0;
-  String _statusMessage = 'לחץ על \"סרוק\" להתחיל';
+  String _statusMessage = tr('scan_duplicates');
   
   List<DuplicateGroup> _duplicateGroups = [];
   final Set<String> _selectedForDeletion = {};
@@ -52,7 +53,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('מחפש כפולים'),
+        title: Text(tr('duplicates_finder')),
         centerTitle: true,
         actions: [
           if (_duplicateGroups.isNotEmpty)
@@ -61,7 +62,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
               onPressed: _selectedForDeletion.isEmpty 
                   ? null 
                   : _deleteSelected,
-              tooltip: 'מחק נבחרים',
+              tooltip: tr('delete_selected'),
             ),
         ],
       ),
@@ -122,8 +123,8 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                   children: [
                     Text(
                       _duplicateGroups.isEmpty 
-                          ? 'איתור קבצים כפולים'
-                          : 'נמצאו ${_duplicateGroups.length} קבוצות',
+                          ? tr('finding_duplicates')
+                          : tr('duplicates_found_groups').replaceFirst('\${count}', _duplicateGroups.length.toString()),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -134,7 +135,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                     Text(
                       _duplicateGroups.isEmpty
                           ? _statusMessage
-                          : 'מקום מבוזבז: ${_formatSize(_totalWastedSpace)}',
+                          : tr('wasted_space').replaceFirst('\${size}', _formatSize(_totalWastedSpace)),
                       style: TextStyle(
                         fontSize: 13,
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
@@ -162,7 +163,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.search),
-              label: Text(_isScanning ? 'סורק...' : 'סרוק כפולים'),
+              label: Text(_isScanning ? tr('scanning') : tr('scan_duplicates')),
             ),
           ),
         ],
@@ -226,7 +227,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'לא נמצאו קבצים כפולים!',
+            tr('no_duplicates_found'),
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -235,7 +236,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'הקבצים שלך מסודרים ונקיים',
+            tr('files_clean_desc'),
             style: TextStyle(
               fontSize: 14,
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -286,7 +287,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  '${group.files.length} קבצים זהים',
+                  tr('identical_files').replaceFirst('\${count}', group.files.length.toString()),
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: theme.colorScheme.primary,
@@ -300,7 +301,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    'מבוזבז: ${_formatSize(group.wastedSpace)}',
+                    tr('wasted').replaceFirst('\${size}', _formatSize(group.wastedSpace)),
                     style: const TextStyle(
                       fontSize: 11,
                       color: Colors.orange,
@@ -393,7 +394,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: const Text(
-                                    'מקור',
+                                    tr('original'),
                                     style: TextStyle(
                                       fontSize: 9,
                                       color: Colors.white,
@@ -447,7 +448,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                             onPressed: () => _showFileInFolder(file),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
-                            tooltip: 'הצג בתיקייה',
+                            tooltip: tr('show_in_folder'),
                           ),
                       ],
                     ),
@@ -465,7 +466,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
     setState(() {
       _isScanning = true;
       _progress = 0;
-      _statusMessage = 'טוען קבצים...';
+      _statusMessage = tr('loading_files');
       _duplicateGroups.clear();
       _selectedForDeletion.clear();
     });
@@ -478,13 +479,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       if (total == 0) {
         setState(() {
           _isScanning = false;
-          _statusMessage = 'לא נמצאו קבצים בבסיס הנתונים';
+          _statusMessage = tr('no_files_in_db');
         });
         return;
       }
       
       // שלב 2: קיבוץ לפי גודל ושם (או לפי גודל בלבד לזיהוי מדויק יותר)
-      setState(() => _statusMessage = 'מזהה כפולים...');
+      setState(() => _statusMessage = tr('identifying_duplicates'));
       
       // קיבוץ לפי גודל - קבצים זהים בהכרח באותו גודל
       final Map<int, List<FileMetadata>> sizeGroups = {};
@@ -501,7 +502,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         if (i % 100 == 0) {
           setState(() {
             _progress = i / total * 0.5;
-            _statusMessage = 'בודק $i מתוך $total...';
+            _statusMessage = tr('checking_progress').replaceFirst('\${current}', i.toString()).replaceFirst('\${total}', total.toString());
           });
           await Future.delayed(const Duration(milliseconds: 1));
         }
@@ -514,7 +515,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       
       setState(() {
         _progress = 0.5;
-        _statusMessage = 'נמצאו ${potentialDuplicates.length} קבוצות פוטנציאליות...';
+        _statusMessage = tr('potential_groups_found').replaceFirst('\${count}', potentialDuplicates.length.toString());
       });
       
       // שלב 4: אימות לפי שם (יכול להיות גם לפי hash בעתיד)
@@ -559,8 +560,8 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         _progress = 1;
         _duplicateGroups = confirmedGroups;
         _statusMessage = confirmedGroups.isEmpty 
-            ? 'לא נמצאו קבצים כפולים'
-            : 'נמצאו ${confirmedGroups.length} קבוצות כפולים';
+            ? tr('no_duplicates')
+            : tr('duplicate_groups_found').replaceFirst('\${count}', confirmedGroups.length.toString());
       });
       
       appLog('DuplicatesScreen: Found ${confirmedGroups.length} duplicate groups');
@@ -581,14 +582,14 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        title: const Text('מחיקת קבצים כפולים'),
+        title: Text(tr('delete_duplicates_title')),
         content: Text(
-          'האם אתה בטוח שברצונך למחוק ${_selectedForDeletion.length} קבצים?\n\nפעולה זו בלתי הפיכה!',
+          tr('delete_duplicates_confirm').replaceFirst('\${count}', _selectedForDeletion.length.toString()),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -596,7 +597,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('מחק'),
+            child: Text(tr('delete')),
           ),
         ],
       ),
@@ -646,7 +647,10 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
             children: [
               const Icon(Icons.check_circle, color: Colors.white),
               const SizedBox(width: 8),
-              Text('נמחקו $deleted קבצים (${_formatSize(freedSpace)})${failed > 0 ? ', $failed נכשלו' : ''}'),
+              Text(tr('delete_duplicates_result')
+                  .replaceFirst('\${deleted}', deleted.toString())
+                  .replaceFirst('\${size}', _formatSize(freedSpace))
+                  .replaceFirst('\${failed}', failed > 0 ? ', $failed failed' : '')),
             ],
           ),
           backgroundColor: Colors.green,

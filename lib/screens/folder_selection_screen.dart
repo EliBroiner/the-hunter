@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/log_service.dart';
+import '../services/localization_service.dart';
 
 /// מסך בחירת תיקיות לסריקה
 class FolderSelectionScreen extends StatefulWidget {
@@ -33,55 +34,55 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     final basePath = '/storage/emulated/0';
     final folders = [
       FolderOption(
-        name: 'הורדות',
+        name: tr('folder_downloads'),
         path: '$basePath/Download',
         icon: Icons.download,
         color: Colors.blue,
-        description: 'קבצים שהורדת',
+        description: tr('folder_downloads_desc'),
       ),
       FolderOption(
-        name: 'מצלמה',
+        name: tr('folder_camera'),
         path: '$basePath/DCIM',
         icon: Icons.camera_alt,
         color: Colors.green,
-        description: 'תמונות וסרטונים מהמצלמה',
+        description: tr('folder_camera_desc'),
       ),
       FolderOption(
-        name: 'תמונות',
+        name: tr('folder_pictures'),
         path: '$basePath/Pictures',
         icon: Icons.image,
         color: Colors.purple,
-        description: 'תמונות מאפליקציות',
+        description: tr('folder_pictures_desc'),
       ),
       FolderOption(
-        name: 'מסמכים',
+        name: tr('folder_documents'),
         path: '$basePath/Documents',
         icon: Icons.description,
         color: Colors.orange,
-        description: 'מסמכים ו-PDF',
+        description: tr('folder_documents_desc'),
       ),
       FolderOption(
-        name: 'WhatsApp',
+        name: tr('folder_whatsapp'),
         path: '$basePath/Android/media/com.whatsapp/WhatsApp/Media',
         icon: Icons.chat,
         color: Colors.teal,
-        description: 'מדיה מוואטסאפ',
+        description: tr('folder_whatsapp_desc'),
         isPremium: true,
       ),
       FolderOption(
-        name: 'טלגרם',
+        name: tr('folder_telegram'),
         path: '$basePath/Telegram',
         icon: Icons.send,
         color: Colors.lightBlue,
-        description: 'קבצים מטלגרם',
+        description: tr('folder_telegram_desc'),
         isPremium: true,
       ),
       FolderOption(
-        name: 'Screenshots',
+        name: tr('folder_screenshots'),
         path: '$basePath/Pictures/Screenshots',
         icon: Icons.screenshot,
         color: Colors.pink,
-        description: 'צילומי מסך',
+        description: tr('folder_screenshots_desc'),
       ),
     ];
 
@@ -136,7 +137,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
-          'תיקיות לסריקה',
+          tr('scan_folders_title'),
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         leading: IconButton(
@@ -154,7 +155,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       children: [
                         Icon(Icons.check_circle, color: Colors.white, size: 18),
                         SizedBox(width: 8),
-                        Text('ההגדרות נשמרו'),
+                        Text(tr('settings_saved')),
                       ],
                     ),
                     behavior: SnackBarBehavior.floating,
@@ -165,7 +166,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
               }
             },
             icon: const Icon(Icons.save),
-            label: const Text('שמור'),
+            label: Text(tr('save')),
           ),
         ],
       ),
@@ -191,7 +192,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'בחר אילו תיקיות לסרוק. תיקיות נוספות = יותר קבצים לחיפוש.',
+                          tr('scan_folders_explanation'),
                           style: TextStyle(
                             color: theme.colorScheme.primary,
                             fontSize: 13,
@@ -215,7 +216,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          '${_selectedPaths.length} תיקיות נבחרו',
+                          tr('folders_selected').replaceFirst('\${count}', _selectedPaths.length.toString()),
                           style: TextStyle(
                             color: theme.colorScheme.secondary,
                             fontWeight: FontWeight.w600,
@@ -233,13 +234,13 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                                 .toSet();
                           });
                         },
-                        child: const Text('בחר הכל'),
+                        child: Text(tr('select_all')),
                       ),
                       TextButton(
                         onPressed: () {
                           setState(() => _selectedPaths.clear());
                         },
-                        child: Text('נקה', 
+                        child: Text(tr('clear'), 
                           style: TextStyle(color: Colors.grey.shade500)),
                       ),
                     ],
@@ -328,7 +329,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(
-                                'PRO',
+                                tr('pro_badge'),
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,

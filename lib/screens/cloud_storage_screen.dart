@@ -6,6 +6,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/log_service.dart';
+import '../services/localization_service.dart';
 
 /// מסך אחסון ענן
 class CloudStorageScreen extends StatefulWidget {
@@ -62,7 +63,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('אחסון בענן'),
+        title: Text(tr('cloud_storage_title')),
         centerTitle: true,
         actions: [
           IconButton(
@@ -123,7 +124,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'אחסון בענן',
+                      tr('cloud_storage_title'),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -132,7 +133,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${_files.length} קבצים • ${_cloudService.formatSize(_usedStorage)}',
+                      tr('cloud_storage_subtitle').replaceFirst('\${count}', _files.length.toString()).replaceFirst('\${size}', _cloudService.formatSize(_usedStorage)),
                       style: TextStyle(
                         fontSize: 13,
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
@@ -151,7 +152,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'מעלה... ${(_uploadProgress * 100).toInt()}%',
+              tr('uploading_progress').replaceFirst('\${percent}', (_uploadProgress * 100).toInt().toString()),
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
@@ -175,7 +176,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'אין קבצים בענן',
+            tr('no_files_cloud'),
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -184,7 +185,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'העלה קבצים מתוצאות החיפוש',
+            tr('upload_files_hint'),
             style: TextStyle(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
@@ -260,7 +261,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
                     children: [
                       Icon(Icons.download, size: 20),
                       SizedBox(width: 12),
-                      Text('הורד'),
+                      Text(tr('download')),
                     ],
                   ),
                 ),
@@ -270,7 +271,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
                     children: [
                       Icon(Icons.share, size: 20),
                       SizedBox(width: 12),
-                      Text('שתף קישור'),
+                      Text(tr('share_link')),
                     ],
                   ),
                 ),
@@ -280,7 +281,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
                     children: [
                       Icon(Icons.delete, size: 20, color: Colors.red),
                       SizedBox(width: 12),
-                      Text('מחק', style: TextStyle(color: Colors.red)),
+                      Text(tr('delete'), style: TextStyle(color: Colors.red)),
                     ],
                   ),
                 ),
@@ -318,7 +319,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
   Future<void> _downloadFile(CloudFile file) async {
     final downloadsDir = await getExternalStorageDirectory();
     if (downloadsDir == null) {
-      _showMessage('לא ניתן לגשת לאחסון');
+      _showMessage(tr('access_storage_error'));
       return;
     }
     
@@ -348,16 +349,16 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
       final open = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('הורדה הושלמה'),
-          content: const Text('האם לפתוח את הקובץ?'),
+          title: Text(tr('download_complete_title')),
+          content: Text(tr('download_complete_content')),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('סגור'),
+              child: Text(tr('close')),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('פתח'),
+              child: Text(tr('open')),
             ),
           ],
         ),
@@ -367,7 +368,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
         await OpenFilex.open(localPath);
       }
     } else {
-      _showMessage('שגיאה בהורדה');
+      _showMessage(tr('download_error'));
     }
   }
 
@@ -377,7 +378,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
     if (url != null) {
       await Share.share(url, subject: file.name);
     } else {
-      _showMessage('לא ניתן ליצור קישור');
+      _showMessage(tr('create_link_error'));
     }
   }
 
@@ -385,17 +386,17 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('מחיקת קובץ'),
-        content: Text('האם למחוק את "${file.name}" מהענן?\n\nפעולה זו בלתי הפיכה!'),
+        title: Text(tr('delete_file_title')),
+        content: Text(tr('delete_cloud_file_confirm').replaceFirst('\${name}', file.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('מחק'),
+            child: Text(tr('delete')),
           ),
         ],
       ),
@@ -406,10 +407,10 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
     final success = await _cloudService.deleteFile(file.cloudPath);
     
     if (success) {
-      _showMessage('הקובץ נמחק');
+      _showMessage(tr('file_deleted'));
       _loadFiles();
     } else {
-      _showMessage('שגיאה במחיקה');
+      _showMessage(tr('delete_error_short'));
     }
   }
 

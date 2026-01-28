@@ -241,8 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ? '${tr("loading")} ${(_backupProgress * 100).toInt()}%'
               : (isPremium 
                   ? (_backupInfo != null 
-                      ? 'Last backup: ${_backupInfo!.formattedDate}'
-                      : 'Tap to backup')
+                      ? tr('last_backup').replaceFirst('\${date}', _backupInfo!.formattedDate)
+                      : tr('tap_to_backup'))
                   : tr('upgrade_premium')),
           style: TextStyle(
             fontSize: 12,
@@ -290,8 +290,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: Text(
           _isRestoring
-              ? '${tr("loading")} ${(_backupProgress * 100).toInt()}%'
-              : '${_backupInfo!.filesCount} ${tr("found_files")} • ${_backupInfo!.formattedSize}',
+              ? '\${tr("loading")} \${(_backupProgress * 100).toInt()}%'
+              : tr('restore_info').replaceFirst('\${count}', _backupInfo!.filesCount.toString()).replaceFirst('\${size}', _backupInfo!.formattedSize),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade500,
@@ -480,7 +480,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Icon(Icons.check_circle, color: Colors.white),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(result.message ?? 'גובו ${result.filesCount} קבצים בהצלחה!'),
+                  child: Text(result.message ?? tr('backup_success').replaceFirst('\${count}', result.filesCount.toString())),
                 ),
               ],
             ),
@@ -492,7 +492,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.error ?? 'שגיאה בגיבוי'),
+            content: Text(result.error ?? tr('backup_error')),
             backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
           ),
@@ -512,17 +512,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Icon(Icons.warning_amber, color: Colors.amber),
             SizedBox(width: 12),
-            Text('שחזור מגיבוי'),
+            Text(tr('restore_title')),
           ],
         ),
-        content: const Text(
-          'פעולה זו תחליף את כל הנתונים הנוכחיים בנתונים מהגיבוי.\n\nהאם להמשיך?',
+        content: Text(
+          tr('restore_confirm'),
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -532,7 +532,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green.shade700,
             ),
-            child: const Text('שחזר'),
+            child: Text(tr('restore_action')),
           ),
         ],
       ),
@@ -562,7 +562,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.white),
                 const SizedBox(width: 12),
-                Text('שוחזרו ${result.filesCount} קבצים בהצלחה!'),
+                Text(tr('restore_success').replaceFirst('\${count}', result.filesCount.toString())),
               ],
             ),
             backgroundColor: Colors.green.shade700,
@@ -586,7 +586,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.error ?? 'שגיאה בשחזור'),
+            content: Text(result.error ?? tr('restore_error')),
             backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
           ),
@@ -660,7 +660,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Icon(Icons.cloud_done, color: Colors.green, size: 18),
               const SizedBox(width: 8),
               const Text(
-                'גיבוי אחרון',
+                tr('last_backup_title'),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
@@ -719,7 +719,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Icon(Icons.construction, color: Colors.amber, size: 20),
             const SizedBox(width: 12),
-            Text('$feature - בקרוב!'),
+            Text(tr('coming_soon').replaceFirst('\${feature}', feature)),
           ],
         ),
         behavior: SnackBarBehavior.floating,
@@ -873,14 +873,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('החשבון שודרג בהצלחה!'),
+            content: Text(tr('upgrade_success')),
             backgroundColor: Colors.green,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.errorMessage ?? 'שגיאה בשדרוג'),
+            content: Text(result.errorMessage ?? tr('upgrade_error')),
             backgroundColor: Colors.red,
           ),
         );
@@ -1100,12 +1100,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('בחר שפה'),
+        title: Text(tr('choose_language')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('עברית'),
+              title: Text(tr('hebrew')),
               leading: Radio<String>(
                 value: 'he',
                 groupValue: _settingsService.locale,
@@ -1122,7 +1122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             ListTile(
-              title: const Text('English'),
+              title: Text(tr('english')),
               leading: Radio<String>(
                 value: 'en',
                 groupValue: _settingsService.locale,
@@ -1143,7 +1143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
         ],
       ),
@@ -1270,7 +1270,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             // תיאור
             Text(
-              'The ultimate local file search tool tailored for efficiency.',
+              tr('app_description_long'),
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade400),
             ),

@@ -304,12 +304,12 @@ class _SearchScreenState extends State<SearchScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('נדרשת הרשאת מיקרופון לחיפוש קולי'),
+              content: Text(tr('search_voice_permission')),
               backgroundColor: Colors.orange,
               behavior: SnackBarBehavior.floating,
               action: result == PermissionResult.permanentlyDenied
                   ? SnackBarAction(
-                      label: 'הגדרות',
+                      label: tr('settings_title'),
                       textColor: Colors.white,
                       onPressed: () => _permissionService.openSettings(),
                     )
@@ -328,7 +328,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('זיהוי קולי אינו זמין במכשיר זה'),
+              content: Text(tr('search_voice_not_available')),
               backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
             ),
@@ -386,7 +386,7 @@ class _SearchScreenState extends State<SearchScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          _selectedLocale == 'he-IL' ? 'שפה: עברית' : 'Language: English',
+          _selectedLocale == 'he-IL' ? tr('search_language_he') : tr('search_language_en'),
         ),
         duration: const Duration(seconds: 1),
         behavior: SnackBarBehavior.floating,
@@ -490,19 +490,19 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             const Icon(Icons.warning_amber, color: Colors.orange),
             const SizedBox(width: 12),
-            const Text('מחיקת קבצים'),
+            const Text(tr('delete_files_title')),
           ],
         ),
-        content: Text('האם למחוק $selectedCount קבצים?\nפעולה זו בלתי הפיכה.'),
+        content: Text(tr('delete_multiple_confirm').replaceFirst('\$selectedCount', selectedCount.toString())),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('מחק', style: TextStyle(color: Colors.white)),
+            child: Text(tr('delete'), style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -533,8 +533,8 @@ class _SearchScreenState extends State<SearchScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(failed > 0 
-              ? 'נמחקו $deleted קבצים, $failed נכשלו'
-              : 'נמחקו $deleted קבצים'),
+              ? tr('delete_multiple_partial').replaceFirst('\$deleted', deleted.toString()).replaceFirst('\$failed', failed.toString())
+              : tr('delete_multiple_success').replaceFirst('\$deleted', deleted.toString())),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -551,7 +551,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('שגיאה בשיתוף: $e'),
+            content: Text(tr('share_error').replaceFirst('\$e', e.toString())),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -574,7 +574,7 @@ class _SearchScreenState extends State<SearchScreen> {
             children: [
               const Icon(Icons.refresh, color: Colors.white, size: 18),
               const SizedBox(width: 8),
-              const Text('התוצאות עודכנו'),
+              const Text(tr('refresh_complete')),
             ],
           ),
           duration: const Duration(seconds: 1),
@@ -597,13 +597,13 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('הקובץ לא נמצא: ${file.name}')),
+                Expanded(child: Text(tr('file_not_found').replaceFirst('\${file.name}', file.name))),
               ],
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
-              label: 'הסר',
+              label: tr('remove_from_list'),
               textColor: Colors.white,
               onPressed: () {
                 _databaseService.deleteFile(file.id);
@@ -629,7 +629,7 @@ class _SearchScreenState extends State<SearchScreen> {
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('לא ניתן לפתוח את הקובץ: ${result.message}'),
+          content: Text(tr('open_error').replaceFirst('\${result.message}', result.message)),
           backgroundColor: Colors.orange,
           behavior: SnackBarBehavior.floating,
         ),
@@ -656,7 +656,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     await Share.shareXFiles(
       [XFile(file.path)],
-      text: 'Shared from The Hunter: ${file.name}',
+      text: tr('share_text').replaceFirst('\${file.name}', file.name),
     );
   }
   
@@ -673,7 +673,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('הקובץ כבר נמחק מהמכשיר'),
+            content: Text(tr('file_already_deleted')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -696,7 +696,7 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.white, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text('הקובץ "${file.name}" נמחק בהצלחה')),
+                Expanded(child: Text(tr('file_deleted_success').replaceFirst('\${file.name}', file.name))),
               ],
             ),
             backgroundColor: Colors.green,
@@ -708,7 +708,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('שגיאה במחיקת הקובץ: $e'),
+            content: Text(tr('delete_error_details').replaceFirst('\$e', e.toString())),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -728,14 +728,14 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
             SizedBox(width: 12),
-            Text('מחיקת קובץ'),
+            Text(tr('delete_file_title')),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('האם אתה בטוח שברצונך למחוק את הקובץ?'),
+            Text(tr('delete_file_confirm')),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -760,7 +760,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'פעולה זו לא ניתנת לביטול!',
+              tr('delete_irreversible'),
               style: TextStyle(color: Colors.red.shade300, fontSize: 12),
             ),
           ],
@@ -768,7 +768,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -776,7 +776,7 @@ class _SearchScreenState extends State<SearchScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('מחק'),
+            child: Text(tr('delete')),
           ),
         ],
       ),
@@ -832,7 +832,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'פרטי קובץ',
+                    tr('file_details_title'),
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -851,20 +851,20 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               child: Column(
                 children: [
-                  _buildDetailRow('שם', file.name, Icons.insert_drive_file),
+                  _buildDetailRow(tr('detail_name'), file.name, Icons.insert_drive_file),
                   const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow('סוג', file.extension.toUpperCase(), Icons.category),
+                  _buildDetailRow(tr('detail_type'), file.extension.toUpperCase(), Icons.category),
                   const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow('גודל', file.readableSize, Icons.data_usage),
+                  _buildDetailRow(tr('detail_size'), file.readableSize, Icons.data_usage),
                   const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow('תאריך שינוי', _formatDate(file.lastModified), Icons.calendar_today),
+                  _buildDetailRow(tr('detail_date'), _formatDate(file.lastModified), Icons.calendar_today),
                   const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow('נתיב', file.path, Icons.folder_open, isPath: true),
+                  _buildDetailRow(tr('detail_path'), file.path, Icons.folder_open, isPath: true),
                   if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
                     const Divider(height: 20, color: Colors.white12),
                     _buildDetailRow(
-                      'טקסט מחולץ', 
-                      '${file.extractedText!.length} תווים',
+                      tr('detail_extracted_text'), 
+                      '${file.extractedText!.length} ${tr('detail_chars')}',
                       Icons.text_snippet,
                     ),
                   ],
@@ -886,7 +886,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text('סגור'),
+                child: Text(tr('close')),
               ),
             ),
             
@@ -995,8 +995,8 @@ class _SearchScreenState extends State<SearchScreen> {
             // פעולות
             _buildActionTile(
               icon: Icons.open_in_new,
-              title: 'פתח',
-              subtitle: 'פתח עם אפליקציה מתאימה',
+              title: tr('action_open'),
+              subtitle: tr('action_open_subtitle'),
               color: theme.colorScheme.primary,
               onTap: () {
                 Navigator.of(context).pop();
@@ -1445,7 +1445,7 @@ class _SearchScreenState extends State<SearchScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('ביטול'),
+              child: Text(tr('cancel')),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -1574,7 +1574,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ביטול'),
+            child: Text(tr('cancel')),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
