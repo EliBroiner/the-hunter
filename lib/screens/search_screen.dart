@@ -490,7 +490,7 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             const Icon(Icons.warning_amber, color: Colors.orange),
             const SizedBox(width: 12),
-            const Text(tr('delete_files_title')),
+            Text(tr('delete_files_title')),
           ],
         ),
         content: Text(tr('delete_multiple_confirm').replaceFirst('\$selectedCount', selectedCount.toString())),
@@ -574,7 +574,7 @@ class _SearchScreenState extends State<SearchScreen> {
             children: [
               const Icon(Icons.refresh, color: Colors.white, size: 18),
               const SizedBox(width: 8),
-              const Text(tr('refresh_complete')),
+              Text(tr('refresh_complete')),
             ],
           ),
           duration: const Duration(seconds: 1),

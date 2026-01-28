@@ -36,7 +36,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
   
   bool _isScanning = false;
   double _progress = 0;
-  String _statusMessage = tr('scan_duplicates');
+  String _statusMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _statusMessage = tr('scan_duplicates');
+  }
   
   List<DuplicateGroup> _duplicateGroups = [];
   final Set<String> _selectedForDeletion = {};

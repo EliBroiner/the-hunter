@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../services/secure_folder_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
+import 'secure_folder_screen_helper.dart';
 
 /// מסך תיקייה מאובטחת
 class SecureFolderScreen extends StatefulWidget {
@@ -342,7 +343,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.open_in_new, size: 20),
                   SizedBox(width: 12),
-                  Text(tr('open')),
+                  _PopupMenuItemText(textKey: 'open'),
                 ],
               ),
             ),
@@ -352,7 +353,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.share, size: 20),
                   SizedBox(width: 12),
-                  Text(tr('share')),
+                  _PopupMenuItemText(textKey: 'share'),
                 ],
               ),
             ),
@@ -362,7 +363,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.restore, size: 20, color: Colors.blue),
                   SizedBox(width: 12),
-                  Text(tr('restore_original'), style: TextStyle(color: Colors.blue)),
+                  _PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
                 ],
               ),
             ),
@@ -372,7 +373,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
                 children: [
                   Icon(Icons.delete, size: 20, color: Colors.red),
                   SizedBox(width: 12),
-                  Text(tr('delete'), style: TextStyle(color: Colors.red)),
+                  _PopupMenuItemText(textKey: 'delete', color: Colors.red),
                 ],
               ),
             ),

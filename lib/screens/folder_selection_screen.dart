@@ -34,55 +34,55 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     final basePath = '/storage/emulated/0';
     final folders = [
       FolderOption(
-        name: tr('folder_downloads'),
+        name: 'folder_downloads',
         path: '$basePath/Download',
         icon: Icons.download,
         color: Colors.blue,
-        description: tr('folder_downloads_desc'),
+        description: 'folder_downloads_desc',
       ),
       FolderOption(
-        name: tr('folder_camera'),
+        name: 'folder_camera',
         path: '$basePath/DCIM',
         icon: Icons.camera_alt,
         color: Colors.green,
-        description: tr('folder_camera_desc'),
+        description: 'folder_camera_desc',
       ),
       FolderOption(
-        name: tr('folder_pictures'),
+        name: 'folder_pictures',
         path: '$basePath/Pictures',
         icon: Icons.image,
         color: Colors.purple,
-        description: tr('folder_pictures_desc'),
+        description: 'folder_pictures_desc',
       ),
       FolderOption(
-        name: tr('folder_documents'),
+        name: 'folder_documents',
         path: '$basePath/Documents',
         icon: Icons.description,
         color: Colors.orange,
-        description: tr('folder_documents_desc'),
+        description: 'folder_documents_desc',
       ),
       FolderOption(
-        name: tr('folder_whatsapp'),
+        name: 'folder_whatsapp',
         path: '$basePath/Android/media/com.whatsapp/WhatsApp/Media',
         icon: Icons.chat,
         color: Colors.teal,
-        description: tr('folder_whatsapp_desc'),
+        description: 'folder_whatsapp_desc',
         isPremium: true,
       ),
       FolderOption(
-        name: tr('folder_telegram'),
+        name: 'folder_telegram',
         path: '$basePath/Telegram',
         icon: Icons.send,
         color: Colors.lightBlue,
-        description: tr('folder_telegram_desc'),
+        description: 'folder_telegram_desc',
         isPremium: true,
       ),
       FolderOption(
-        name: tr('folder_screenshots'),
+        name: 'folder_screenshots',
         path: '$basePath/Pictures/Screenshots',
         icon: Icons.screenshot,
         color: Colors.pink,
-        description: tr('folder_screenshots_desc'),
+        description: 'folder_screenshots_desc',
       ),
     ];
 
@@ -313,7 +313,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       Row(
                         children: [
                           Text(
-                            folder.name,
+                            tr(folder.name),
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
@@ -342,7 +342,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        folder.description,
+                        tr(folder.description),
                         style: TextStyle(
                           color: Colors.grey.shade500,
                           fontSize: 12,
