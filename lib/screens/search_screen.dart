@@ -2692,6 +2692,11 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         );
         setState(() {}); // רענון להסתרת הכפתור
+        
+        // אם יש כבר טקסט בשדה החיפוש - נבצע חיפוש מיידי בענן
+        if (_searchController.text.isNotEmpty && _searchController.text.length > 2) {
+          _searchCloud(_searchController.text);
+        }
       }
     } else {
       if (mounted) {
