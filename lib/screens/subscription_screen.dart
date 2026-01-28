@@ -516,11 +516,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: Colors.orange),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.developer_mode, color: Colors.orange, size: 14),
-                                  SizedBox(width: 4),
+                                  const Icon(Icons.developer_mode, color: Colors.orange, size: 14),
+                                  const SizedBox(width: 4),
                                   Text(
                                     tr('dev_mode_badge'),
                                     style: const TextStyle(
@@ -866,11 +866,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       strokeWidth: 2,
                     ),
                   )
-                : const Row(
+                : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.star, color: Colors.black, size: 22),
-                      SizedBox(width: 10),
+                      const Icon(Icons.star, color: Colors.black, size: 22),
+                      const SizedBox(width: 10),
                       Text(
                         tr('subscribe_now'),
                         style: const TextStyle(
