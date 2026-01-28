@@ -337,42 +337,42 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           itemBuilder: (context) => [
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'open',
               child: Row(
                 children: [
-                  Icon(Icons.open_in_new, size: 20),
-                  SizedBox(width: 12),
+                  const Icon(Icons.open_in_new, size: 20),
+                  const SizedBox(width: 12),
                   _PopupMenuItemText(textKey: 'open'),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'share',
               child: Row(
                 children: [
-                  Icon(Icons.share, size: 20),
-                  SizedBox(width: 12),
+                  const Icon(Icons.share, size: 20),
+                  const SizedBox(width: 12),
                   _PopupMenuItemText(textKey: 'share'),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'restore',
               child: Row(
                 children: [
-                  Icon(Icons.restore, size: 20, color: Colors.blue),
-                  SizedBox(width: 12),
+                  const Icon(Icons.restore, size: 20, color: Colors.blue),
+                  const SizedBox(width: 12),
                   _PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'delete',
               child: Row(
                 children: [
-                  Icon(Icons.delete, size: 20, color: Colors.red),
-                  SizedBox(width: 12),
+                  const Icon(Icons.delete, size: 20, color: Colors.red),
+                  const SizedBox(width: 12),
                   _PopupMenuItemText(textKey: 'delete', color: Colors.red),
                 ],
               ),

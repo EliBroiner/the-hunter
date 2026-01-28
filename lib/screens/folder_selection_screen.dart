@@ -136,9 +136,9 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
+        title: Text(
           tr('scan_folders_title'),
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -150,11 +150,11 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
               await _saveFolders();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
+                  SnackBar(
                     content: Row(
                       children: [
-                        Icon(Icons.check_circle, color: Colors.white, size: 18),
-                        SizedBox(width: 8),
+                        const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                        const SizedBox(width: 8),
                         Text(tr('settings_saved')),
                       ],
                     ),
@@ -328,9 +328,9 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                                 color: Colors.amber,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
+                              child: Text(
                                 tr('pro_badge'),
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black,

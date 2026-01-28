@@ -252,9 +252,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Text(
+                  Text(
                     tr('continue_google'),
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -287,9 +287,9 @@ class _LoginScreenState extends State<LoginScreen> {
               color: theme.colorScheme.primary,
             ),
             const SizedBox(width: 12),
-            const Text(
+            Text(
               tr('continue_guest'),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),

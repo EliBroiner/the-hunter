@@ -508,10 +508,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: Theme.of(context).colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber, color: Colors.amber),
-            SizedBox(width: 12),
+            const Icon(Icons.warning_amber, color: Colors.amber),
+            const SizedBox(width: 12),
             Text(tr('restore_title')),
           ],
         ),
@@ -659,9 +659,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               const Icon(Icons.cloud_done, color: Colors.green, size: 18),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 tr('last_backup_title'),
-                style: TextStyle(
+                style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -872,7 +872,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (context.mounted) {
       if (result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(tr('upgrade_success')),
             backgroundColor: Colors.green,
           ),

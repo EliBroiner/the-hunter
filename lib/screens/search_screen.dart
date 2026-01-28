@@ -327,7 +327,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!_speechEnabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(tr('search_voice_not_available')),
               backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
@@ -672,7 +672,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _updateSearchStream();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(tr('file_already_deleted')),
             behavior: SnackBarBehavior.floating,
           ),
@@ -724,10 +724,10 @@ class _SearchScreenState extends State<SearchScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E3F),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-            SizedBox(width: 12),
+            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            const SizedBox(width: 12),
             Text(tr('delete_file_title')),
           ],
         ),

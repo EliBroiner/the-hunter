@@ -345,10 +345,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 8),
                     Text(tr('purchase_success')),
                   ],
                 ),
@@ -427,11 +427,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(tr('restore_success')),
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text(tr('restore_subscription_success')),
                   ],
                 ),
                 backgroundColor: Colors.green,
@@ -448,10 +448,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.white),
-                    SizedBox(width: 8),
+                    const Icon(Icons.info_outline, color: Colors.white),
+                    const SizedBox(width: 8),
                     Text(tr('no_subscription_found')),
                   ],
                 ),
@@ -607,9 +607,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             shaderCallback: (bounds) => const LinearGradient(
               colors: [_goldLight, _goldPrimary, _goldDark],
             ).createShader(bounds),
-            child: const Text(
+            child: Text(
               tr('subscription_title'),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,

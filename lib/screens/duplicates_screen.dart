@@ -399,9 +399,9 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                                     color: Colors.green,
                                     borderRadius: BorderRadius.circular(4),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     tr('original'),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 9,
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
