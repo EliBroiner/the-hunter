@@ -1,6 +1,8 @@
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'log_service.dart';
+import 'settings_service.dart';
 
 /// תוצאת אימות
 class AuthResult {
@@ -82,9 +84,11 @@ class AuthService {
       // התחברות ל-Firebase
       final userCredential = await _auth.signInWithCredential(credential);
       
+      // בדיקת סטטוס פרימיום מול RevenueCat
+      await _checkPremiumStatus(userCredential.user?.uid);
+      
       appLog('AUTH: Google Sign-In successful: ${userCredential.user?.email}');
       return AuthResult.success(userCredential.user!);
-      
     } on FirebaseAuthException catch (e) {
       appLog('AUTH ERROR: Firebase Auth Exception: ${e.code} - ${e.message}');
       return AuthResult.failure(_getErrorMessage(e.code));
@@ -177,6 +181,30 @@ class AuthService {
     }
   }
   
+  /// בדיקת סטטוס פרימיום מול RevenueCat בעת התחברות
+  Future<void> _checkPremiumStatus(String? userId) async {
+    if (userId == null) return;
+    
+    try {
+      // זיהוי המשתמש ב-RevenueCat
+      await Purchases.logIn(userId);
+      
+      // קבלת פרטי המנוי העדכניים
+      final customerInfo = await Purchases.getCustomerInfo();
+      
+      // בדיקה אם יש entitlement פעיל
+      final isPro = customerInfo.entitlements.active.containsKey('pro') ||
+                    customerInfo.entitlements.active.containsKey('premium');
+      
+      // עדכון הסטטוס באפליקציה
+      await SettingsService.instance.setIsPremium(isPro);
+      
+      appLog('AUTH: Premium status checked for $userId: $isPro');
+    } catch (e) {
+      appLog('AUTH: Failed to check premium status: $e');
+    }
+  }
+
   /// מחזיר הודעת שגיאה בעברית
   String _getErrorMessage(String code) {
     switch (code) {
