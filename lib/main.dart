@@ -677,7 +677,7 @@ class _MainScreenState extends State<MainScreen> {
   /// בונה פאנל לוגים
   Widget _buildLogPanel() {
     return Container(
-      height: 150,
+      height: 300,
       color: Colors.black87,
       child: Column(
         children: [

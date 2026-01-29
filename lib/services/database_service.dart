@@ -494,6 +494,30 @@ class DatabaseService {
         .toList();
   }
 
+  static const _imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+
+  /// מאפס תמונות לפני סריקת OCR מחדש.
+  /// [onlyEmptyText] true = רק תמונות בלי טקסט מחולץ (חוסך סריקות קיימות).
+  int resetOcrForImages({bool onlyEmptyText = false}) {
+    final all = isar.fileMetadatas.where().findAll();
+    final images = all.where((f) =>
+        _imageExtensions.contains(f.extension.toLowerCase())).toList();
+    final toReset = onlyEmptyText
+        ? images.where((f) {
+            final t = f.extractedText;
+            return t == null || t.trim().isEmpty;
+          }).toList()
+        : images;
+
+    for (final f in toReset) {
+      f.isIndexed = false;
+      f.extractedText = null;
+      updateFile(f);
+    }
+    appLog('DB: resetOcrForImages onlyEmpty=$onlyEmptyText -> ${toReset.length} images');
+    return toReset.length;
+  }
+
   /// מעדכן קובץ במסד
   void updateFile(FileMetadata file) {
     file.generateId(); // וודא שיש ID ייחודי

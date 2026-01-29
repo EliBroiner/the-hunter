@@ -688,6 +688,28 @@ class FileScannerService {
     }
   }
 
+  /// מאפס תמונות (כולן או רק בלי טקסט) ואז מריץ OCR מחדש.
+  /// [onlyEmptyText] true = רק תמונות בלי extractedText (חוסך סריקות קיימות).
+  Future<({int resetCount, ProcessResult result})> reindexImages({
+    required bool onlyEmptyText,
+    Function(int current, int total)? onProgress,
+    bool Function()? shouldPause,
+    int batchSize = 3,
+    int delayBetweenBatchesMs = 500,
+    int delayBetweenFilesMs = 100,
+  }) async {
+    final n = _databaseService.resetOcrForImages(onlyEmptyText: onlyEmptyText);
+    appLog('REINDEX: reset $n images (onlyEmptyText=$onlyEmptyText), running processPendingFiles');
+    final result = await processPendingFiles(
+      onProgress: onProgress,
+      shouldPause: shouldPause,
+      batchSize: batchSize,
+      delayBetweenBatchesMs: delayBetweenBatchesMs,
+      delayBetweenFilesMs: delayBetweenFilesMs,
+    );
+    return (resetCount: n, result: result);
+  }
+
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
   /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
   /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד

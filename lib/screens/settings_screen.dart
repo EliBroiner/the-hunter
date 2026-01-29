@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
+import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
 
@@ -23,6 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   BackupInfo? _backupInfo;
   bool _loadingBackupInfo = false;
   bool _autoBackupEnabled = true;
+  bool _isReindexing = false;
+  int _reindexCurrent = 0;
+  int _reindexTotal = 0;
 
   @override
   void initState() {
@@ -94,10 +98,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
+      body: Stack(
+        children: [
+          SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
             // פרופיל משתמש
             _buildUserProfile(context, theme, user, isGuest),
             const SizedBox(height: 24),
@@ -149,6 +155,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Navigator.of(context).pushNamed('/folders');
                   },
                 ),
+                _buildSettingsTile(
+                  context,
+                  icon: Icons.refresh,
+                  title: tr('reindex_images_title'),
+                  subtitle: tr('reindex_images_subtitle'),
+                  trailing: _isReindexing
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: _isReindexing ? () {} : _showReindexDialog,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -180,10 +200,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             // כפתור התנתקות
             _buildLogoutButton(context, theme),
-          ],
+              ],
+            ),
+          ),
+          if (_isReindexing) _buildReindexOverlay(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReindexOverlay(ThemeData theme) {
+    return Positioned.fill(
+      child: Container(
+        color: theme.scaffoldBackgroundColor.withValues(alpha: 0.95),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(color: theme.colorScheme.primary),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                tr('reindex_progress')
+                    .replaceAll('{current}', '$_reindexCurrent')
+                    .replaceAll('{total}', '$_reindexTotal'),
+                style: theme.textTheme.titleMedium,
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  void _showReindexDialog() {
+    final theme = Theme.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(tr('reindex_images_title')),
+        content: Text(tr('reindex_images_subtitle')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _runReindex(onlyEmptyText: true);
+            },
+            child: Text(tr('reindex_option_empty_only')),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _runReindex(onlyEmptyText: false);
+            },
+            child: Text(tr('reindex_option_all')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _runReindex({required bool onlyEmptyText}) async {
+    if (!mounted) return;
+    setState(() {
+      _isReindexing = true;
+      _reindexCurrent = 0;
+      _reindexTotal = 0;
+    });
+
+    try {
+      final res = await FileScannerService.instance.reindexImages(
+        onlyEmptyText: onlyEmptyText,
+        onProgress: (current, total) {
+          if (mounted) setState(() { _reindexCurrent = current; _reindexTotal = total; });
+        },
+      );
+
+      if (mounted) {
+        setState(() => _isReindexing = false);
+        final msg = tr('reindex_done').replaceAll('{count}', '${res.result.filesProcessed}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isReindexing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   /// בונה כרטיס גיבוי
