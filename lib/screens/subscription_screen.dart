@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
@@ -557,6 +558,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                       // שחזור רכישות
                       _buildRestorePurchases(),
+                      const SizedBox(height: 8),
+                      // ניהול / ביטול מנוי (פותח את Play Store)
+                      _buildManageSubscription(),
                       const SizedBox(height: 24),
 
                       // הערות קטנות
@@ -900,6 +904,30 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ),
       ),
     );
+  }
+
+  /// ניהול / ביטול מנוי – פותח את דף המנויים ב-Play Store
+  Widget _buildManageSubscription() {
+    return TextButton.icon(
+      onPressed: _isPurchasing ? null : _openManageSubscription,
+      icon: Icon(Icons.settings, size: 16, color: Colors.grey.shade500),
+      label: Text(
+        tr('manage_subscription'),
+        style: TextStyle(
+          color: Colors.grey.shade500,
+          fontSize: 14,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openManageSubscription() async {
+    // Android: דף המנויים של המשתמש ב-Play Store
+    final uri = Uri.parse('https://play.google.com/store/account/subscriptions');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   /// הערות משפטיות

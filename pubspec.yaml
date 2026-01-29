@@ -57,6 +57,9 @@ dependencies:
   # RevenueCat - ניהול מנויים ורכישות
   purchases_flutter: ^8.9.0
   
+  # פתיחת קישורים (ניהול מנוי ב-Play Store)
+  url_launcher: ^6.3.0
+  
   # HTTP - בקשות לבקאנד AI
   http: ^1.2.2
   

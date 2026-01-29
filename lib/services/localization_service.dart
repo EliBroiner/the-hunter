@@ -218,6 +218,9 @@ class LocalizationService {
     'favorite_removed': 'הוסר מהמועדפים',
     'action_add_favorite': 'הוסף למועדפים',
     'action_remove_favorite': 'הסר מהמועדפים',
+    'favorites_quick_access': 'גישה מהירה לקבצים חשובים',
+    'favorite_in_list': 'הקובץ במועדפים שלך',
+    'more_options': 'אפשרויות נוספות',
     'premium_feature_tags': 'תגיות',
     'action_tags_title': 'תגיות',
     'action_tags_subtitle': 'הוסף תגיות לארגון קבצים',
@@ -250,6 +253,9 @@ class LocalizationService {
     'smart_search_no_intent': 'לא הצלחתי להבין את החיפוש, נסה ניסוח אחר',
     'smart_search_error': 'שגיאה בחיפוש חכם: \$e',
     'premium_feature_smart_search': 'חיפוש AI חכם',
+    'premium_feature_dialog_content': 'פיצ\'ר "\${feature}" זמין רק למשתמשי פרימיום.\n\nשדרג עכשיו כדי ליהנות מכל היכולות המתקדמות!',
+    'later': 'אחר כך',
+    'upgrade_now': 'שדרג עכשיו',
     'smart_search_active': 'חיפוש חכם פעיל',
     'smart_search_banner_title': 'חיפוש AI חכם',
     'smart_search_banner_subtitle': 'חפש בשפה טבעית עם בינה מלאכותית',
@@ -328,14 +334,24 @@ class LocalizationService {
     'delete_error': 'שגיאה במחיקת הקובץ',
     
     // מנוי
+    'subscription_title': 'Hunter Pro',
+    'subscription_subtitle': 'שדרג כדי לפתוח את כל האפשרויות',
     'subscribe_title': 'Hunter Pro',
     'subscribe_subtitle': 'שדרג כדי לפתוח את כל האפשרויות',
     'plan_monthly': 'חודשי',
     'plan_yearly': 'שנתי',
     'restore_purchases': 'שחזור רכישות',
+    'manage_subscription': 'נהל / בטל מנוי',
     'subscribe_now': 'הירשם עכשיו',
     'premium_required': 'נדרש מנוי פרימיום',
     'feature_locked': 'אפשרות זו זמינה למנויי Pro בלבד',
+    // מסך ראשי / סריקה
+    'new_files_found': 'נמצאו \${count} קבצים חדשים',
+    'text_extracted_from_files': 'חולץ טקסט מ-\${count} קבצים',
+    'new_file_notification': 'קובץ חדש: \${name}',
+    'logs_title': 'לוגים',
+    'share_logs': 'שתף לוגים',
+    'logs_copied': 'לוגים הועתקו',
   };
 
   // --- מילון אנגלית ---
@@ -448,6 +464,7 @@ class LocalizationService {
     'plan_monthly_he': 'Monthly',
     'plan_yearly_he': 'Yearly',
     'restore_purchases': 'Restore Purchases',
+    'manage_subscription': 'Manage / Cancel subscription',
     'subscribe_now': 'Subscribe Now',
     'premium_required': 'Premium Required',
     'feature_locked': 'This feature is available for Pro users only',
@@ -547,6 +564,9 @@ class LocalizationService {
     'favorite_removed': 'Removed from favorites',
     'action_add_favorite': 'Add to Favorites',
     'action_remove_favorite': 'Remove from Favorites',
+    'favorites_quick_access': 'Quick access to important files',
+    'favorite_in_list': 'File is in your favorites',
+    'more_options': 'More options',
     'premium_feature_tags': 'Tags',
     'action_tags_title': 'Tags',
     'action_tags_subtitle': 'Add tags to organize files',
@@ -579,6 +599,9 @@ class LocalizationService {
     'smart_search_no_intent': 'Could not understand search, try phrasing differently',
     'smart_search_error': 'Smart search error: \$e',
     'premium_feature_smart_search': 'Smart AI Search',
+    'premium_feature_dialog_content': 'Feature "\${feature}" is available for Premium users only.\n\nUpgrade now to enjoy all advanced features!',
+    'later': 'Later',
+    'upgrade_now': 'Upgrade Now',
     'smart_search_active': 'Smart Search Active',
     'smart_search_banner_title': 'Smart AI Search',
     'smart_search_banner_subtitle': 'Search naturally with AI',
@@ -655,7 +678,13 @@ class LocalizationService {
     'delete_confirm_content': 'Are you sure you want to delete this file?',
     'delete_success': 'File deleted successfully',
     'delete_error': 'Error deleting file',
-    
+    // Main screen / scan
+    'new_files_found': 'Found \${count} new files',
+    'text_extracted_from_files': 'Text extracted from \${count} files',
+    'new_file_notification': 'New file: \${name}',
+    'logs_title': 'Logs',
+    'share_logs': 'Share logs',
+    'logs_copied': 'Logs copied',
   };
 }
 

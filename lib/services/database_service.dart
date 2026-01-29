@@ -18,16 +18,21 @@ DateTime? parseTimeQuery(String query) {
   final lowerQuery = query.toLowerCase();
   final now = DateTime.now();
   
-  if (lowerQuery.contains('שבועיים') || lowerQuery.contains('2 שבועות'))
+  if (lowerQuery.contains('שבועיים') || lowerQuery.contains('2 שבועות')) {
     return now.subtract(const Duration(days: 14));
-  if (lowerQuery.contains('שבוע') || lowerQuery.contains('week'))
+  }
+  if (lowerQuery.contains('שבוע') || lowerQuery.contains('week')) {
     return now.subtract(const Duration(days: 7));
-  if (lowerQuery.contains('חודש') || lowerQuery.contains('month'))
+  }
+  if (lowerQuery.contains('חודש') || lowerQuery.contains('month')) {
     return now.subtract(const Duration(days: 30));
-  if (lowerQuery.contains('היום') || lowerQuery.contains('today'))
+  }
+  if (lowerQuery.contains('היום') || lowerQuery.contains('today')) {
     return DateTime(now.year, now.month, now.day);
-  if (lowerQuery.contains('אתמול') || lowerQuery.contains('yesterday'))
+  }
+  if (lowerQuery.contains('אתמול') || lowerQuery.contains('yesterday')) {
     return now.subtract(const Duration(days: 1));
+  }
   
   return null;
 }
@@ -108,8 +113,9 @@ class DatabaseService {
         });
         
         totalSaved += batch.length;
-        if (totalSaved % 2000 == 0 || totalSaved == files.length)
+        if (totalSaved % 2000 == 0 || totalSaved == files.length) {
           appLog('DB: Saved $totalSaved / ${files.length}');
+        }
       }
       
       final finalCount = isar.fileMetadatas.count();
@@ -142,8 +148,9 @@ class DatabaseService {
           isar.fileMetadatas.putAll(batch);
         });
         saved += batch.length;
-        if (saved % 2000 == 0 || saved == files.length)
+        if (saved % 2000 == 0 || saved == files.length) {
           appLog('DB: Saved $saved / ${files.length}');
+        }
       }
       
       appLog('DB: Final count: ${isar.fileMetadatas.count()}');

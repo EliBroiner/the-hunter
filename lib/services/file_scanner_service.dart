@@ -316,8 +316,9 @@ class FileScannerService {
 
     // שמירה למסד הנתונים (wipe & replace)
     appLog('SCAN: Total files: ${allFiles.length}');
-    if (allFiles.isNotEmpty)
+    if (allFiles.isNotEmpty) {
       appLog('SCAN: First file: ${allFiles.first.name}');
+    }
     _databaseService.replaceAllFiles(allFiles);
     
     final savedCount = _databaseService.getFilesCount();

@@ -24,9 +24,9 @@ import 'services/widget_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
-import 'services/permission_service.dart';
 import 'services/settings_service.dart';
 import 'services/user_activity_service.dart';
+import 'services/localization_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -607,19 +607,11 @@ class _MainScreenState extends State<MainScreen> {
     
     manager.onScanComplete = (result) {
       if (!mounted) return;
-      
-      if (result.newFilesAdded > 0) {
-        _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
-      }
+      // הודעות סריקה הוסרו לבקשת המשתמש
     };
     
     manager.onProcessComplete = (result) {
       if (!mounted) return;
-      
-      if (result.filesWithText > 0) {
-        _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
-      }
-      
       setState(() {
         _isFirstScan = false;
       });
@@ -627,9 +619,7 @@ class _MainScreenState extends State<MainScreen> {
     
     manager.onNewFileFound = (path) {
       if (!mounted) return;
-      
-      final fileName = path.split('/').last;
-      _showSnackBar('קובץ חדש: $fileName');
+      // הודעות קובץ חדש הוסרו לבקשת המשתמש
     };
     
     // הרצת אתחול
@@ -698,13 +688,13 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 const Icon(Icons.terminal, size: 16, color: Colors.green),
                 const SizedBox(width: 8),
-                const Text('לוגים', style: TextStyle(color: Colors.white, fontSize: 12)),
+                Text(tr('logs_title'), style: const TextStyle(color: Colors.white, fontSize: 12)),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.share, size: 16, color: Colors.white70),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'שתף לוגים',
+                  tooltip: tr('share_logs'),
                   onPressed: () => LogService.instance.exportLogs(),
                 ),
                 IconButton(
@@ -713,7 +703,7 @@ class _MainScreenState extends State<MainScreen> {
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: LogService.instance.getAllLogs()));
-                    _showSnackBar('לוגים הועתקו');
+                    _showSnackBar(tr('logs_copied'));
                   },
                 ),
                 IconButton(

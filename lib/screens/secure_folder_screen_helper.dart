@@ -5,7 +5,7 @@ class PopupMenuItemText extends StatelessWidget {
   final String textKey;
   final Color? color;
 
-  const PopupMenuItemText({
+  const PopupMenuItemText({super.key, 
     required this.textKey,
     this.color,
   });

@@ -92,9 +92,13 @@ class _SearchScreenState extends State<SearchScreen> {
     _updateSearchStream();
     _initSpeech();
     _loadRecentSearches();
-    
-    // מאזין לפוקוס על שדה החיפוש
     _searchFocusNode.addListener(_onFocusChange);
+    // עדכון מיידי כשסטטוס PRO משתנה (לאחר שדרוג)
+    _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
+  }
+
+  void _onPremiumChanged() {
+    if (mounted) setState(() {});
   }
   
   /// מטפל בשינוי פוקוס
@@ -175,6 +179,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
     _searchController.dispose();
     _searchFocusNode.removeListener(_onFocusChange);
     _searchFocusNode.dispose();
@@ -1018,8 +1023,8 @@ class _SearchScreenState extends State<SearchScreen> {
             // const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.share,
-              title: 'שתף',
-              subtitle: 'שלח לאפליקציה אחרת',
+              title: tr('action_share'),
+              subtitle: tr('action_share_subtitle'),
               color: Colors.blue,
               onTap: () {
                 Navigator.of(context).pop();
@@ -1029,8 +1034,8 @@ class _SearchScreenState extends State<SearchScreen> {
             const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.info_outline,
-              title: 'פרטים',
-              subtitle: 'הצג מידע על הקובץ',
+              title: tr('action_details'),
+              subtitle: tr('action_details_subtitle'),
               color: Colors.teal,
               onTap: () {
                 Navigator.of(context).pop();
@@ -1040,8 +1045,8 @@ class _SearchScreenState extends State<SearchScreen> {
             const SizedBox(height: 8),
             _buildActionTile(
               icon: Icons.delete_outline,
-              title: 'מחק',
-              subtitle: 'מחק את הקובץ לצמיתות',
+              title: tr('action_delete'),
+              subtitle: tr('action_delete_subtitle'),
               color: Colors.red,
               onTap: () {
                 Navigator.of(context).pop();
@@ -1068,7 +1073,7 @@ class _SearchScreenState extends State<SearchScreen> {
         onTap: () async {
           if (!isPremium) {
             Navigator.of(context).pop();
-            _showPremiumUpgradeMessage('מועדפים');
+            _showPremiumUpgradeMessage(tr('premium_feature_favorites'));
             return;
           }
           
@@ -1087,7 +1092,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     size: 18,
                   ),
                   const SizedBox(width: 8),
-                  Text(isFavorite ? 'הוסר מהמועדפים' : 'נוסף למועדפים'),
+                  Text(isFavorite ? tr('favorite_removed') : tr('favorite_added')),
                 ],
               ),
               backgroundColor: const Color(0xFF1E1E3F),
@@ -1127,7 +1132,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         Text(
-                          isFavorite ? 'הסר מהמועדפים' : 'הוסף למועדפים',
+                          isFavorite ? tr('action_remove_favorite') : tr('action_add_favorite'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: isPremium ? null : Colors.grey,
@@ -1141,8 +1146,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               color: Colors.amber,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
-                              'PRO',
+                            child: Text(
+                              tr('pro_badge'),
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.bold,
@@ -1156,8 +1161,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 2),
                     Text(
                       isPremium 
-                          ? (isFavorite ? 'הקובץ במועדפים שלך' : 'גישה מהירה לקבצים חשובים')
-                          : 'שדרג לפרימיום',
+                          ? (isFavorite ? tr('favorite_in_list') : tr('favorites_quick_access'))
+                          : tr('upgrade_premium'),
                       style: TextStyle(
                         color: Colors.grey.shade500,
                         fontSize: 12,
@@ -1190,7 +1195,7 @@ class _SearchScreenState extends State<SearchScreen> {
         onTap: () {
           if (!isPremium) {
             Navigator.of(context).pop();
-            _showPremiumUpgradeMessage('תגיות');
+            _showPremiumUpgradeMessage(tr('premium_feature_tags'));
             return;
           }
           Navigator.of(context).pop();
@@ -1224,7 +1229,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         Text(
-                          'תגיות',
+                          tr('action_tags_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: isPremium ? null : Colors.grey,
@@ -1238,9 +1243,9 @@ class _SearchScreenState extends State<SearchScreen> {
                               color: Colors.amber,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
-                              'PRO',
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
+                            child: Text(
+                              tr('pro_badge'),
+                              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
                             ),
                           ),
                         ],
@@ -1264,7 +1269,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       )
                     else
                       Text(
-                        isPremium ? 'הוסף תגיות לארגון קבצים' : 'שדרג לפרימיום',
+                        isPremium ? tr('action_tags_subtitle') : tr('upgrade_premium'),
                         style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                       ),
                   ],
@@ -1315,16 +1320,16 @@ class _SearchScreenState extends State<SearchScreen> {
                   children: [
                     const Icon(Icons.label, color: Colors.purple),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'בחר תגיות',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        tr('tags_dialog_title'),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                     ),
                     TextButton.icon(
                       onPressed: () => _showCreateTagDialog(setModalState),
                       icon: const Icon(Icons.add, size: 18),
-                      label: const Text('חדשה'),
+                      label: Text(tr('tags_new_button')),
                     ),
                   ],
                 ),
@@ -1399,20 +1404,20 @@ class _SearchScreenState extends State<SearchScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           backgroundColor: Theme.of(context).colorScheme.surface,
-          title: const Text('תגית חדשה'),
+          title: Text(tr('tags_new_dialog_title')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'שם התגית',
-                  hintText: 'לדוגמה: מסמכים',
+                decoration: InputDecoration(
+                  labelText: tr('tags_name_label'),
+                  hintText: tr('tags_name_hint'),
                 ),
                 autofocus: true,
               ),
               const SizedBox(height: 16),
-              const Text('בחר צבע:', style: TextStyle(fontWeight: FontWeight.w500)),
+              Text(tr('tags_color_label'), style: const TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -1462,7 +1467,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 Navigator.of(context).pop();
                 setModalState(() {});
               },
-              child: const Text('צור'),
+              child: Text(tr('tags_create_button')),
             ),
           ],
         ),
@@ -1480,7 +1485,7 @@ class _SearchScreenState extends State<SearchScreen> {
         onTap: () async {
           if (!isPremium) {
             Navigator.of(context).pop();
-            _showPremiumUpgradeMessage('תיקייה מאובטחת');
+            _showPremiumUpgradeMessage(tr('premium_feature_secure'));
             return;
           }
           
@@ -1515,7 +1520,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         Text(
-                          'העבר לתיקייה מאובטחת',
+                          tr('action_secure_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: isPremium ? null : Colors.grey,
@@ -1529,8 +1534,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               color: Colors.amber,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
-                              'PRO',
+                            child: Text(
+                              tr('pro_badge'),
                               style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
                             ),
                           ),
@@ -1539,7 +1544,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isPremium ? 'הסתר קובץ מאחורי קוד PIN' : 'שדרג לפרימיום',
+                      isPremium ? tr('action_secure_subtitle') : tr('upgrade_premium'),
                       style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                     ),
                   ],
@@ -1569,8 +1574,8 @@ class _SearchScreenState extends State<SearchScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        title: const Text('העברה לתיקייה מאובטחת'),
-        content: Text('האם להעביר את "${file.name}" לתיקייה המאובטחת?\n\nהקובץ יוסר מהחיפוש הרגיל.'),
+        title: Text(tr('secure_move_title')),
+        content: Text(tr('secure_move_confirm').replaceFirst('\${name}', file.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1581,7 +1586,7 @@ class _SearchScreenState extends State<SearchScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.purple,
             ),
-            child: const Text('העבר'),
+            child: Text(tr('secure_move_button')),
           ),
         ],
       ),
@@ -1608,7 +1613,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 color: Colors.white,
               ),
               const SizedBox(width: 8),
-              Text(success ? 'הקובץ הועבר לתיקייה המאובטחת' : 'שגיאה בהעברת הקובץ'),
+              Text(success ? tr('secure_move_success') : tr('secure_move_error')),
             ],
           ),
           backgroundColor: success ? Colors.green : Colors.red,
@@ -1632,7 +1637,7 @@ class _SearchScreenState extends State<SearchScreen> {
         onTap: () async {
           if (!isPremium) {
             Navigator.of(context).pop();
-            _showPremiumUpgradeMessage('אחסון בענן');
+            _showPremiumUpgradeMessage(tr('premium_feature_cloud'));
             return;
           }
           
@@ -1667,7 +1672,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         Text(
-                          'העלה לענן',
+                          tr('action_cloud_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: isPremium ? null : Colors.grey,
@@ -1691,7 +1696,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isPremium ? 'שמור העתק בענן לגישה מכל מקום' : 'שדרג לפרימיום',
+                      isPremium ? tr('action_cloud_subtitle') : tr('upgrade_premium'),
                       style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                     ),
                   ],
@@ -1713,7 +1718,7 @@ class _SearchScreenState extends State<SearchScreen> {
     // בדיקת חיבור
     if (!cloudService.hasUser) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('יש להתחבר לחשבון כדי להעלות לענן')),
+        SnackBar(content: Text(tr('cloud_upload_login_required'))),
       );
       return;
     }
@@ -1730,7 +1735,7 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 const Icon(Icons.cloud_upload, color: Colors.blue),
                 const SizedBox(width: 12),
-                const Text('מעלה לענן'),
+                Text(tr('cloud_upload_title')),
               ],
             ),
             content: Column(
@@ -1740,7 +1745,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 const SizedBox(height: 16),
                 const LinearProgressIndicator(),
                 const SizedBox(height: 8),
-                const Text('מעלה...', style: TextStyle(fontSize: 12)),
+                Text(tr('cloud_upload_progress'), style: const TextStyle(fontSize: 12)),
               ],
             ),
           );
@@ -1770,7 +1775,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 color: Colors.white,
               ),
               const SizedBox(width: 8),
-              Text(result != null ? 'הקובץ הועלה בהצלחה' : 'שגיאה בהעלאה'),
+              Text(result != null ? tr('cloud_upload_success') : tr('cloud_upload_error')),
             ],
           ),
           backgroundColor: result != null ? Colors.green : Colors.red,
@@ -1941,17 +1946,17 @@ class _SearchScreenState extends State<SearchScreen> {
               child: const Icon(Icons.star, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text('שדרג לפרימיום'),
+            Text(tr('upgrade_premium')),
           ],
         ),
         content: Text(
-          'פיצ\'ר "$feature" זמין רק למשתמשי פרימיום.\n\nשדרג עכשיו כדי ליהנות מכל היכולות המתקדמות!',
+          tr('premium_feature_dialog_content').replaceFirst('\${feature}', feature),
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('אחר כך'),
+            child: Text(tr('later')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1962,7 +1967,7 @@ class _SearchScreenState extends State<SearchScreen> {
               backgroundColor: Colors.amber,
               foregroundColor: Colors.black,
             ),
-            child: const Text('שדרג עכשיו'),
+            child: Text(tr('upgrade_now')),
           ),
         ],
       ),
@@ -2529,8 +2534,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     Text(
                       _isSmartSearchActive
-                          ? 'מציג תוצאות לפי AI'
-                          : 'חפש בשפה טבעית עם בינה מלאכותית',
+                          ? tr('ai_search_active')
+                          : tr('ai_search_hint'),
                       style: TextStyle(
                         fontSize: 11,
                         color: _isSmartSearchActive 
@@ -2630,7 +2635,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 focusNode: _searchFocusNode,
                 textDirection: _isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
                 decoration: InputDecoration(
-                  hintText: 'חפש קבצים, תמונות, מסמכים...',
+                  hintText: tr('search_hint'),
                   hintStyle: TextStyle(color: Colors.grey.shade500),
                   prefixIcon: Icon(
                     Icons.search,
@@ -3120,10 +3125,10 @@ class _SearchScreenState extends State<SearchScreen> {
             // תיאור
             Text(
               hasSearchQuery
-                  ? 'נסה מילים אחרות או בדוק את האיות'
+                  ? tr('empty_state_desc_search')
                   : (dbCount == 0 
-                      ? 'הקבצים שלך נסרקים ברקע...' 
-                      : 'חפש בשפה טבעית - "קבלה מאתמול", "תמונות מהחופשה"'),
+                      ? tr('empty_state_desc_scanning')
+                      : tr('empty_state_desc_start')),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Colors.grey.shade500,
               ),
@@ -3147,13 +3152,13 @@ class _SearchScreenState extends State<SearchScreen> {
                       children: [
                         Icon(Icons.lightbulb_outline, color: Colors.amber, size: 18),
                         const SizedBox(width: 8),
-                        Text('טיפים', style: TextStyle(fontWeight: FontWeight.w600)),
+                        Text(tr('tips_title'), style: const TextStyle(fontWeight: FontWeight.w600)),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _buildTipRow('נסה מילה באנגלית או בעברית'),
-                    _buildTipRow('חפש חלק משם הקובץ'),
-                    _buildTipRow('הסר את הפילטר הנוכחי'),
+                    _buildTipRow(tr('tip_1')),
+                    _buildTipRow(tr('tip_2')),
+                    _buildTipRow(tr('tip_3')),
                   ],
                 ),
               ),
@@ -3175,7 +3180,7 @@ class _SearchScreenState extends State<SearchScreen> {
                          color: theme.colorScheme.primary, size: 18),
                     const SizedBox(width: 8),
                     Text(
-                      '$dbCount קבצים מוכנים לחיפוש',
+                      tr('stats_ready').replaceFirst('\$dbCount', dbCount.toString()),
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.w500,
@@ -3190,7 +3195,7 @@ class _SearchScreenState extends State<SearchScreen> {
             if (!hasSearchQuery) ...[
               const SizedBox(height: 28),
               Text(
-                'נסה לחפש:',
+                tr('suggestions_title'),
                 style: TextStyle(
                   color: Colors.grey.shade600,
                   fontSize: 12,
@@ -3203,9 +3208,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
-                  _buildSuggestionChip('חשבונית'),
-                  _buildSuggestionChip('תעודת זהות'),
-                  _buildSuggestionChip('חוזה'),
+                  _buildSuggestionChip(tr('suggestion_invoice')),
+                  _buildSuggestionChip(tr('suggestion_id')),
+                  _buildSuggestionChip(tr('suggestion_contract')),
                   _buildSuggestionChip('receipt'),
                 ],
               ),
@@ -3673,7 +3678,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         color: theme.colorScheme.primary,
                       ),
                       onPressed: () => _showFileActionsSheet(file),
-                      tooltip: 'אפשרויות נוספות',
+                      tooltip: tr('more_options'),
                     ),
                   ],
                 ),

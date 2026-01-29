@@ -29,6 +29,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadBackupInfo();
     _loadAutoBackupSetting();
+    _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
+  }
+
+  void _onPremiumChanged() {
+    if (mounted) {
+      setState(() {});
+      if (_settingsService.isPremium) _loadBackupInfo();
+    }
+  }
+
+  @override
+  void dispose() {
+    _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
+    super.dispose();
   }
 
   Future<void> _loadBackupInfo() async {
@@ -1211,7 +1225,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).padding.bottom + 88,
+        ),
         decoration: const BoxDecoration(
           color: Color(0xFF1E1E3F),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),

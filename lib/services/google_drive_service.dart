@@ -3,7 +3,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
-import 'auth_service.dart';
 import 'log_service.dart';
 
 /// שירות לניהול אינטגרציה עם Google Drive

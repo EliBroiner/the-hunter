@@ -24,8 +24,8 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
   int _usedStorage = 0;
   
   // העלאה
-  bool _isUploading = false;
-  double _uploadProgress = 0;
+  final bool _isUploading = false;
+  final double _uploadProgress = 0;
   
   // הורדה
   final Map<String, double> _downloadProgress = {};

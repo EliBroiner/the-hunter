@@ -479,7 +479,7 @@ class BackupService {
       );
     } catch (e) {
       appLog('IncrementalBackup ERROR: $e');
-      throw e; // זורק כדי שה-smartBackup יתפוס ויעשה fallback
+      rethrow; // זורק כדי שה-smartBackup יתפוס ויעשה fallback
     }
   }
   

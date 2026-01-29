@@ -10,8 +10,9 @@ class FileMetadata {
   
   /// יוצר ID ייחודי מהנתיב - מבטיח שכל קובץ יקבל ID שונה
   void generateId() {
-    if (id == 0 && path.isNotEmpty)
+    if (id == 0 && path.isNotEmpty) {
       id = path.hashCode.abs(); // hashCode יכול להיות שלילי, אז abs()
+    }
   }
 
   /// נתיב מלא לקובץ
