@@ -334,11 +334,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             }
         }
 
-        final purchaseInfo = await Purchases.purchasePackage(_selectedPackage!.rcPackage!);
+        final purchaseParams = PurchaseParams.package(_selectedPackage!.rcPackage!);
+        final purchaseInfo = await Purchases.purchase(purchaseParams);
         
-        // בדיקה אם יש entitlement פעיל
-        final isPro = purchaseInfo.entitlements.active.containsKey('pro') ||
-                      purchaseInfo.entitlements.active.containsKey('premium');
+        // בדיקה אם יש entitlement פעיל (RevenueCat 9: דרך customerInfo)
+        final isPro = purchaseInfo.customerInfo.entitlements.active.containsKey('pro') ||
+                      purchaseInfo.customerInfo.entitlements.active.containsKey('premium');
         
         if (isPro) {
           await SettingsService.instance.setIsPremium(true);
