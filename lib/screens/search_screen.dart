@@ -75,6 +75,10 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
   
+  // מצב ריק — צ'קבוקסים לחפש בדרייב / חיפוש חכם
+  bool _emptyStateDrive = false;
+  bool _emptyStateSmart = false;
+  
   // מצב בחירה מרובה
   bool _isSelectionMode = false;
   final Set<String> _selectedFiles = {};
@@ -2144,8 +2148,8 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// מבצע חיפוש חכם עם AI
-  Future<void> _performSmartSearch() async {
+  /// מבצע חיפוש חכם עם AI. [includeDrive] = למזג תוצאות מענן (אחרי _searchCloud)
+  Future<void> _performSmartSearch({bool includeDrive = false}) async {
     final query = _currentQuery.trim();
     if (query.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2160,16 +2164,15 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _isSmartSearching = true);
 
     try {
-      appLog('SmartSearch: Starting for query: "$query"');
+      appLog('SmartSearch: Starting for query: "$query" includeDrive=$includeDrive');
       
       final intent = await _smartSearchService.parseSearchQuery(query);
 
       if (intent != null && intent.hasContent) {
         appLog('SmartSearch: Got intent - $intent');
         
-        // קבלת כל הקבצים וסינון לפי intent
         final baseStream = _databaseService.watchSearch(
-          query: '', // לא משתמשים בחיפוש רגיל
+          query: '',
           filter: SearchFilter.all,
         );
 
@@ -2177,7 +2180,14 @@ class _SearchScreenState extends State<SearchScreen> {
           _isSmartSearchActive = true;
           _lastSmartIntent = intent;
           _searchStream = baseStream.map((files) {
-            return SmartSearchFilter.filterFiles(files, intent);
+            final filtered = SmartSearchFilter.filterFiles(files, intent);
+            if (!includeDrive) return filtered;
+            final cloud = _filteredCloudResults();
+            final localNames = filtered.map((f) => f.name.toLowerCase()).toSet();
+            final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
+            final combined = [...filtered, ...uniqueCloud];
+            combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+            return _applyLocalFilter(combined);
           });
         });
 
@@ -2187,7 +2197,7 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
                 const SizedBox(width: 8),
-                Text('חיפוש חכם: ${intent.terms.join(", ")}'),
+                Text('חיפוש חכם: ${intent.terms.join(", ")}${includeDrive ? " + Drive" : ""}'),
               ],
             ),
             backgroundColor: Colors.purple.shade700,
@@ -2333,6 +2343,58 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  List<FileMetadata> _filteredCloudResults() {
+    var list = _cloudResults;
+    if (_selectedFilter == LocalFilter.images) {
+      list = list.where((f) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(f.extension)).toList();
+    } else if (_selectedFilter == LocalFilter.pdfs) {
+      list = list.where((f) => f.extension == 'pdf').toList();
+    }
+    return list;
+  }
+
+  /// מריץ חיפוש ממצב ריק: Drive ו/או חיפוש חכם (לפי הצ'קבוקסים)
+  Future<void> _runEmptyStateSearch() async {
+    if (!_emptyStateDrive && !_emptyStateSmart) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('empty_search_check_one')), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    final query = _currentQuery.trim();
+    if (query.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('הקלד לפחות 2 תווים'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+
+    if (_emptyStateDrive) {
+      if (!_googleDriveService.isConnected) {
+        await _connectDrive();
+        if (!mounted) return;
+        if (!_googleDriveService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('נדרש חיבור ל-Drive כדי לחפש בענן'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          if (!_emptyStateSmart) return;
+        }
+      }
+      if (_googleDriveService.isConnected) await _searchCloud(query);
+      if (!mounted) return;
+    }
+
+    if (_emptyStateSmart) {
+      await _performSmartSearch(includeDrive: _emptyStateDrive);
+    } else if (_emptyStateDrive) {
+      // רק Drive: _searchCloud כבר עדכן את הסטרים
+      setState(() {});
+    }
+  }
+
   /// חיבור ל-Google Drive
   Future<void> _connectDrive() async {
     if (!_settingsService.isPremium) {
@@ -2720,8 +2782,8 @@ class _SearchScreenState extends State<SearchScreen> {
     final dbCount = _databaseService.getFilesCount();
     final isFavoritesFilter = _selectedFilter == LocalFilter.favorites;
     final isPremium = _settingsService.isPremium;
-    final canTapSmartSearch = hasSearchQuery && isPremium && !_isSmartSearchActive;
     final isSmartSearchEmpty = hasSearchQuery && _isSmartSearchActive;
+    final showEmptySearchPanel = hasSearchQuery && isPremium;
     
     // מצב מיוחד - מועדפים ריקים
     if (isFavoritesFilter) {
@@ -2793,30 +2855,12 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           textAlign: TextAlign.center,
         ),
-        if (canTapSmartSearch) ...[
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.auto_awesome, size: 16, color: Colors.purple.shade300),
-              const SizedBox(width: 6),
-              Text(
-                tr('empty_tap_smart_search'),
-                style: TextStyle(fontSize: 13, color: Colors.purple.shade300),
-              ),
-            ],
-          ),
+        if (showEmptySearchPanel) ...[
+          const SizedBox(height: 20),
+          _buildEmptyStateSearchPanel(theme),
         ],
       ],
     );
-    
-    if (canTapSmartSearch) {
-      content = GestureDetector(
-        onTap: _performSmartSearch,
-        behavior: HitTestBehavior.opaque,
-        child: content,
-      );
-    }
     
     return Center(
       child: SingleChildScrollView(
@@ -2911,6 +2955,59 @@ class _SearchScreenState extends State<SearchScreen> {
             if (!hasSearchQuery) _buildRecentFilesSection(theme),
           ],
         ),
+      ),
+    );
+  }
+
+  /// פאנל מצב ריק: צ'קבוקסים חפש בדרייב / חיפוש חכם + כפתור חפש
+  Widget _buildEmptyStateSearchPanel(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          CheckboxListTile(
+            value: _emptyStateDrive,
+            onChanged: (v) => setState(() => _emptyStateDrive = v ?? false),
+            title: Row(
+              children: [
+                Icon(Icons.cloud, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(tr('empty_search_drive'), style: const TextStyle(fontSize: 14)),
+              ],
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            activeColor: theme.colorScheme.primary,
+          ),
+          CheckboxListTile(
+            value: _emptyStateSmart,
+            onChanged: (v) => setState(() => _emptyStateSmart = v ?? false),
+            title: Row(
+              children: [
+                Icon(Icons.auto_awesome, size: 18, color: Colors.purple.shade300),
+                const SizedBox(width: 8),
+                Text(tr('empty_search_smart'), style: const TextStyle(fontSize: 14)),
+              ],
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            activeColor: Colors.purple,
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _isSmartSearching ? null : () => _runEmptyStateSearch(),
+            icon: _isSmartSearching
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.search, size: 18),
+            label: Text(tr('empty_search_btn')),
+          ),
+        ],
       ),
     );
   }
