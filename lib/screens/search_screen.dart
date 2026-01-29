@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
@@ -65,12 +64,6 @@ class _SearchScreenState extends State<SearchScreen> {
   // טווח תאריכים לסינון
   DateTimeRange? _selectedDateRange;
   
-  // חיפושים אחרונים
-  static const String _recentSearchesKey = 'recent_searches';
-  static const int _maxRecentSearches = 3;
-  List<String> _recentSearches = [];
-  bool _isSearchFocused = false;
-  
   // חיפוש קולי
   final SpeechToText _speechToText = SpeechToText();
   bool _isListening = false;
@@ -91,71 +84,12 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _updateSearchStream();
     _initSpeech();
-    _loadRecentSearches();
-    _searchFocusNode.addListener(_onFocusChange);
     // עדכון מיידי כשסטטוס PRO משתנה (לאחר שדרוג)
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
   }
 
   void _onPremiumChanged() {
     if (mounted) setState(() {});
-  }
-  
-  /// מטפל בשינוי פוקוס
-  void _onFocusChange() {
-    setState(() {
-      _isSearchFocused = _searchFocusNode.hasFocus;
-    });
-  }
-  
-  /// טוען חיפושים אחרונים מ-SharedPreferences
-  Future<void> _loadRecentSearches() async {
-    final prefs = await SharedPreferences.getInstance();
-    final searches = prefs.getStringList(_recentSearchesKey) ?? [];
-    if (mounted) {
-      setState(() => _recentSearches = searches);
-    }
-  }
-  
-  /// שומר חיפוש לרשימת החיפושים האחרונים
-  Future<void> _saveRecentSearch(String query) async {
-    // לא שומר שאילתות ריקות או קצרות מדי
-    final trimmed = query.trim();
-    if (trimmed.length < 2) return;
-    
-    // מסיר כפילויות ומוסיף בתחילת הרשימה
-    _recentSearches.remove(trimmed);
-    _recentSearches.insert(0, trimmed);
-    
-    // מגביל ל-5 חיפושים אחרונים
-    if (_recentSearches.length > _maxRecentSearches) {
-      _recentSearches = _recentSearches.sublist(0, _maxRecentSearches);
-    }
-    
-    // שומר ב-SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_recentSearchesKey, _recentSearches);
-    
-    if (mounted) setState(() {});
-  }
-  
-  /// מוחק חיפוש מהרשימה
-  Future<void> _removeRecentSearch(String query) async {
-    _recentSearches.remove(query);
-    
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_recentSearchesKey, _recentSearches);
-    
-    if (mounted) setState(() {});
-  }
-  
-  /// בוחר חיפוש מהרשימה
-  void _selectRecentSearch(String query) {
-    _searchController.text = query;
-    _currentQuery = query;
-    _updateSearchStream();
-    // מעביר את החיפוש לראש הרשימה
-    _saveRecentSearch(query);
   }
 
   /// מאתחל את מנוע הזיהוי הקולי
@@ -181,7 +115,6 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
     _searchController.dispose();
-    _searchFocusNode.removeListener(_onFocusChange);
     _searchFocusNode.dispose();
     _debounceTimer?.cancel();
     _speechToText.stop();
@@ -211,6 +144,9 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     setState(() {
+      // מעבר לחיפוש רגיל — מבטל חיפוש חכם
+      _isSmartSearchActive = false;
+      _lastSmartIntent = null;
       _searchStream = _databaseService.watchSearch(
         query: query,
         filter: dbFilter,
@@ -291,11 +227,6 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _currentQuery = query;
       _updateSearchStream();
-      
-      // שומר חיפוש תקין לרשימת החיפושים האחרונים
-      if (query.trim().length >= 2) {
-        _saveRecentSearch(query);
-      }
     });
   }
 
@@ -1984,9 +1915,6 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final showRecentSearches = _isSearchFocused && 
-        _searchController.text.isEmpty && 
-        _recentSearches.isNotEmpty;
     
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1998,17 +1926,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 ? _buildSelectionHeader(theme)
                 : _buildSearchHeader(),
             
-            // חיפושים אחרונים (כשהשדה בפוקוס וריק)
-            if (showRecentSearches && !_isSelectionMode)
-              _buildRecentSearches(),
-            
             // בורר טווח תאריכים
-            if (!showRecentSearches && !_isSelectionMode)
+            if (!_isSelectionMode)
               _buildDateRangePicker(),
-            
-            // באנר חיפוש AI חכם (פרימיום)
-            if (!showRecentSearches && !_isSelectionMode)
-              _buildSmartAISearchBanner(),
             
             // צ'יפים לסינון מהיר
             if (!_isSelectionMode)
@@ -2157,101 +2077,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// בונה רשימת חיפושים אחרונים
-  Widget _buildRecentSearches() {
-    final theme = Theme.of(context);
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // כותרת
-          Row(
-            children: [
-              Icon(
-                Icons.history,
-                size: 16,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'חיפושים אחרונים',
-                style: TextStyle(
-                  color: Colors.grey.shade400,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          
-          // צ'יפים של חיפושים אחרונים
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _recentSearches.map((query) {
-              return _buildRecentSearchChip(query, theme);
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  /// בונה צ'יפ חיפוש אחרון
-  Widget _buildRecentSearchChip(String query, ThemeData theme) {
-    return GestureDetector(
-      onTap: () => _selectRecentSearch(query),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: theme.colorScheme.primary.withValues(alpha: 0.3),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.search,
-              size: 14,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              query,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(width: 6),
-            // כפתור מחיקה
-            GestureDetector(
-              onTap: () => _removeRecentSearch(query),
-              child: Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.close,
-                  size: 12,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
   /// בונה בורר טווח תאריכים
   Widget _buildDateRangePicker() {
     final theme = Theme.of(context);
@@ -2392,172 +2217,6 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /// בונה באנר חיפוש AI חכם
-  Widget _buildSmartAISearchBanner() {
-    final theme = Theme.of(context);
-    final isPremium = _settingsService.isPremium;
-    final hasQuery = _currentQuery.trim().length >= 2;
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: GestureDetector(
-        onTap: () {
-          if (!isPremium) {
-            _showPremiumUpgradeMessage('חיפוש AI חכם');
-          } else if (_isSmartSearching) {
-            // כבר בחיפוש
-          } else if (hasQuery) {
-            _performSmartSearch();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('הקלד משהו לחיפוש'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: _isSmartSearchActive
-                ? const LinearGradient(
-                    colors: [Colors.purple, Colors.blue],
-                  )
-                : (isPremium
-                    ? LinearGradient(
-                        colors: [
-                          theme.colorScheme.primary.withValues(alpha: 0.3),
-                          theme.colorScheme.secondary.withValues(alpha: 0.3),
-                        ],
-                      )
-                    : null),
-            color: isPremium ? null : theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: _isSmartSearchActive
-                  ? Colors.transparent
-                  : (isPremium 
-                      ? Colors.transparent 
-                      : Colors.amber.withValues(alpha: 0.5)),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  gradient: _isSmartSearchActive
-                      ? null
-                      : const LinearGradient(
-                          colors: [Colors.purple, Colors.blue],
-                        ),
-                  color: _isSmartSearchActive ? Colors.white.withValues(alpha: 0.2) : null,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: _isSmartSearching
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Icon(
-                        Icons.auto_awesome,
-                        size: 16,
-                        color: _isSmartSearchActive ? Colors.white : Colors.white,
-                      ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          _isSmartSearchActive ? 'חיפוש חכם פעיל' : 'חיפוש AI חכם',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: _isSmartSearchActive ? Colors.white : null,
-                          ),
-                        ),
-                        if (!isPremium) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'PRO',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (_isSmartSearchActive) ...[
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _isSmartSearchActive = false;
-                                _lastSmartIntent = null;
-                              });
-                              _updateSearchStream();
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                tr('cancel'),
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Text(
-                      _isSmartSearchActive
-                          ? tr('ai_search_active')
-                          : tr('ai_search_hint'),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: _isSmartSearchActive 
-                            ? Colors.white.withValues(alpha: 0.8)
-                            : Colors.grey.shade400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!_isSmartSearchActive)
-                Icon(
-                  Icons.chevron_left,
-                  color: isPremium ? theme.colorScheme.primary : Colors.amber,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   /// בונה את כותרת החיפוש - מודרני
   Widget _buildSearchHeader() {
     final theme = Theme.of(context);
@@ -2655,13 +2314,6 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       // כפתור מיקרופון
                       _buildMicrophoneButton(),
-                      // כפתור חיבור ל-Drive
-                      if (!_googleDriveService.isConnected)
-                        IconButton(
-                          icon: const Icon(Icons.add_to_drive, size: 20),
-                          tooltip: 'חבר Google Drive',
-                          onPressed: _connectDrive,
-                        ),
                     ],
                   ),
                   border: InputBorder.none,
@@ -3000,7 +2652,18 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (_searchController.text.isNotEmpty)
+                  if (_isSmartSearchActive)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _isSmartSearchActive = false;
+                          _lastSmartIntent = null;
+                        });
+                        _updateSearchStream();
+                      },
+                      child: Text(tr('cancel_smart_search'), style: const TextStyle(fontSize: 12)),
+                    ),
+                  if (_searchController.text.isNotEmpty && !_isSmartSearchActive)
                     Text(
                       'ממוין לפי תאריך',
                       style: TextStyle(
@@ -3056,10 +2719,103 @@ class _SearchScreenState extends State<SearchScreen> {
     final hasSearchQuery = _searchController.text.isNotEmpty;
     final dbCount = _databaseService.getFilesCount();
     final isFavoritesFilter = _selectedFilter == LocalFilter.favorites;
+    final isPremium = _settingsService.isPremium;
+    final canTapSmartSearch = hasSearchQuery && isPremium && !_isSmartSearchActive;
+    final isSmartSearchEmpty = hasSearchQuery && _isSmartSearchActive;
     
     // מצב מיוחד - מועדפים ריקים
     if (isFavoritesFilter) {
       return _buildEmptyFavoritesState(theme);
+    }
+    
+    final emptyTitle = hasSearchQuery 
+        ? (isSmartSearchEmpty ? tr('smart_search_no_results') : 'לא נמצאו תוצאות')
+        : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?');
+    final emptyDesc = hasSearchQuery
+        ? tr('empty_state_desc_search')
+        : (dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start'));
+    
+    Widget content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.8, end: 1.0),
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.elasticOut,
+          builder: (context, scale, child) {
+            return Transform.scale(scale: scale, child: child);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: hasSearchQuery 
+                    ? [Colors.grey.shade800, Colors.grey.shade700]
+                    : [
+                        theme.colorScheme.primary.withValues(alpha: 0.2),
+                        theme.colorScheme.secondary.withValues(alpha: 0.2),
+                      ],
+              ),
+              shape: BoxShape.circle,
+              boxShadow: hasSearchQuery ? null : [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                ),
+              ],
+            ),
+            child: Icon(
+              hasSearchQuery 
+                  ? Icons.search_off_rounded 
+                  : (dbCount == 0 ? Icons.folder_open_rounded : Icons.search_rounded),
+              size: 56,
+              color: hasSearchQuery ? Colors.grey.shade400 : theme.colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        Text(
+          emptyTitle,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: hasSearchQuery ? Colors.grey.shade400 : null,
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          emptyDesc,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.grey.shade500,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        if (canTapSmartSearch) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.auto_awesome, size: 16, color: Colors.purple.shade300),
+              const SizedBox(width: 6),
+              Text(
+                tr('empty_tap_smart_search'),
+                style: TextStyle(fontSize: 13, color: Colors.purple.shade300),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+    
+    if (canTapSmartSearch) {
+      content = GestureDetector(
+        onTap: _performSmartSearch,
+        behavior: HitTestBehavior.opaque,
+        child: content,
+      );
     }
     
     return Center(
@@ -3068,72 +2824,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // אנימציית אייקון
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.8, end: 1.0),
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.elasticOut,
-              builder: (context, scale, child) {
-                return Transform.scale(scale: scale, child: child);
-              },
-              child: Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: hasSearchQuery 
-                        ? [Colors.grey.shade800, Colors.grey.shade700]
-                        : [
-                            theme.colorScheme.primary.withValues(alpha: 0.2),
-                            theme.colorScheme.secondary.withValues(alpha: 0.2),
-                          ],
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: hasSearchQuery ? null : [
-                    BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                      blurRadius: 20,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  hasSearchQuery 
-                      ? Icons.search_off_rounded 
-                      : (dbCount == 0 ? Icons.folder_open_rounded : Icons.search_rounded),
-                  size: 56,
-                  color: hasSearchQuery ? Colors.grey.shade400 : theme.colorScheme.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            
-            // כותרת
-            Text(
-              hasSearchQuery 
-                  ? 'לא נמצאו תוצאות' 
-                  : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?'),
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: hasSearchQuery ? Colors.grey.shade400 : null,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            
-            // תיאור
-            Text(
-              hasSearchQuery
-                  ? tr('empty_state_desc_search')
-                  : (dbCount == 0 
-                      ? tr('empty_state_desc_scanning')
-                      : tr('empty_state_desc_start')),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey.shade500,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            content,
             
             // טיפים לחיפוש כשאין תוצאות
             if (hasSearchQuery) ...[

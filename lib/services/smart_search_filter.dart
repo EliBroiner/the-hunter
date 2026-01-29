@@ -68,7 +68,7 @@ class SmartSearchFilter {
     }).toList();
   }
 
-  /// סינון לפי מילות חיפוש
+  /// סינון לפי מילות חיפוש — AND: קובץ חייב להכיל את כל המונחים (יותר מונחים = פחות תוצאות)
   static List<FileMetadata> _filterByTerms(List<FileMetadata> files, List<String> terms) {
     if (terms.isEmpty) return files;
 
@@ -78,8 +78,7 @@ class SmartSearchFilter {
       final fileName = file.name.toLowerCase();
       final extractedText = file.extractedText?.toLowerCase() ?? '';
 
-      // בודק אם לפחות מילה אחת נמצאת בשם או בטקסט
-      return lowerTerms.any((term) =>
+      return lowerTerms.every((term) =>
           fileName.contains(term) || extractedText.contains(term));
     }).toList();
   }
