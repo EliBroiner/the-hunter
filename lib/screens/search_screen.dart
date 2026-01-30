@@ -62,7 +62,8 @@ class _SearchScreenState extends State<SearchScreen> {
   String _currentQuery = '';
   
   // טווח תאריכים לסינון
-  DateTimeRange? _selectedDateRange;
+  DateTime? _selectedStartDate;
+  DateTime? _selectedEndDate;
   
   // חיפוש קולי
   final SpeechToText _speechToText = SpeechToText();
@@ -75,9 +76,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
   
-  // מצב ריק — צ'קבוקסים לחפש בדרייב / חיפוש חכם
-  bool _emptyStateDrive = false;
-  bool _emptyStateSmart = false;
+  // Fallback אוטומטי: ריק → Drive → Smart (פעם אחת לכל שאילתה)
+  bool _autoFallbackDone = false;
   
   // מצב בחירה מרובה
   bool _isSelectionMode = false;
@@ -129,10 +129,10 @@ class _SearchScreenState extends State<SearchScreen> {
   void _updateSearchStream() {
     final query = _currentQuery;
     
-    // תאריך התחלה מהשאילתה או מטווח התאריכים שנבחר
+    // תאריך מ/עד — כל אחד אופציונלי
     final queryStartDate = parseTimeQuery(query);
-    final startDate = _selectedDateRange?.start ?? queryStartDate;
-    final endDate = _selectedDateRange?.end;
+    final startDate = _selectedStartDate ?? queryStartDate;
+    final endDate = _selectedEndDate;
     
     // המרת פילטר מקומי לפילטר של DatabaseService
     SearchFilter dbFilter = SearchFilter.all;
@@ -201,8 +201,8 @@ class _SearchScreenState extends State<SearchScreen> {
                        : SearchFilter.all;
                        
         final queryStartDate = parseTimeQuery(query);
-        final startDate = _selectedDateRange?.start ?? queryStartDate;
-        final endDate = _selectedDateRange?.end;
+        final startDate = _selectedStartDate ?? queryStartDate;
+        final endDate = _selectedEndDate;
 
         setState(() {
           _searchStream = _databaseService.watchSearch(
@@ -230,6 +230,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _currentQuery = query;
+      _autoFallbackDone = false; // שאילתה חדשה — מאפשר fallback מחדש
       _updateSearchStream();
     });
   }
@@ -1816,48 +1817,73 @@ class _SearchScreenState extends State<SearchScreen> {
     return clean.trim();
   }
 
-  /// פותח בורר טווח תאריכים
-  Future<void> _showDateRangePicker() async {
+  /// בורר תאריך התחלה (מתאריך)
+  Future<void> _showStartDatePicker() async {
     final theme = Theme.of(context);
     final now = DateTime.now();
     final firstDate = DateTime(2020, 1, 1);
-    
-    final picked = await showDateRangePicker(
+    final picked = await showDatePicker(
       context: context,
+      initialDate: _selectedStartDate ?? now,
       firstDate: firstDate,
       lastDate: now,
-      initialDateRange: _selectedDateRange,
       locale: const Locale('he', 'IL'),
-      builder: (context, child) {
-        return Theme(
-          data: theme.copyWith(
-            colorScheme: theme.colorScheme.copyWith(
-              primary: const Color(0xFF6366F1),
-              onPrimary: Colors.white,
-              surface: const Color(0xFF1E1E3F),
-              onSurface: Colors.white,
-              onSurfaceVariant: Colors.grey.shade300,
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF818CF8),
-              ),
-            ),
-          ),
-          child: child!,
-        );
-      },
+      builder: (context, child) => _buildDatePickerTheme(theme, child),
     );
-    
     if (picked != null) {
-      setState(() => _selectedDateRange = picked);
+      setState(() {
+        _selectedStartDate = picked;
+        if (_selectedEndDate != null && _selectedEndDate!.isBefore(picked)) {
+          _selectedEndDate = null; // עד לפני מ — מנקים עד
+        }
+      });
       _updateSearchStream();
     }
   }
-  
-  /// מנקה טווח תאריכים
+
+  /// בורר תאריך סיום (עד תאריך)
+  Future<void> _showEndDatePicker() async {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final firstDate = _selectedStartDate ?? DateTime(2020, 1, 1);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedEndDate ?? now,
+      firstDate: firstDate,
+      lastDate: now,
+      locale: const Locale('he', 'IL'),
+      builder: (context, child) => _buildDatePickerTheme(theme, child),
+    );
+    if (picked != null) {
+      setState(() => _selectedEndDate = picked);
+      _updateSearchStream();
+    }
+  }
+
+  Theme _buildDatePickerTheme(ThemeData theme, Widget? child) {
+    return Theme(
+      data: theme.copyWith(
+        colorScheme: theme.colorScheme.copyWith(
+          primary: const Color(0xFF6366F1),
+          onPrimary: Colors.white,
+          surface: const Color(0xFF1E1E3F),
+          onSurface: Colors.white,
+          onSurfaceVariant: Colors.grey.shade300,
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
+        ),
+      ),
+      child: child!,
+    );
+  }
+
+  /// מנקה תאריכים
   void _clearDateRange() {
-    setState(() => _selectedDateRange = null);
+    setState(() {
+      _selectedStartDate = null;
+      _selectedEndDate = null;
+    });
     _updateSearchStream();
   }
   
@@ -1909,12 +1935,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// פורמט טווח תאריכים לתצוגה
-  String _formatDateRange(DateTimeRange range) {
-    final start = '${range.start.day}/${range.start.month}/${range.start.year}';
-    final end = '${range.end.day}/${range.end.month}/${range.end.year}';
-    return '$start - $end';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2081,68 +2101,116 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// בונה בורר טווח תאריכים
+  /// בונה בורר תאריכים — מתאריך ו/או עד תאריך (כל אחד אופציונלי)
   Widget _buildDateRangePicker() {
     final theme = Theme.of(context);
-    final hasDateRange = _selectedDateRange != null;
-    
+    final hasAny = _selectedStartDate != null || _selectedEndDate != null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: GestureDetector(
-        onTap: _showDateRangePicker,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: hasDateRange 
-                  ? theme.colorScheme.secondary 
-                  : theme.colorScheme.primary.withValues(alpha: 0.3),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasAny
+                ? theme.colorScheme.secondary
+                : theme.colorScheme.primary.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.calendar_today,
+              size: 18,
+              color: hasAny ? theme.colorScheme.secondary : theme.colorScheme.primary,
             ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.calendar_today,
-                size: 18,
-                color: hasDateRange 
-                    ? theme.colorScheme.secondary 
-                    : theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  hasDateRange 
-                      ? _formatDateRange(_selectedDateRange!)
-                      : 'כל הזמנים',
-                  style: TextStyle(
-                    color: hasDateRange 
-                        ? theme.colorScheme.onSurface 
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              if (hasDateRange)
-                GestureDetector(
-                  onTap: _clearDateRange,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Row(
+                children: [
+                  // מתאריך
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _showStartDatePicker,
+                      child: Row(
+                        children: [
+                          Text(
+                            'מ: ',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              _selectedStartDate != null
+                                  ? _formatDate(_selectedStartDate!)
+                                  : 'כל הזמנים',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: _selectedStartDate != null
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: Icon(Icons.close, size: 14, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                   ),
-                )
-              else
-                Icon(
-                  Icons.arrow_drop_down,
-                  color: theme.colorScheme.primary,
+                  const SizedBox(width: 8),
+                  // עד תאריך
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _showEndDatePicker,
+                      child: Row(
+                        children: [
+                          Text(
+                            'עד: ',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              _selectedEndDate != null
+                                  ? _formatDate(_selectedEndDate!)
+                                  : 'ללא',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: _selectedEndDate != null
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (hasAny)
+              GestureDetector(
+                onTap: _clearDateRange,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.close, size: 14, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                 ),
-            ],
-          ),
+              )
+            else
+              Icon(Icons.arrow_drop_down, color: theme.colorScheme.primary),
+          ],
         ),
       ),
     );
@@ -2353,45 +2421,19 @@ class _SearchScreenState extends State<SearchScreen> {
     return list;
   }
 
-  /// מריץ חיפוש ממצב ריק: Drive ו/או חיפוש חכם (לפי הצ'קבוקסים)
-  Future<void> _runEmptyStateSearch() async {
-    if (!_emptyStateDrive && !_emptyStateSmart) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('empty_search_check_one')), behavior: SnackBarBehavior.floating),
-      );
-      return;
-    }
+  /// Fallback אוטומטי: לוקלי ריק → חיפוש ב-Drive (אם מחובר) → חיפוש חכם על הכל
+  Future<void> _runAutoFallback() async {
     final query = _currentQuery.trim();
-    if (query.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('הקלד לפחות 2 תווים'), behavior: SnackBarBehavior.floating),
-      );
-      return;
-    }
+    if (query.length < 2 || !mounted) return;
 
-    if (_emptyStateDrive) {
-      if (!_googleDriveService.isConnected) {
-        await _connectDrive();
-        if (!mounted) return;
-        if (!_googleDriveService.isConnected) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('נדרש חיבור ל-Drive כדי לחפש בענן'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          if (!_emptyStateSmart) return;
-        }
-      }
-      if (_googleDriveService.isConnected) await _searchCloud(query);
+    // Drive כבר רץ מ-_updateSearchStream אם מחובר; אם לא מחובר — לא מתחברים אוטומטית
+    if (_googleDriveService.isConnected) {
+      await _searchCloud(query);
       if (!mounted) return;
-    }
-
-    if (_emptyStateSmart) {
-      await _performSmartSearch(includeDrive: _emptyStateDrive);
-    } else if (_emptyStateDrive) {
-      // רק Drive: _searchCloud כבר עדכן את הסטרים
-      setState(() {});
+      // אחרי Drive: אם עדיין ריק — חיפוש חכם (עם מיזוג תוצאות Drive)
+      await _performSmartSearch(includeDrive: true);
+    } else {
+      await _performSmartSearch(includeDrive: false);
     }
   }
 
@@ -2685,9 +2727,14 @@ class _SearchScreenState extends State<SearchScreen> {
         }
 
         final results = snapshot.data ?? [];
+        final hasQuery = _searchController.text.trim().length >= 2;
 
-        // מצב ריק
+        // מצב ריק — Fallback אוטומטי: פרימיום + יש שאילתה → חיפוש בדרייב ואז חיפוש חכם
         if (results.isEmpty) {
+          if (hasQuery && _settingsService.isPremium && !_autoFallbackDone && !_isSmartSearching) {
+            _autoFallbackDone = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) => _runAutoFallback());
+          }
           return _buildEmptyState();
         }
 
@@ -2781,9 +2828,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final hasSearchQuery = _searchController.text.isNotEmpty;
     final dbCount = _databaseService.getFilesCount();
     final isFavoritesFilter = _selectedFilter == LocalFilter.favorites;
-    final isPremium = _settingsService.isPremium;
     final isSmartSearchEmpty = hasSearchQuery && _isSmartSearchActive;
-    final showEmptySearchPanel = hasSearchQuery && isPremium;
     
     // מצב מיוחד - מועדפים ריקים
     if (isFavoritesFilter) {
@@ -2796,7 +2841,6 @@ class _SearchScreenState extends State<SearchScreen> {
     final emptyDesc = hasSearchQuery
         ? tr('empty_state_desc_search')
         : (dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start'));
-    
     Widget content = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2855,10 +2899,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           textAlign: TextAlign.center,
         ),
-        if (showEmptySearchPanel) ...[
-          const SizedBox(height: 20),
-          _buildEmptyStateSearchPanel(theme),
-        ],
       ],
     );
     
@@ -2959,59 +2999,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// פאנל מצב ריק: צ'קבוקסים חפש בדרייב / חיפוש חכם + כפתור חפש
-  Widget _buildEmptyStateSearchPanel(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          CheckboxListTile(
-            value: _emptyStateDrive,
-            onChanged: (v) => setState(() => _emptyStateDrive = v ?? false),
-            title: Row(
-              children: [
-                Icon(Icons.cloud, size: 18, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(tr('empty_search_drive'), style: const TextStyle(fontSize: 14)),
-              ],
-            ),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-            activeColor: theme.colorScheme.primary,
-          ),
-          CheckboxListTile(
-            value: _emptyStateSmart,
-            onChanged: (v) => setState(() => _emptyStateSmart = v ?? false),
-            title: Row(
-              children: [
-                Icon(Icons.auto_awesome, size: 18, color: Colors.purple.shade300),
-                const SizedBox(width: 8),
-                Text(tr('empty_search_smart'), style: const TextStyle(fontSize: 14)),
-              ],
-            ),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-            activeColor: Colors.purple,
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _isSmartSearching ? null : () => _runEmptyStateSearch(),
-            icon: _isSmartSearching
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.search, size: 18),
-            label: Text(tr('empty_search_btn')),
-          ),
-        ],
-      ),
-    );
-  }
-  
   /// בונה סקשן קבצים אחרונים
   Widget _buildRecentFilesSection(ThemeData theme) {
     final recentFiles = RecentFilesService.instance.recentFiles;
