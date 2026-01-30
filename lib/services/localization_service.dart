@@ -294,6 +294,7 @@ class LocalizationService {
     'select_all': 'בחר הכל',
     'recent_searches_title': 'חיפושים אחרונים',
     'cancel_smart_search': 'ביטול',
+    'ai_scanning_deeper': 'מחפש עמוק יותר עם AI...',
     
     // הגדרות
     'settings_title': 'הגדרות',
@@ -652,6 +653,7 @@ class LocalizationService {
     'select_all': 'Select All',
     'recent_searches_title': 'Recent Searches',
     'cancel_smart_search': 'Cancel',
+    'ai_scanning_deeper': 'Scanning deeper with AI...',
     
     // Settings
     'settings_title': 'Settings',

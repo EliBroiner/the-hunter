@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
+import '../models/search_intent.dart' as api;
 import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
 
@@ -523,6 +524,48 @@ class DatabaseService {
     });
 
     appLog('DB: localSmartSearch "${rawQuery.trim()}" -> ${candidates.length} results');
+    return candidates;
+  }
+
+  /// חיפוש לפי SearchIntent מה-AI — תאריכים, fileTypes, terms (OR)
+  Future<List<FileMetadata>> searchByIntent(api.SearchIntent intent) async {
+    List<FileMetadata> candidates;
+
+    final startDate = intent.dateRange?.startDate;
+    final endDate = intent.dateRange?.endDate;
+
+    if (startDate != null) {
+      final to = endDate ?? startDate.add(const Duration(days: 365));
+      candidates = isar.fileMetadatas
+          .where()
+          .lastModifiedBetween(startDate, to)
+          .findAll();
+    } else {
+      candidates = isar.fileMetadatas.where().findAll();
+    }
+
+    if (intent.fileTypes.isNotEmpty) {
+      final extSet = intent.fileTypes.map((e) => e.toLowerCase()).toSet();
+      candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
+    }
+
+    final termsLower = intent.terms.map((t) => t.toLowerCase()).toList();
+    if (termsLower.isNotEmpty) {
+      candidates = candidates.where((f) {
+        final name = f.name.toLowerCase();
+        final text = f.extractedText?.toLowerCase() ?? '';
+        return termsLower.any((term) => name.contains(term) || text.contains(term));
+      }).toList();
+    }
+
+    candidates.sort((a, b) {
+      final scoreA = _calculateRelevance(a, termsLower);
+      final scoreB = _calculateRelevance(b, termsLower);
+      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+      return b.lastModified.compareTo(a.lastModified);
+    });
+
+    appLog('DB: searchByIntent -> ${candidates.length} results');
     return candidates;
   }
 

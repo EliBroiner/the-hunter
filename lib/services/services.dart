@@ -16,4 +16,5 @@ export 'secure_folder_service.dart';
 export 'cloud_storage_service.dart';
 export 'smart_search_filter.dart';
 export 'smart_search_service.dart';
+export 'hybrid_search_controller.dart';
 export 'text_extraction_service.dart';

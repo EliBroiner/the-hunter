@@ -9,13 +9,13 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
-import '../utils/smart_search_parser.dart' as parser_util;
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../services/smart_search_service.dart';
+import '../services/hybrid_search_controller.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
 import '../services/cloud_storage_service.dart';
@@ -53,7 +53,11 @@ class _SearchScreenState extends State<SearchScreen> {
   final _googleDriveService = GoogleDriveService.instance;
   
   LocalFilter _selectedFilter = LocalFilter.all;
-  Timer? _debounceTimer;
+  
+  // Hybrid search — debounce + waterfall (local → AI fallback)
+  late final HybridSearchController _hybridController;
+  List<FileMetadata>? _hybridResultsOverride;
+  bool _isAILoading = false;
   
   // Stream לחיפוש ריאקטיבי
   Stream<List<FileMetadata>>? _searchStream;
@@ -71,13 +75,9 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _speechEnabled = false;
   String _selectedLocale = 'he-IL'; // ברירת מחדל עברית
   
-  // חיפוש חכם (AI)
-  bool _isSmartSearching = false;
+  // חיפוש חכם (AI) — נשלט על ידי HybridSearchController
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
-  
-  // Fallback אוטומטי: ריק → Drive → Smart (פעם אחת לכל שאילתה)
-  bool _autoFallbackDone = false;
   
   // מצב בחירה מרובה
   bool _isSelectionMode = false;
@@ -86,10 +86,32 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _hybridController = HybridSearchController(
+      databaseService: _databaseService,
+      smartSearchService: _smartSearchService,
+      debounceDuration: const Duration(milliseconds: 800),
+      isPremium: () => _settingsService.isPremium,
+    )
+      ..onResults = _onHybridResults
+      ..onAILoading = _onHybridAILoading;
     _updateSearchStream();
     _initSpeech();
-    // עדכון מיידי כשסטטוס PRO משתנה (לאחר שדרוג)
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
+  }
+
+  void _onHybridResults(List<FileMetadata> results, {required bool isFromAI}) {
+    if (!mounted) return;
+    setState(() {
+      _hybridResultsOverride = results.isNotEmpty ? results : null;
+      _isSmartSearchActive = results.isNotEmpty;
+      _lastSmartIntent = _hybridController.lastIntent;
+    });
+    _updateSearchStream();
+  }
+
+  void _onHybridAILoading(bool isLoading) {
+    if (!mounted) return;
+    setState(() => _isAILoading = isLoading);
   }
 
   void _onPremiumChanged() {
@@ -118,57 +140,50 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
+    _hybridController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
-    _debounceTimer?.cancel();
     _speechToText.stop();
     super.dispose();
   }
 
-  /// מעדכן את ה-Stream לפי הפרמטרים הנוכחיים
+  /// מעדכן את ה-Stream — אם יש hybrid override משתמשים בו, אחרת watchSearch
   void _updateSearchStream() {
     final query = _currentQuery;
     
-    // תאריך מ/עד — כל אחד אופציונלי
     final queryStartDate = parseTimeQuery(query);
     final startDate = _selectedStartDate ?? queryStartDate;
     final endDate = _selectedEndDate;
     
-    // המרת פילטר מקומי לפילטר של DatabaseService
     SearchFilter dbFilter = SearchFilter.all;
     if (_selectedFilter == LocalFilter.images) dbFilter = SearchFilter.images;
     if (_selectedFilter == LocalFilter.pdfs) dbFilter = SearchFilter.pdfs;
     
-    // אם נבחר פילטר תמונות או PDF, נסנן גם את תוצאות הענן בהתאם
-    List<FileMetadata> filteredCloudResults = _cloudResults;
-    if (_selectedFilter == LocalFilter.images) {
-      filteredCloudResults = _cloudResults.where((f) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(f.extension)).toList();
-    } else if (_selectedFilter == LocalFilter.pdfs) {
-      filteredCloudResults = _cloudResults.where((f) => f.extension == 'pdf').toList();
+    final filteredCloud = _filteredCloudResults();
+
+    List<FileMetadata> mergeWithCloud(List<FileMetadata> local) {
+      final localPaths = local.map((f) => f.name.toLowerCase()).toSet();
+      final uniqueCloud = filteredCloud.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
+      final combined = [...local, ...uniqueCloud];
+      combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+      return _applyLocalFilter(combined);
     }
 
     setState(() {
-      // מעבר לחיפוש רגיל — מבטל חיפוש חכם
-      _isSmartSearchActive = false;
-      _lastSmartIntent = null;
-      _searchStream = _databaseService.watchSearch(
-        query: query,
-        filter: dbFilter,
-        startDate: startDate,
-        endDate: endDate,
-      ).map((results) {
-          // שילוב תוצאות ענן (אם יש) - תוך סינון כפילויות
-          final localPaths = results.map((f) => f.name.toLowerCase()).toSet();
-          final uniqueCloudResults = filteredCloudResults.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
-          
-          final combined = [...results, ...uniqueCloudResults];
-        // מיון לפי תאריך (חדש לישן)
-        combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-        return _applyLocalFilter(combined);
-      });
+      if (_hybridResultsOverride != null) {
+        _searchStream = Stream.value(mergeWithCloud(_hybridResultsOverride!));
+      } else {
+        _isSmartSearchActive = false;
+        _lastSmartIntent = null;
+        _searchStream = _databaseService.watchSearch(
+          query: query,
+          filter: dbFilter,
+          startDate: startDate,
+          endDate: endDate,
+        ).map((results) => mergeWithCloud(results));
+      }
     });
 
-    // חיפוש בענן אם מחובר ויש שאילתה
     if (query.isNotEmpty && query.length > 2 && _googleDriveService.isConnected) {
       _searchCloud(query);
     } else {
@@ -184,55 +199,20 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final results = await _googleDriveService.searchFiles(query);
       if (mounted) {
-        setState(() {
-          _cloudResults = results;
-          // רענון הסטרים כדי להציג את התוצאות החדשות
-          // (בגלל שהסטרים מבוסס על map, שינוי _cloudResults ישפיע בריצה הבאה)
-          // אבל אנחנו צריכים לעורר אותו.
-          // דרך פשוטה: קריאה חוזרת ל-_updateSearchStream (קצת בזבזני אבל עובד)
-          // או פשוט להסתמך על setState שיבנה מחדש אם היינו משתמשים ב-FutureBuilder
-          // כאן אנחנו ב-StreamBuilder, אז צריך טריק.
-          // הפתרון הנכון: StreamController משולב (RxDart) אבל נשמור על פשטות:
-          // נעדכן את ה-Stream מחדש.
-        });
-        // עדכון הסטרים עם התוצאות החדשות
-        final dbFilter = _selectedFilter == LocalFilter.images ? SearchFilter.images 
-                       : _selectedFilter == LocalFilter.pdfs ? SearchFilter.pdfs 
-                       : SearchFilter.all;
-                       
-        final queryStartDate = parseTimeQuery(query);
-        final startDate = _selectedStartDate ?? queryStartDate;
-        final endDate = _selectedEndDate;
-
-        setState(() {
-          _searchStream = _databaseService.watchSearch(
-            query: query,
-            filter: dbFilter,
-            startDate: startDate,
-            endDate: endDate,
-          ).map((results) {
-            final localPaths = results.map((f) => f.name.toLowerCase()).toSet();
-            final uniqueCloudResults = _cloudResults.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
-            
-            final combined = [...results, ...uniqueCloudResults];
-            combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-            return _applyLocalFilter(combined);
-          });
-        });
+        setState(() => _cloudResults = results);
+        _updateSearchStream(); // רענון מיזוג עם ענן
       }
     } finally {
       if (mounted) setState(() => _isSearchingCloud = false);
     }
   }
 
-  /// מבצע חיפוש עם debounce
+  /// חיפוש היברידי — debounce 800ms, אחר כך waterfall (מקומי → AI)
   void _onSearchChanged(String query) {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-      _currentQuery = query;
-      _autoFallbackDone = false; // שאילתה חדשה — מאפשר fallback מחדש
-      _updateSearchStream();
-    });
+    _currentQuery = query;
+    setState(() => _hybridResultsOverride = null);
+    _hybridController.onQueryChanged(query);
+    _updateSearchStream(); // watchSearch עד שההיבריד מחזיר תוצאות
   }
 
   /// מתחיל הקשבה קולית
@@ -2216,116 +2196,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
-  /// מבצע חיפוש חכם עם AI. [includeDrive] = למזג תוצאות מענן (אחרי _searchCloud)
-  Future<void> _performSmartSearch({bool includeDrive = false}) async {
-    final query = _currentQuery.trim();
-    if (query.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('הקלד לפחות 2 תווים לחיפוש חכם'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isSmartSearching = true);
-
-    try {
-      appLog('SmartSearch: Starting for query: "$query" includeDrive=$includeDrive');
-
-      // חיפוש חכם מקומי (ללא API)
-      final results = await _databaseService.localSmartSearch(query);
-      List<FileMetadata> combined = results;
-      if (includeDrive) {
-        final cloud = _filteredCloudResults();
-        final localNames = results.map((f) => f.name.toLowerCase()).toSet();
-        final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
-        combined = [...results, ...uniqueCloud];
-        combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-      }
-      final displayList = _applyLocalFilter(combined);
-
-      setState(() {
-        _isSmartSearchActive = true;
-        _lastSmartIntent = null;
-        _searchStream = Stream.value(displayList);
-      });
-
-      final parsed = parser_util.SmartSearchParser.parse(query);
-      final termsLabel = parsed.terms.isEmpty ? query : parsed.terms.take(5).join(', ');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              Text('חיפוש חכם מקומי: $termsLabel${includeDrive ? ' + Drive' : ''}'),
-            ],
-          ),
-          backgroundColor: Colors.purple.shade700,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      // --- חיפוש חכם דרך API (מושבת)
-      // final intent = await _smartSearchService.parseSearchQuery(query);
-      // if (intent != null && intent.hasContent) {
-      //   appLog('SmartSearch: Got intent - $intent');
-      //   final baseStream = _databaseService.watchSearch(
-      //     query: '',
-      //     filter: SearchFilter.all,
-      //   );
-      //   setState(() {
-      //     _isSmartSearchActive = true;
-      //     _lastSmartIntent = intent;
-      //     _searchStream = baseStream.map((files) {
-      //       final filtered = SmartSearchFilter.filterFiles(files, intent);
-      //       if (!includeDrive) return filtered;
-      //       final cloud = _filteredCloudResults();
-      //       final localNames = filtered.map((f) => f.name.toLowerCase()).toSet();
-      //       final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
-      //       final combined = [...filtered, ...uniqueCloud];
-      //       combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-      //       return _applyLocalFilter(combined);
-      //     });
-      //   });
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     SnackBar(
-      //       content: Row(
-      //         children: [
-      //           const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-      //           const SizedBox(width: 8),
-      //           Text('חיפוש חכם: ${intent.terms.join(", ")}${includeDrive ? " + Drive" : ""}'),
-      //         ],
-      //       ),
-      //       backgroundColor: Colors.purple.shade700,
-      //       behavior: SnackBarBehavior.floating,
-      //     ),
-      //   );
-      // } else {
-      //   appLog('SmartSearch: No intent returned, falling back to regular search');
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     const SnackBar(
-      //       content: Text('לא הצלחתי להבין את החיפוש, נסה ניסוח אחר'),
-      //       behavior: SnackBarBehavior.floating,
-      //     ),
-      //   );
-      // }
-    } catch (e) {
-      appLog('SmartSearch ERROR: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('שגיאה בחיפוש חכם: $e'),
-          backgroundColor: Colors.red.shade700,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      setState(() => _isSmartSearching = false);
-    }
-  }
-
   /// בונה את כותרת החיפוש - מודרני
   Widget _buildSearchHeader() {
     final theme = Theme.of(context);
@@ -2450,22 +2320,6 @@ class _SearchScreenState extends State<SearchScreen> {
       list = list.where((f) => f.extension == 'pdf').toList();
     }
     return list;
-  }
-
-  /// Fallback אוטומטי: לוקלי ריק → חיפוש ב-Drive (אם מחובר) → חיפוש חכם על הכל
-  Future<void> _runAutoFallback() async {
-    final query = _currentQuery.trim();
-    if (query.length < 2 || !mounted) return;
-
-    // Drive כבר רץ מ-_updateSearchStream אם מחובר; אם לא מחובר — לא מתחברים אוטומטית
-    if (_googleDriveService.isConnected) {
-      await _searchCloud(query);
-      if (!mounted) return;
-      // אחרי Drive: אם עדיין ריק — חיפוש חכם (עם מיזוג תוצאות Drive)
-      await _performSmartSearch(includeDrive: true);
-    } else {
-      await _performSmartSearch(includeDrive: false);
-    }
   }
 
   /// חיבור ל-Google Drive
@@ -2760,14 +2614,7 @@ class _SearchScreenState extends State<SearchScreen> {
         final results = snapshot.data ?? [];
         final hasQuery = _searchController.text.trim().length >= 2;
 
-        // מצב ריק — Fallback אוטומטי: פרימיום + יש שאילתה → חיפוש בדרייב ואז חיפוש חכם
-        if (results.isEmpty) {
-          if (hasQuery && _settingsService.isPremium && !_autoFallbackDone && !_isSmartSearching) {
-            _autoFallbackDone = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) => _runAutoFallback());
-          }
-          return _buildEmptyState();
-        }
+        if (results.isEmpty) return _buildEmptyState();
 
         return Column(
           children: [
@@ -2796,9 +2643,11 @@ class _SearchScreenState extends State<SearchScreen> {
                     TextButton(
                       onPressed: () {
                         setState(() {
+                          _hybridResultsOverride = null;
                           _isSmartSearchActive = false;
                           _lastSmartIntent = null;
                         });
+                        _hybridController.cancel();
                         _updateSearchStream();
                       },
                       child: Text(tr('cancel_smart_search'), style: const TextStyle(fontSize: 12)),
@@ -2866,11 +2715,12 @@ class _SearchScreenState extends State<SearchScreen> {
       return _buildEmptyFavoritesState(theme);
     }
     
+    final isAIScanning = hasSearchQuery && _isAILoading;
     final emptyTitle = hasSearchQuery 
-        ? (isSmartSearchEmpty ? tr('smart_search_no_results') : 'לא נמצאו תוצאות')
+        ? (isSmartSearchEmpty && !isAIScanning ? tr('smart_search_no_results') : (isAIScanning ? tr('ai_scanning_deeper') : 'לא נמצאו תוצאות'))
         : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?');
     final emptyDesc = hasSearchQuery
-        ? tr('empty_state_desc_search')
+        ? (isAIScanning ? '' : tr('empty_state_desc_search'))
         : (dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start'));
     Widget content = Column(
       mainAxisSize: MainAxisSize.min,
@@ -2914,15 +2764,38 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
         const SizedBox(height: 28),
-        Text(
-          emptyTitle,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            color: hasSearchQuery ? Colors.grey.shade400 : null,
-            fontWeight: FontWeight.bold,
+        if (isAIScanning)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                emptyTitle,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.grey.shade400,
+                ),
+              ),
+            ],
+          )
+        else
+          Text(
+            emptyTitle,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: hasSearchQuery ? Colors.grey.shade400 : null,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
-        ),
         const SizedBox(height: 12),
+        if (emptyDesc.isNotEmpty)
         Text(
           emptyDesc,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
