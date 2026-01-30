@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
+import '../models/search_intent.dart';
 import 'log_service.dart';
 
 /// שירות לניהול אינטגרציה עם Google Drive
@@ -62,25 +63,29 @@ class GoogleDriveService {
     // רק מנקים את ה-API client
   }
 
-  /// חיפוש קבצים ב-Drive
-  /// מחזיר רשימה של FileMetadata מותאמים
-  Future<List<FileMetadata>> searchFiles(String query) async {
+  /// חיפוש קבצים ב-Drive — תומך ב-SearchIntent (synonyms, תאריכים, סוגי קבצים)
+  /// [intent] — intent מפרסר מקומי או AI; [query] — חיפוש פשוט כאשר אין intent
+  Future<List<FileMetadata>> searchFiles({SearchIntent? intent, String? query}) async {
     if (_driveApi == null) {
       final connected = await connect();
       if (!connected) return [];
     }
 
+    final effectiveIntent = intent ?? (query != null && query.trim().isNotEmpty
+        ? SearchIntent(terms: [query.trim()], fileTypes: [], dateRange: null)
+        : null);
+    if (effectiveIntent == null) return [];
+
     try {
-      appLog('Drive: Searching for "$query"...');
-      
-      // בניית שאילתה ל-Drive API
-      // מחפשים בשם הקובץ, לא באשפה, ורק קבצים (לא תיקיות)
-      final q = "name contains '$query' and trashed = false and mimeType != 'application/vnd.google-apps.folder'";
-      
+      appLog('Drive: Searching with intent: $effectiveIntent');
+      final q = _buildDriveQuery(effectiveIntent);
+      if (q.isEmpty) return [];
+
       final fileList = await _driveApi!.files.list(
         q: q,
         $fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)',
-        pageSize: 20, // הגבלה ל-20 תוצאות לביצועים
+        pageSize: 20,
+        orderBy: 'modifiedTime desc',
       );
 
       if (fileList.files == null || fileList.files!.isEmpty) {
@@ -112,6 +117,111 @@ class GoogleDriveService {
       }
       return [];
     }
+  }
+
+  /// בונה שאילתת q ל-Drive API — terms (OR), תאריכים, סוגי קבצים
+  String _buildDriveQuery(SearchIntent intent) {
+    final parts = <String>[];
+
+    // מונחים — OR: (name contains 'a' or name contains 'b')
+    if (intent.terms.isNotEmpty) {
+      final escaped = intent.terms.map((t) => _escapeDriveQuery(t)).where((t) => t.isNotEmpty).toList();
+      if (escaped.isNotEmpty) {
+        final orGroup = escaped.map((t) => "name contains '$t'").join(' or ');
+        parts.add('($orGroup)');
+      }
+    }
+
+    // תאריכים — modifiedTime
+    if (intent.dateRange != null) {
+      final start = intent.dateRange!.startDate;
+      final end = intent.dateRange!.endDate;
+      if (start != null) {
+        final iso = _toDriveDateTime(start, startOfDay: true);
+        parts.add("modifiedTime >= '$iso'");
+      }
+      if (end != null) {
+        final iso = _toDriveDateTime(end, startOfDay: false);
+        parts.add("modifiedTime <= '$iso'");
+      }
+    }
+
+    // סוגי קבצים — מיפוי לסוגי MIME
+    if (intent.fileTypes.isNotEmpty) {
+      final mimeConditions = _fileTypesToMimeConditions(intent.fileTypes);
+      if (mimeConditions.isNotEmpty) {
+        parts.add('(${mimeConditions.join(' or ')})');
+      }
+    }
+
+    // תמיד: לא באשפה, לא תיקיות
+    parts.add("trashed = false");
+    parts.add("mimeType != 'application/vnd.google-apps.folder'");
+
+    return parts.join(' and ');
+  }
+
+  String _escapeDriveQuery(String s) => s.replaceAll("'", "\\'").replaceAll('\\', '\\\\');
+
+  String _toDriveDateTime(DateTime dt, {required bool startOfDay}) {
+    final d = startOfDay
+        ? DateTime(dt.year, dt.month, dt.day, 0, 0, 0)
+        : DateTime(dt.year, dt.month, dt.day, 23, 59, 59);
+    return d.toUtc().toIso8601String();
+  }
+
+  static final Map<String, List<String>> _extensionToMime = {
+    'pdf': ["mimeType = 'application/pdf'"],
+    'jpg': ["mimeType contains 'image/'"],
+    'jpeg': ["mimeType contains 'image/'"],
+    'png': ["mimeType contains 'image/'"],
+    'gif': ["mimeType contains 'image/'"],
+    'webp': ["mimeType contains 'image/'"],
+    'heic': ["mimeType contains 'image/'"],
+    'bmp': ["mimeType contains 'image/'"],
+    'doc': ["mimeType = 'application/msword'", "mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'", "mimeType = 'application/vnd.google-apps.document'"],
+    'docx': ["mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'", "mimeType = 'application/vnd.google-apps.document'"],
+    'txt': ["mimeType = 'text/plain'"],
+    'rtf': ["mimeType = 'application/rtf'", "mimeType = 'text/rtf'"],
+    'xls': ["mimeType = 'application/vnd.ms-excel'", "mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'", "mimeType = 'application/vnd.google-apps.spreadsheet'"],
+    'xlsx': ["mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'", "mimeType = 'application/vnd.google-apps.spreadsheet'"],
+    'csv': ["mimeType = 'text/csv'", "mimeType = 'application/vnd.google-apps.spreadsheet'"],
+    'sheets': ["mimeType = 'application/vnd.google-apps.spreadsheet'"],
+    'ppt': ["mimeType = 'application/vnd.ms-powerpoint'", "mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'", "mimeType = 'application/vnd.google-apps.presentation'"],
+    'pptx': ["mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'", "mimeType = 'application/vnd.google-apps.presentation'"],
+    'mp4': ["mimeType contains 'video/'"],
+    'mov': ["mimeType contains 'video/'"],
+    'avi': ["mimeType contains 'video/'"],
+    'mkv': ["mimeType contains 'video/'"],
+    'mp3': ["mimeType contains 'audio/'"],
+    'm4a': ["mimeType contains 'audio/'"],
+    'wav': ["mimeType contains 'audio/'"],
+    'flac': ["mimeType contains 'audio/'"],
+  };
+
+  List<String> _fileTypesToMimeConditions(List<String> fileTypes) {
+    final conditions = <String>{};
+    for (final ext in fileTypes) {
+      final key = ext.toLowerCase().trim();
+      final mimes = _extensionToMime[key];
+      if (mimes != null) {
+        conditions.addAll(mimes);
+      } else if (key == 'image' || key == 'images') {
+        conditions.add("mimeType contains 'image/'");
+      } else if (key == 'video' || key == 'videos') {
+        conditions.add("mimeType contains 'video/'");
+      } else if (key == 'audio') {
+        conditions.add("mimeType contains 'audio/'");
+      } else if (key == 'doc' || key == 'docs' || key == 'document') {
+        conditions.add("mimeType = 'application/vnd.google-apps.document'");
+        conditions.add("mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'");
+        conditions.add("mimeType = 'application/msword'");
+      } else if (key == 'excel' || key == 'spreadsheet') {
+        conditions.add("mimeType = 'application/vnd.google-apps.spreadsheet'");
+        conditions.add("mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'");
+      }
+    }
+    return conditions.toList();
   }
 
   /// המרת MIME type לסיומת קובץ

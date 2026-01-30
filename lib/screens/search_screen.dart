@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../utils/smart_search_parser.dart' as parser_util;
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/log_service.dart';
@@ -106,7 +107,24 @@ class _SearchScreenState extends State<SearchScreen> {
       _isSmartSearchActive = results.isNotEmpty;
       _lastSmartIntent = _hybridController.lastIntent;
     });
-    _updateSearchStream();
+    _updateSearchStream(); // יקרא ל-_searchCloudWithIntent כשמתאים
+  }
+
+  SearchIntent? _parserIntentToApi(String query) {
+    final p = parser_util.SmartSearchParser.parse(query);
+    if (!p.hasContent) return null;
+    return SearchIntent(
+      terms: p.terms,
+      fileTypes: p.fileTypes,
+      dateRange: p.dateFrom != null
+          ? DateRange(
+              start: '${p.dateFrom!.year}-${p.dateFrom!.month.toString().padLeft(2, '0')}-${p.dateFrom!.day.toString().padLeft(2, '0')}',
+              end: p.dateTo != null
+                  ? '${p.dateTo!.year}-${p.dateTo!.month.toString().padLeft(2, '0')}-${p.dateTo!.day.toString().padLeft(2, '0')}'
+                  : null,
+            )
+          : null,
+    );
   }
 
   void _onHybridAILoading(bool isLoading) {
@@ -185,22 +203,45 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     if (query.isNotEmpty && query.length > 2 && _googleDriveService.isConnected) {
-      _searchCloud(query);
+      if (_hybridResultsOverride != null) {
+        final intent = _hybridController.lastIntent ?? _parserIntentToApi(query);
+        if (intent != null && intent.hasContent) {
+          _searchCloudWithIntent(intent);
+        } else {
+          _searchCloud(query);
+        }
+      } else {
+        _searchCloud(query);
+      }
     } else {
       setState(() => _cloudResults = []);
     }
   }
 
-  /// חיפוש בענן
+  /// חיפוש בענן — שאילתה פשוטה
   Future<void> _searchCloud(String query) async {
     if (_isSearchingCloud) return;
     setState(() => _isSearchingCloud = true);
-    
     try {
-      final results = await _googleDriveService.searchFiles(query);
+      final results = await _googleDriveService.searchFiles(query: query);
       if (mounted) {
         setState(() => _cloudResults = results);
-        _updateSearchStream(); // רענון מיזוג עם ענן
+        _updateSearchStream();
+      }
+    } finally {
+      if (mounted) setState(() => _isSearchingCloud = false);
+    }
+  }
+
+  /// חיפוש בענן עם SearchIntent — synonyms, תאריכים, סוגי קבצים
+  Future<void> _searchCloudWithIntent(SearchIntent intent) async {
+    if (_isSearchingCloud) return;
+    setState(() => _isSearchingCloud = true);
+    try {
+      final results = await _googleDriveService.searchFiles(intent: intent);
+      if (mounted) {
+        setState(() => _cloudResults = results);
+        _updateSearchStream();
       }
     } finally {
       if (mounted) setState(() => _isSearchingCloud = false);
