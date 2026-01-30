@@ -27,6 +27,7 @@ import 'services/log_service.dart';
 import 'services/settings_service.dart';
 import 'services/user_activity_service.dart';
 import 'services/localization_service.dart';
+import 'utils/smart_search_parser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +40,14 @@ void main() async {
   await Purchases.configure(
     PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
   );
+  
+  // טעינת קונפיגורציית חיפוש חכם מ-JSON (אם נכשל — נשאר ברירת מחדל בקוד)
+  try {
+    final json = await rootBundle.loadString('assets/smart_search_config.json');
+    SmartSearchParser.config = SmartSearchConfig.fromJson(json);
+  } catch (_) {
+    // נשאר עם ברירת מחדל
+  }
   
   // אתחול מסד הנתונים והגדרות
   await DatabaseService.instance.init();

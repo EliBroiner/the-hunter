@@ -81,4 +81,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tessdata_config.json
+    - assets/smart_search_config.json
     - assets/tessdata/

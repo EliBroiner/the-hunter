@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
+import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
 
 /// פילטרים לחיפוש
@@ -463,6 +464,66 @@ class DatabaseService {
     
     // איחוד: שם קודם, תוכן אח"כ
     return [...nameMatches, ...contentOnlyMatches];
+  }
+
+  /// ציון רלוונטיות לקובץ לפי מונחים — שם +10, extractedText +1, עד 30 יום +2
+  int _calculateRelevance(FileMetadata file, List<String> terms) {
+    int score = 0;
+    final nameLower = file.name.toLowerCase();
+    final textLower = file.extractedText?.toLowerCase() ?? '';
+    for (final term in terms) {
+      if (nameLower.contains(term)) score += 10;
+      if (textLower.contains(term)) score += 1;
+    }
+    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+    if (file.lastModified.isAfter(thirtyDaysAgo)) score += 2;
+    return score;
+  }
+
+  /// חיפוש חכם מקומי לפי SearchIntent — תאריכים + OR על מונחים (שם / extractedText)
+  Future<List<FileMetadata>> localSmartSearch(String rawQuery) async {
+    final intent = SmartSearchParser.parse(rawQuery);
+
+    List<FileMetadata> candidates;
+
+    if (intent.dateFrom != null) {
+      final from = intent.dateFrom!;
+      final to = intent.dateTo ?? from.add(const Duration(days: 365));
+      candidates = isar.fileMetadatas
+          .where()
+          .lastModifiedBetween(from, to)
+          .findAll();
+    } else {
+      candidates = isar.fileMetadatas.where().findAll();
+    }
+
+    // סינון לפי סוג קובץ (fileTypes) — אם זוהו ב-Parser
+    if (intent.fileTypes.isNotEmpty) {
+      final extSet = intent.fileTypes.map((e) => e.toLowerCase()).toSet();
+      candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
+    }
+
+    final termsLower = intent.terms.map((t) => t.toLowerCase()).toList();
+
+    // סינון מונחים: OR — כל קובץ שמתאים לפחות למונח אחד (בשם או ב-extractedText), case insensitive
+    if (termsLower.isNotEmpty) {
+      candidates = candidates.where((f) {
+        final name = f.name.toLowerCase();
+        final text = f.extractedText?.toLowerCase() ?? '';
+        return termsLower.any((term) => name.contains(term) || text.contains(term));
+      }).toList();
+    }
+
+    // מיון לפי רלוונטיות (גבוה קודם), ואז לפי תאריך
+    candidates.sort((a, b) {
+      final scoreA = _calculateRelevance(a, termsLower);
+      final scoreB = _calculateRelevance(b, termsLower);
+      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+      return b.lastModified.compareTo(a.lastModified);
+    });
+
+    appLog('DB: localSmartSearch "${rawQuery.trim()}" -> ${candidates.length} results');
+    return candidates;
   }
 
   /// מחזיר קבצי תמונות שטרם עברו אינדוקס

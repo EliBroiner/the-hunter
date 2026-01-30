@@ -9,12 +9,12 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
+import '../utils/smart_search_parser.dart' as parser_util;
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
-import '../services/smart_search_filter.dart';
 import '../services/smart_search_service.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
@@ -2233,54 +2233,85 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       appLog('SmartSearch: Starting for query: "$query" includeDrive=$includeDrive');
-      
-      final intent = await _smartSearchService.parseSearchQuery(query);
 
-      if (intent != null && intent.hasContent) {
-        appLog('SmartSearch: Got intent - $intent');
-        
-        final baseStream = _databaseService.watchSearch(
-          query: '',
-          filter: SearchFilter.all,
-        );
-
-        setState(() {
-          _isSmartSearchActive = true;
-          _lastSmartIntent = intent;
-          _searchStream = baseStream.map((files) {
-            final filtered = SmartSearchFilter.filterFiles(files, intent);
-            if (!includeDrive) return filtered;
-            final cloud = _filteredCloudResults();
-            final localNames = filtered.map((f) => f.name.toLowerCase()).toSet();
-            final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
-            final combined = [...filtered, ...uniqueCloud];
-            combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-            return _applyLocalFilter(combined);
-          });
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Text('חיפוש חכם: ${intent.terms.join(", ")}${includeDrive ? " + Drive" : ""}'),
-              ],
-            ),
-            backgroundColor: Colors.purple.shade700,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else {
-        appLog('SmartSearch: No intent returned, falling back to regular search');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('לא הצלחתי להבין את החיפוש, נסה ניסוח אחר'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      // חיפוש חכם מקומי (ללא API)
+      final results = await _databaseService.localSmartSearch(query);
+      List<FileMetadata> combined = results;
+      if (includeDrive) {
+        final cloud = _filteredCloudResults();
+        final localNames = results.map((f) => f.name.toLowerCase()).toSet();
+        final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
+        combined = [...results, ...uniqueCloud];
+        combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
       }
+      final displayList = _applyLocalFilter(combined);
+
+      setState(() {
+        _isSmartSearchActive = true;
+        _lastSmartIntent = null;
+        _searchStream = Stream.value(displayList);
+      });
+
+      final parsed = parser_util.SmartSearchParser.parse(query);
+      final termsLabel = parsed.terms.isEmpty ? query : parsed.terms.take(5).join(', ');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text('חיפוש חכם מקומי: $termsLabel${includeDrive ? ' + Drive' : ''}'),
+            ],
+          ),
+          backgroundColor: Colors.purple.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      // --- חיפוש חכם דרך API (מושבת)
+      // final intent = await _smartSearchService.parseSearchQuery(query);
+      // if (intent != null && intent.hasContent) {
+      //   appLog('SmartSearch: Got intent - $intent');
+      //   final baseStream = _databaseService.watchSearch(
+      //     query: '',
+      //     filter: SearchFilter.all,
+      //   );
+      //   setState(() {
+      //     _isSmartSearchActive = true;
+      //     _lastSmartIntent = intent;
+      //     _searchStream = baseStream.map((files) {
+      //       final filtered = SmartSearchFilter.filterFiles(files, intent);
+      //       if (!includeDrive) return filtered;
+      //       final cloud = _filteredCloudResults();
+      //       final localNames = filtered.map((f) => f.name.toLowerCase()).toSet();
+      //       final uniqueCloud = cloud.where((f) => !localNames.contains(f.name.toLowerCase())).toList();
+      //       final combined = [...filtered, ...uniqueCloud];
+      //       combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+      //       return _applyLocalFilter(combined);
+      //     });
+      //   });
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(
+      //       content: Row(
+      //         children: [
+      //           const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+      //           const SizedBox(width: 8),
+      //           Text('חיפוש חכם: ${intent.terms.join(", ")}${includeDrive ? " + Drive" : ""}'),
+      //         ],
+      //       ),
+      //       backgroundColor: Colors.purple.shade700,
+      //       behavior: SnackBarBehavior.floating,
+      //     ),
+      //   );
+      // } else {
+      //   appLog('SmartSearch: No intent returned, falling back to regular search');
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     const SnackBar(
+      //       content: Text('לא הצלחתי להבין את החיפוש, נסה ניסוח אחר'),
+      //       behavior: SnackBarBehavior.floating,
+      //     ),
+      //   );
+      // }
     } catch (e) {
       appLog('SmartSearch ERROR: $e');
       ScaffoldMessenger.of(context).showSnackBar(
