@@ -14,9 +14,11 @@ import 'services/secure_folder_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'services/ai_auto_tagger_service.dart';
 import 'services/auth_service.dart';
 import 'services/backup_service.dart';
 import 'services/database_service.dart';
+import 'services/knowledge_base_service.dart';
 import 'services/favorites_service.dart';
 import 'services/recent_files_service.dart';
 import 'services/tags_service.dart';
@@ -41,16 +43,10 @@ void main() async {
     PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
   );
   
-  // טעינת קונפיגורציית חיפוש חכם מ-JSON (אם נכשל — נשאר ברירת מחדל בקוד)
-  try {
-    final json = await rootBundle.loadString('assets/smart_search_config.json');
-    SmartSearchParser.config = SmartSearchConfig.fromJson(json);
-  } catch (_) {
-    // נשאר עם ברירת מחדל
-  }
-  
-  // אתחול מסד הנתונים והגדרות
+  // אתחול מסד הנתונים והגדרות — smart_search_config.json נטען ב-KnowledgeBaseService
   await DatabaseService.instance.init();
+  await KnowledgeBaseService.instance.initialize();
+  SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
   await SettingsService.instance.init();
   await FavoritesService.instance.init();
   await RecentFilesService.instance.init();
@@ -351,11 +347,40 @@ class AutoScanManager with WidgetsBindingObserver {
   }
 }
 
-class TheHunterApp extends StatelessWidget {
+class TheHunterApp extends StatefulWidget {
   const TheHunterApp({super.key});
 
+  @override
+  State<TheHunterApp> createState() => _TheHunterAppState();
+
+  static ThemeData get darkTheme => _TheHunterAppState._darkTheme;
+  static ThemeData get lightTheme => _TheHunterAppState._lightTheme;
+}
+
+class _TheHunterAppState extends State<TheHunterApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      debugPrint('🛑 App pausing. Flushing AI queue...');
+      AiAutoTaggerService.instance.dispose();
+    }
+  }
+
   // ערכת צבעים כהה
-  static ThemeData get darkTheme => ThemeData(
+  static ThemeData get _darkTheme => ThemeData(
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.dark,
@@ -394,7 +419,7 @@ class TheHunterApp extends StatelessWidget {
   );
 
   // ערכת צבעים בהירה - מעוצבת יפה
-  static ThemeData get lightTheme => ThemeData(
+  static ThemeData get _lightTheme => ThemeData(
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.light,

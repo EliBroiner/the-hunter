@@ -118,7 +118,7 @@ class HybridSearchController extends ChangeNotifier {
     debugPrint('User Pro: $isPro, SignedIn: $isSignedIn, Internet: $hasNet');
     final shouldSearchDrive = isPro && isSignedIn && hasNet;
 
-    final parserIntent = parser.SmartSearchParser.parse(query);
+    final parserIntent = await parser.SmartSearchParser.parseAsync(query);
 
     try {
       // שלב א (מקומי) + שלב ב (Drive) — במקביל

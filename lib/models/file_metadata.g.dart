@@ -53,6 +53,18 @@ const FileMetadataSchema = IsarGeneratedSchema(
         type: IsarType.stringList,
       ),
       IsarPropertySchema(
+        name: 'category',
+        type: IsarType.string,
+      ),
+      IsarPropertySchema(
+        name: 'isAiAnalyzed',
+        type: IsarType.bool,
+      ),
+      IsarPropertySchema(
+        name: 'aiStatus',
+        type: IsarType.string,
+      ),
+      IsarPropertySchema(
         name: 'isIndexed',
         type: IsarType.bool,
       ),
@@ -157,33 +169,50 @@ int serializeFileMetadata(IsarWriter writer, FileMetadata object) {
       IsarCore.endList(writer, listWriter);
     }
   }
-  IsarCore.writeBool(writer, 9, object.isIndexed);
-  IsarCore.writeBool(writer, 10, object.isCloud);
   {
-    final value = object.cloudId;
+    final value = object.category;
+    if (value == null) {
+      IsarCore.writeNull(writer, 9);
+    } else {
+      IsarCore.writeString(writer, 9, value);
+    }
+  }
+  IsarCore.writeBool(writer, 10, object.isAiAnalyzed);
+  {
+    final value = object.aiStatus;
     if (value == null) {
       IsarCore.writeNull(writer, 11);
     } else {
       IsarCore.writeString(writer, 11, value);
     }
   }
+  IsarCore.writeBool(writer, 12, object.isIndexed);
+  IsarCore.writeBool(writer, 13, object.isCloud);
+  {
+    final value = object.cloudId;
+    if (value == null) {
+      IsarCore.writeNull(writer, 14);
+    } else {
+      IsarCore.writeString(writer, 14, value);
+    }
+  }
   {
     final value = object.cloudWebViewLink;
     if (value == null) {
-      IsarCore.writeNull(writer, 12);
+      IsarCore.writeNull(writer, 15);
     } else {
-      IsarCore.writeString(writer, 12, value);
+      IsarCore.writeString(writer, 15, value);
     }
   }
   {
     final value = object.cloudThumbnailLink;
     if (value == null) {
-      IsarCore.writeNull(writer, 13);
+      IsarCore.writeNull(writer, 16);
     } else {
-      IsarCore.writeString(writer, 13, value);
+      IsarCore.writeString(writer, 16, value);
     }
   }
-  IsarCore.writeString(writer, 14, object.readableSize);
+  IsarCore.writeString(writer, 17, object.readableSize);
   return object.id;
 }
 
@@ -232,11 +261,14 @@ FileMetadata deserializeFileMetadata(IsarReader reader) {
       }
     }
   }
-  object.isIndexed = IsarCore.readBool(reader, 9);
-  object.isCloud = IsarCore.readBool(reader, 10);
-  object.cloudId = IsarCore.readString(reader, 11);
-  object.cloudWebViewLink = IsarCore.readString(reader, 12);
-  object.cloudThumbnailLink = IsarCore.readString(reader, 13);
+  object.category = IsarCore.readString(reader, 9);
+  object.isAiAnalyzed = IsarCore.readBool(reader, 10);
+  object.aiStatus = IsarCore.readString(reader, 11);
+  object.isIndexed = IsarCore.readBool(reader, 12);
+  object.isCloud = IsarCore.readBool(reader, 13);
+  object.cloudId = IsarCore.readString(reader, 14);
+  object.cloudWebViewLink = IsarCore.readString(reader, 15);
+  object.cloudThumbnailLink = IsarCore.readString(reader, 16);
   return object;
 }
 
@@ -293,17 +325,23 @@ dynamic deserializeFileMetadataProp(IsarReader reader, int property) {
         }
       }
     case 9:
-      return IsarCore.readBool(reader, 9);
+      return IsarCore.readString(reader, 9);
     case 10:
       return IsarCore.readBool(reader, 10);
     case 11:
       return IsarCore.readString(reader, 11);
     case 12:
-      return IsarCore.readString(reader, 12);
+      return IsarCore.readBool(reader, 12);
     case 13:
-      return IsarCore.readString(reader, 13);
+      return IsarCore.readBool(reader, 13);
     case 14:
-      return IsarCore.readString(reader, 14) ?? '';
+      return IsarCore.readString(reader, 14);
+    case 15:
+      return IsarCore.readString(reader, 15);
+    case 16:
+      return IsarCore.readString(reader, 16);
+    case 17:
+      return IsarCore.readString(reader, 17) ?? '';
     default:
       throw ArgumentError('Unknown property: $property');
   }
@@ -319,6 +357,9 @@ sealed class _FileMetadataUpdate {
     DateTime? lastModified,
     DateTime? addedAt,
     String? extractedText,
+    String? category,
+    bool? isAiAnalyzed,
+    String? aiStatus,
     bool? isIndexed,
     bool? isCloud,
     String? cloudId,
@@ -343,6 +384,9 @@ class _FileMetadataUpdateImpl implements _FileMetadataUpdate {
     Object? lastModified = ignore,
     Object? addedAt = ignore,
     Object? extractedText = ignore,
+    Object? category = ignore,
+    Object? isAiAnalyzed = ignore,
+    Object? aiStatus = ignore,
     Object? isIndexed = ignore,
     Object? isCloud = ignore,
     Object? cloudId = ignore,
@@ -360,12 +404,15 @@ class _FileMetadataUpdateImpl implements _FileMetadataUpdate {
           if (lastModified != ignore) 5: lastModified as DateTime?,
           if (addedAt != ignore) 6: addedAt as DateTime?,
           if (extractedText != ignore) 7: extractedText as String?,
-          if (isIndexed != ignore) 9: isIndexed as bool?,
-          if (isCloud != ignore) 10: isCloud as bool?,
-          if (cloudId != ignore) 11: cloudId as String?,
-          if (cloudWebViewLink != ignore) 12: cloudWebViewLink as String?,
-          if (cloudThumbnailLink != ignore) 13: cloudThumbnailLink as String?,
-          if (readableSize != ignore) 14: readableSize as String?,
+          if (category != ignore) 9: category as String?,
+          if (isAiAnalyzed != ignore) 10: isAiAnalyzed as bool?,
+          if (aiStatus != ignore) 11: aiStatus as String?,
+          if (isIndexed != ignore) 12: isIndexed as bool?,
+          if (isCloud != ignore) 13: isCloud as bool?,
+          if (cloudId != ignore) 14: cloudId as String?,
+          if (cloudWebViewLink != ignore) 15: cloudWebViewLink as String?,
+          if (cloudThumbnailLink != ignore) 16: cloudThumbnailLink as String?,
+          if (readableSize != ignore) 17: readableSize as String?,
         }) >
         0;
   }
@@ -381,6 +428,9 @@ sealed class _FileMetadataUpdateAll {
     DateTime? lastModified,
     DateTime? addedAt,
     String? extractedText,
+    String? category,
+    bool? isAiAnalyzed,
+    String? aiStatus,
     bool? isIndexed,
     bool? isCloud,
     String? cloudId,
@@ -405,6 +455,9 @@ class _FileMetadataUpdateAllImpl implements _FileMetadataUpdateAll {
     Object? lastModified = ignore,
     Object? addedAt = ignore,
     Object? extractedText = ignore,
+    Object? category = ignore,
+    Object? isAiAnalyzed = ignore,
+    Object? aiStatus = ignore,
     Object? isIndexed = ignore,
     Object? isCloud = ignore,
     Object? cloudId = ignore,
@@ -420,12 +473,15 @@ class _FileMetadataUpdateAllImpl implements _FileMetadataUpdateAll {
       if (lastModified != ignore) 5: lastModified as DateTime?,
       if (addedAt != ignore) 6: addedAt as DateTime?,
       if (extractedText != ignore) 7: extractedText as String?,
-      if (isIndexed != ignore) 9: isIndexed as bool?,
-      if (isCloud != ignore) 10: isCloud as bool?,
-      if (cloudId != ignore) 11: cloudId as String?,
-      if (cloudWebViewLink != ignore) 12: cloudWebViewLink as String?,
-      if (cloudThumbnailLink != ignore) 13: cloudThumbnailLink as String?,
-      if (readableSize != ignore) 14: readableSize as String?,
+      if (category != ignore) 9: category as String?,
+      if (isAiAnalyzed != ignore) 10: isAiAnalyzed as bool?,
+      if (aiStatus != ignore) 11: aiStatus as String?,
+      if (isIndexed != ignore) 12: isIndexed as bool?,
+      if (isCloud != ignore) 13: isCloud as bool?,
+      if (cloudId != ignore) 14: cloudId as String?,
+      if (cloudWebViewLink != ignore) 15: cloudWebViewLink as String?,
+      if (cloudThumbnailLink != ignore) 16: cloudThumbnailLink as String?,
+      if (readableSize != ignore) 17: readableSize as String?,
     });
   }
 }
@@ -445,6 +501,9 @@ sealed class _FileMetadataQueryUpdate {
     DateTime? lastModified,
     DateTime? addedAt,
     String? extractedText,
+    String? category,
+    bool? isAiAnalyzed,
+    String? aiStatus,
     bool? isIndexed,
     bool? isCloud,
     String? cloudId,
@@ -469,6 +528,9 @@ class _FileMetadataQueryUpdateImpl implements _FileMetadataQueryUpdate {
     Object? lastModified = ignore,
     Object? addedAt = ignore,
     Object? extractedText = ignore,
+    Object? category = ignore,
+    Object? isAiAnalyzed = ignore,
+    Object? aiStatus = ignore,
     Object? isIndexed = ignore,
     Object? isCloud = ignore,
     Object? cloudId = ignore,
@@ -484,12 +546,15 @@ class _FileMetadataQueryUpdateImpl implements _FileMetadataQueryUpdate {
       if (lastModified != ignore) 5: lastModified as DateTime?,
       if (addedAt != ignore) 6: addedAt as DateTime?,
       if (extractedText != ignore) 7: extractedText as String?,
-      if (isIndexed != ignore) 9: isIndexed as bool?,
-      if (isCloud != ignore) 10: isCloud as bool?,
-      if (cloudId != ignore) 11: cloudId as String?,
-      if (cloudWebViewLink != ignore) 12: cloudWebViewLink as String?,
-      if (cloudThumbnailLink != ignore) 13: cloudThumbnailLink as String?,
-      if (readableSize != ignore) 14: readableSize as String?,
+      if (category != ignore) 9: category as String?,
+      if (isAiAnalyzed != ignore) 10: isAiAnalyzed as bool?,
+      if (aiStatus != ignore) 11: aiStatus as String?,
+      if (isIndexed != ignore) 12: isIndexed as bool?,
+      if (isCloud != ignore) 13: isCloud as bool?,
+      if (cloudId != ignore) 14: cloudId as String?,
+      if (cloudWebViewLink != ignore) 15: cloudWebViewLink as String?,
+      if (cloudThumbnailLink != ignore) 16: cloudThumbnailLink as String?,
+      if (readableSize != ignore) 17: readableSize as String?,
     });
   }
 }
@@ -516,6 +581,9 @@ class _FileMetadataQueryBuilderUpdateImpl implements _FileMetadataQueryUpdate {
     Object? lastModified = ignore,
     Object? addedAt = ignore,
     Object? extractedText = ignore,
+    Object? category = ignore,
+    Object? isAiAnalyzed = ignore,
+    Object? aiStatus = ignore,
     Object? isIndexed = ignore,
     Object? isCloud = ignore,
     Object? cloudId = ignore,
@@ -533,12 +601,15 @@ class _FileMetadataQueryBuilderUpdateImpl implements _FileMetadataQueryUpdate {
         if (lastModified != ignore) 5: lastModified as DateTime?,
         if (addedAt != ignore) 6: addedAt as DateTime?,
         if (extractedText != ignore) 7: extractedText as String?,
-        if (isIndexed != ignore) 9: isIndexed as bool?,
-        if (isCloud != ignore) 10: isCloud as bool?,
-        if (cloudId != ignore) 11: cloudId as String?,
-        if (cloudWebViewLink != ignore) 12: cloudWebViewLink as String?,
-        if (cloudThumbnailLink != ignore) 13: cloudThumbnailLink as String?,
-        if (readableSize != ignore) 14: readableSize as String?,
+        if (category != ignore) 9: category as String?,
+        if (isAiAnalyzed != ignore) 10: isAiAnalyzed as bool?,
+        if (aiStatus != ignore) 11: aiStatus as String?,
+        if (isIndexed != ignore) 12: isIndexed as bool?,
+        if (isCloud != ignore) 13: isCloud as bool?,
+        if (cloudId != ignore) 14: cloudId as String?,
+        if (cloudWebViewLink != ignore) 15: cloudWebViewLink as String?,
+        if (cloudThumbnailLink != ignore) 16: cloudThumbnailLink as String?,
+        if (readableSize != ignore) 17: readableSize as String?,
       });
     } finally {
       q.close();
@@ -1834,21 +1905,201 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      isIndexedEqualTo(
-    bool value,
-  ) {
+      categoryIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const IsNullCondition(property: 9));
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryIsNotNull() {
+    return QueryBuilder.apply(not(), (query) {
+      return query.addFilterCondition(const IsNullCondition(property: 9));
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EqualCondition(
           property: 9,
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      isCloudEqualTo(
+      categoryGreaterThan(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        GreaterCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryGreaterThanOrEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        GreaterOrEqualCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryLessThan(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        LessCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryLessThanOrEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        LessOrEqualCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryBetween(
+    String? lower,
+    String? upper, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        BetweenCondition(
+          property: 9,
+          lower: lower,
+          upper: upper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        StartsWithCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        EndsWithCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        ContainsCondition(
+          property: 9,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        MatchesCondition(
+          property: 9,
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const EqualCondition(
+          property: 9,
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      categoryIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const GreaterCondition(
+          property: 9,
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      isAiAnalyzedEqualTo(
     bool value,
   ) {
     return QueryBuilder.apply(this, (query) {
@@ -1862,21 +2113,21 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdIsNull() {
+      aiStatusIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const IsNullCondition(property: 11));
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdIsNotNull() {
+      aiStatusIsNotNull() {
     return QueryBuilder.apply(not(), (query) {
       return query.addFilterCondition(const IsNullCondition(property: 11));
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdEqualTo(
+      aiStatusEqualTo(
     String? value, {
     bool caseSensitive = true,
   }) {
@@ -1892,7 +2143,7 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdGreaterThan(
+      aiStatusGreaterThan(
     String? value, {
     bool caseSensitive = true,
   }) {
@@ -1908,7 +2159,7 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdGreaterThanOrEqualTo(
+      aiStatusGreaterThanOrEqualTo(
     String? value, {
     bool caseSensitive = true,
   }) {
@@ -1924,7 +2175,7 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdLessThan(
+      aiStatusLessThan(
     String? value, {
     bool caseSensitive = true,
   }) {
@@ -1940,7 +2191,7 @@ extension FileMetadataQueryFilter
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
-      cloudIdLessThanOrEqualTo(
+      aiStatusLessThanOrEqualTo(
     String? value, {
     bool caseSensitive = true,
   }) {
@@ -1948,6 +2199,228 @@ extension FileMetadataQueryFilter
       return query.addFilterCondition(
         LessOrEqualCondition(
           property: 11,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusBetween(
+    String? lower,
+    String? upper, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        BetweenCondition(
+          property: 11,
+          lower: lower,
+          upper: upper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        StartsWithCondition(
+          property: 11,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        EndsWithCondition(
+          property: 11,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        ContainsCondition(
+          property: 11,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        MatchesCondition(
+          property: 11,
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const EqualCondition(
+          property: 11,
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      aiStatusIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const GreaterCondition(
+          property: 11,
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      isIndexedEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        EqualCondition(
+          property: 12,
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      isCloudEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        EqualCondition(
+          property: 13,
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const IsNullCondition(property: 14));
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdIsNotNull() {
+    return QueryBuilder.apply(not(), (query) {
+      return query.addFilterCondition(const IsNullCondition(property: 14));
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        EqualCondition(
+          property: 14,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdGreaterThan(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        GreaterCondition(
+          property: 14,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdGreaterThanOrEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        GreaterOrEqualCondition(
+          property: 14,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdLessThan(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        LessCondition(
+          property: 14,
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
+      cloudIdLessThanOrEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        LessOrEqualCondition(
+          property: 14,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1964,7 +2437,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         BetweenCondition(
-          property: 11,
+          property: 14,
           lower: lower,
           upper: upper,
           caseSensitive: caseSensitive,
@@ -1981,7 +2454,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         StartsWithCondition(
-          property: 11,
+          property: 14,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1997,7 +2470,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EndsWithCondition(
-          property: 11,
+          property: 14,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2010,7 +2483,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         ContainsCondition(
-          property: 11,
+          property: 14,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2023,7 +2496,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         MatchesCondition(
-          property: 11,
+          property: 14,
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -2036,7 +2509,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const EqualCondition(
-          property: 11,
+          property: 14,
           value: '',
         ),
       );
@@ -2048,7 +2521,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const GreaterCondition(
-          property: 11,
+          property: 14,
           value: '',
         ),
       );
@@ -2058,14 +2531,14 @@ extension FileMetadataQueryFilter
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
       cloudWebViewLinkIsNull() {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const IsNullCondition(property: 12));
+      return query.addFilterCondition(const IsNullCondition(property: 15));
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
       cloudWebViewLinkIsNotNull() {
     return QueryBuilder.apply(not(), (query) {
-      return query.addFilterCondition(const IsNullCondition(property: 12));
+      return query.addFilterCondition(const IsNullCondition(property: 15));
     });
   }
 
@@ -2077,7 +2550,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EqualCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2093,7 +2566,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2109,7 +2582,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterOrEqualCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2125,7 +2598,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2141,7 +2614,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessOrEqualCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2158,7 +2631,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         BetweenCondition(
-          property: 12,
+          property: 15,
           lower: lower,
           upper: upper,
           caseSensitive: caseSensitive,
@@ -2175,7 +2648,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         StartsWithCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2191,7 +2664,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EndsWithCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2204,7 +2677,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         ContainsCondition(
-          property: 12,
+          property: 15,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2217,7 +2690,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         MatchesCondition(
-          property: 12,
+          property: 15,
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -2230,7 +2703,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const EqualCondition(
-          property: 12,
+          property: 15,
           value: '',
         ),
       );
@@ -2242,7 +2715,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const GreaterCondition(
-          property: 12,
+          property: 15,
           value: '',
         ),
       );
@@ -2252,14 +2725,14 @@ extension FileMetadataQueryFilter
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
       cloudThumbnailLinkIsNull() {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const IsNullCondition(property: 13));
+      return query.addFilterCondition(const IsNullCondition(property: 16));
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterFilterCondition>
       cloudThumbnailLinkIsNotNull() {
     return QueryBuilder.apply(not(), (query) {
-      return query.addFilterCondition(const IsNullCondition(property: 13));
+      return query.addFilterCondition(const IsNullCondition(property: 16));
     });
   }
 
@@ -2271,7 +2744,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EqualCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2287,7 +2760,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2303,7 +2776,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterOrEqualCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2319,7 +2792,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2335,7 +2808,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessOrEqualCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2352,7 +2825,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         BetweenCondition(
-          property: 13,
+          property: 16,
           lower: lower,
           upper: upper,
           caseSensitive: caseSensitive,
@@ -2369,7 +2842,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         StartsWithCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2385,7 +2858,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EndsWithCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2398,7 +2871,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         ContainsCondition(
-          property: 13,
+          property: 16,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2411,7 +2884,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         MatchesCondition(
-          property: 13,
+          property: 16,
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -2424,7 +2897,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const EqualCondition(
-          property: 13,
+          property: 16,
           value: '',
         ),
       );
@@ -2436,7 +2909,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const GreaterCondition(
-          property: 13,
+          property: 16,
           value: '',
         ),
       );
@@ -2451,7 +2924,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EqualCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2467,7 +2940,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2483,7 +2956,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         GreaterOrEqualCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2499,7 +2972,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2515,7 +2988,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         LessOrEqualCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2532,7 +3005,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         BetweenCondition(
-          property: 14,
+          property: 17,
           lower: lower,
           upper: upper,
           caseSensitive: caseSensitive,
@@ -2549,7 +3022,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         StartsWithCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2565,7 +3038,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         EndsWithCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2578,7 +3051,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         ContainsCondition(
-          property: 14,
+          property: 17,
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -2591,7 +3064,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         MatchesCondition(
-          property: 14,
+          property: 17,
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -2604,7 +3077,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const EqualCondition(
-          property: 14,
+          property: 17,
           value: '',
         ),
       );
@@ -2616,7 +3089,7 @@ extension FileMetadataQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         const GreaterCondition(
-          property: 14,
+          property: 17,
           value: '',
         ),
       );
@@ -2762,31 +3235,41 @@ extension FileMetadataQuerySortBy
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsIndexed() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCategory(
+      {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(9);
+      return query.addSortBy(
+        9,
+        caseSensitive: caseSensitive,
+      );
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsIndexedDesc() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCategoryDesc(
+      {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(9, sort: Sort.desc);
+      return query.addSortBy(
+        9,
+        sort: Sort.desc,
+        caseSensitive: caseSensitive,
+      );
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsCloud() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsAiAnalyzed() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(10);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsCloudDesc() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
+      sortByIsAiAnalyzedDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(10, sort: Sort.desc);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCloudId(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByAiStatus(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
@@ -2796,11 +3279,56 @@ extension FileMetadataQuerySortBy
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCloudIdDesc(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByAiStatusDesc(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
         11,
+        sort: Sort.desc,
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsIndexed() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(12);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsIndexedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(12, sort: Sort.desc);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsCloud() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(13);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByIsCloudDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(13, sort: Sort.desc);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCloudId(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(
+        14,
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> sortByCloudIdDesc(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(
+        14,
         sort: Sort.desc,
         caseSensitive: caseSensitive,
       );
@@ -2811,7 +3339,7 @@ extension FileMetadataQuerySortBy
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        12,
+        15,
         caseSensitive: caseSensitive,
       );
     });
@@ -2821,7 +3349,7 @@ extension FileMetadataQuerySortBy
       sortByCloudWebViewLinkDesc({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        12,
+        15,
         sort: Sort.desc,
         caseSensitive: caseSensitive,
       );
@@ -2832,7 +3360,7 @@ extension FileMetadataQuerySortBy
       sortByCloudThumbnailLink({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        13,
+        16,
         caseSensitive: caseSensitive,
       );
     });
@@ -2842,7 +3370,7 @@ extension FileMetadataQuerySortBy
       sortByCloudThumbnailLinkDesc({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        13,
+        16,
         sort: Sort.desc,
         caseSensitive: caseSensitive,
       );
@@ -2853,7 +3381,7 @@ extension FileMetadataQuerySortBy
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        14,
+        17,
         caseSensitive: caseSensitive,
       );
     });
@@ -2863,7 +3391,7 @@ extension FileMetadataQuerySortBy
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(
-        14,
+        17,
         sort: Sort.desc,
         caseSensitive: caseSensitive,
       );
@@ -2978,83 +3506,124 @@ extension FileMetadataQuerySortThenBy
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsIndexed() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCategory(
+      {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(9);
+      return query.addSortBy(9, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsIndexedDesc() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCategoryDesc(
+      {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(9, sort: Sort.desc);
+      return query.addSortBy(9, sort: Sort.desc, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsCloud() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsAiAnalyzed() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(10);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsCloudDesc() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
+      thenByIsAiAnalyzedDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(10, sort: Sort.desc);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudId(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByAiStatus(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(11, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudIdDesc(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByAiStatusDesc(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(11, sort: Sort.desc, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudWebViewLink(
-      {bool caseSensitive = true}) {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsIndexed() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(12, caseSensitive: caseSensitive);
+      return query.addSortBy(12);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
-      thenByCloudWebViewLinkDesc({bool caseSensitive = true}) {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsIndexedDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(12, sort: Sort.desc, caseSensitive: caseSensitive);
+      return query.addSortBy(12, sort: Sort.desc);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
-      thenByCloudThumbnailLink({bool caseSensitive = true}) {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsCloud() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(13, caseSensitive: caseSensitive);
+      return query.addSortBy(13);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
-      thenByCloudThumbnailLinkDesc({bool caseSensitive = true}) {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByIsCloudDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(13, sort: Sort.desc, caseSensitive: caseSensitive);
+      return query.addSortBy(13, sort: Sort.desc);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByReadableSize(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudId(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(14, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByReadableSizeDesc(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudIdDesc(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(14, sort: Sort.desc, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByCloudWebViewLink(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(15, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
+      thenByCloudWebViewLinkDesc({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(15, sort: Sort.desc, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
+      thenByCloudThumbnailLink({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(16, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy>
+      thenByCloudThumbnailLinkDesc({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(16, sort: Sort.desc, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByReadableSize(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(17, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterSortBy> thenByReadableSizeDesc(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(17, sort: Sort.desc, caseSensitive: caseSensitive);
     });
   }
 }
@@ -3114,20 +3683,21 @@ extension FileMetadataQueryWhereDistinct
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
-      distinctByIsIndexed() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByCategory(
+      {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(9);
+      return query.addDistinctBy(9, caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByIsCloud() {
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
+      distinctByIsAiAnalyzed() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(10);
     });
   }
 
-  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByCloudId(
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByAiStatus(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(11, caseSensitive: caseSensitive);
@@ -3135,23 +3705,43 @@ extension FileMetadataQueryWhereDistinct
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
+      distinctByIsIndexed() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(12);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByIsCloud() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(13);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct> distinctByCloudId(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(14, caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
       distinctByCloudWebViewLink({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(12, caseSensitive: caseSensitive);
+      return query.addDistinctBy(15, caseSensitive: caseSensitive);
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
       distinctByCloudThumbnailLink({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(13, caseSensitive: caseSensitive);
+      return query.addDistinctBy(16, caseSensitive: caseSensitive);
     });
   }
 
   QueryBuilder<FileMetadata, FileMetadata, QAfterDistinct>
       distinctByReadableSize({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(14, caseSensitive: caseSensitive);
+      return query.addDistinctBy(17, caseSensitive: caseSensitive);
     });
   }
 }
@@ -3212,41 +3802,59 @@ extension FileMetadataQueryProperty1
     });
   }
 
-  QueryBuilder<FileMetadata, bool, QAfterProperty> isIndexedProperty() {
+  QueryBuilder<FileMetadata, String?, QAfterProperty> categoryProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(9);
     });
   }
 
-  QueryBuilder<FileMetadata, bool, QAfterProperty> isCloudProperty() {
+  QueryBuilder<FileMetadata, bool, QAfterProperty> isAiAnalyzedProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(10);
     });
   }
 
-  QueryBuilder<FileMetadata, String?, QAfterProperty> cloudIdProperty() {
+  QueryBuilder<FileMetadata, String?, QAfterProperty> aiStatusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(11);
+    });
+  }
+
+  QueryBuilder<FileMetadata, bool, QAfterProperty> isIndexedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(12);
+    });
+  }
+
+  QueryBuilder<FileMetadata, bool, QAfterProperty> isCloudProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(13);
+    });
+  }
+
+  QueryBuilder<FileMetadata, String?, QAfterProperty> cloudIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(14);
     });
   }
 
   QueryBuilder<FileMetadata, String?, QAfterProperty>
       cloudWebViewLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(12);
+      return query.addProperty(15);
     });
   }
 
   QueryBuilder<FileMetadata, String?, QAfterProperty>
       cloudThumbnailLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(13);
+      return query.addProperty(16);
     });
   }
 
   QueryBuilder<FileMetadata, String, QAfterProperty> readableSizeProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(14);
+      return query.addProperty(17);
     });
   }
 }
@@ -3310,42 +3918,60 @@ extension FileMetadataQueryProperty2<R>
     });
   }
 
-  QueryBuilder<FileMetadata, (R, bool), QAfterProperty> isIndexedProperty() {
+  QueryBuilder<FileMetadata, (R, String?), QAfterProperty> categoryProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(9);
     });
   }
 
-  QueryBuilder<FileMetadata, (R, bool), QAfterProperty> isCloudProperty() {
+  QueryBuilder<FileMetadata, (R, bool), QAfterProperty> isAiAnalyzedProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(10);
     });
   }
 
-  QueryBuilder<FileMetadata, (R, String?), QAfterProperty> cloudIdProperty() {
+  QueryBuilder<FileMetadata, (R, String?), QAfterProperty> aiStatusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(11);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R, bool), QAfterProperty> isIndexedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(12);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R, bool), QAfterProperty> isCloudProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(13);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R, String?), QAfterProperty> cloudIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(14);
     });
   }
 
   QueryBuilder<FileMetadata, (R, String?), QAfterProperty>
       cloudWebViewLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(12);
+      return query.addProperty(15);
     });
   }
 
   QueryBuilder<FileMetadata, (R, String?), QAfterProperty>
       cloudThumbnailLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(13);
+      return query.addProperty(16);
     });
   }
 
   QueryBuilder<FileMetadata, (R, String), QAfterProperty>
       readableSizeProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(14);
+      return query.addProperty(17);
     });
   }
 }
@@ -3411,42 +4037,63 @@ extension FileMetadataQueryProperty3<R1, R2>
     });
   }
 
-  QueryBuilder<FileMetadata, (R1, R2, bool), QOperations> isIndexedProperty() {
+  QueryBuilder<FileMetadata, (R1, R2, String?), QOperations>
+      categoryProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(9);
     });
   }
 
-  QueryBuilder<FileMetadata, (R1, R2, bool), QOperations> isCloudProperty() {
+  QueryBuilder<FileMetadata, (R1, R2, bool), QOperations>
+      isAiAnalyzedProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(10);
     });
   }
 
-  QueryBuilder<FileMetadata, (R1, R2, String?), QOperations> cloudIdProperty() {
+  QueryBuilder<FileMetadata, (R1, R2, String?), QOperations>
+      aiStatusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addProperty(11);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R1, R2, bool), QOperations> isIndexedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(12);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R1, R2, bool), QOperations> isCloudProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(13);
+    });
+  }
+
+  QueryBuilder<FileMetadata, (R1, R2, String?), QOperations> cloudIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addProperty(14);
     });
   }
 
   QueryBuilder<FileMetadata, (R1, R2, String?), QOperations>
       cloudWebViewLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(12);
+      return query.addProperty(15);
     });
   }
 
   QueryBuilder<FileMetadata, (R1, R2, String?), QOperations>
       cloudThumbnailLinkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(13);
+      return query.addProperty(16);
     });
   }
 
   QueryBuilder<FileMetadata, (R1, R2, String), QOperations>
       readableSizeProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addProperty(14);
+      return query.addProperty(17);
     });
   }
 }

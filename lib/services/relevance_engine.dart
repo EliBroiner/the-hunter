@@ -11,6 +11,7 @@ class RelevanceEngine {
   static const int _ptsExtracted = 20;
   static const double _synonymFactor = 0.7;
   static const double _coverageMultiplier = 1.5;
+  static const int _exactPhraseBonus = 150;
 
   /// נתיב התיקייה (ללא שם הקובץ) — לחישוב locationText
   static String _locationText(FileMetadata file) {
@@ -21,19 +22,37 @@ class RelevanceEngine {
   }
 
   /// מחשב ציון + פירוט: התאמות ב־filename / location / extracted; rawTerms מלא, synonyms 70%
+  /// כולל Density Penalty ו־Exact Phrase Bonus
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
-      List<String> synonymTerms, String fnLower, String locLower, String extLower) {
+      List<String> synonymTerms, String fnLower, String locLower, String extLower,
+      String exactPhrase) {
     final rawSet = rawTerms.map((t) => _norm(t)).toSet();
     double score = 0;
     double namePts = 0, locPts = 0, extPts = 0;
+
+    /// Density penalty: score *= (termLength / foundTokenLength)
+    double _densityFactor(String term, int foundTokenLen) {
+      if (foundTokenLen <= 0) return 1.0;
+      final factor = term.length / foundTokenLen;
+      return factor > 1.0 ? 1.0 : factor;
+    }
 
     void addPts(String term, bool isRaw) {
       final t = _norm(term);
       if (t.isEmpty) return;
       final pts = isRaw ? 1.0 : _synonymFactor;
-      if (fnLower.contains(t)) namePts += _ptsFilename * pts;
-      if (locLower.contains(t)) locPts += _ptsLocation * pts;
-      if (extLower.contains(t)) extPts += _ptsExtracted * pts;
+      if (fnLower.contains(t)) {
+        final factor = _densityFactor(t, fnLower.length);
+        namePts += _ptsFilename * pts * factor;
+      }
+      if (locLower.contains(t)) {
+        final factor = _densityFactor(t, locLower.length);
+        locPts += _ptsLocation * pts * factor;
+      }
+      if (extLower.contains(t)) {
+        final factor = _densityFactor(t, extLower.length);
+        extPts += _ptsExtracted * pts * factor;
+      }
     }
 
     for (final term in rawTerms) {
@@ -45,6 +64,15 @@ class RelevanceEngine {
     }
 
     score = namePts + locPts + extPts;
+
+    // Exact phrase bonus — התאמה מדויקת לשאילתה
+    if (exactPhrase.length >= 2) {
+      final phraseLower = _norm(exactPhrase);
+      if (fnLower.contains(phraseLower) || extLower.contains(phraseLower)) {
+        score += _exactPhraseBonus;
+      }
+    }
+
     final parts = <String>[];
     if (namePts > 0) parts.add('Name(${namePts.toInt()})');
     if (locPts > 0) parts.add('Loc(${locPts.toInt()})');
@@ -58,6 +86,12 @@ class RelevanceEngine {
       if (hasAllRaw) {
         score *= _coverageMultiplier;
         parts.add('Coverage×$_coverageMultiplier');
+      }
+    }
+    if (exactPhrase.length >= 2) {
+      final phraseLower = _norm(exactPhrase);
+      if (fnLower.contains(phraseLower) || extLower.contains(phraseLower)) {
+        parts.add('Exact+$_exactPhraseBonus');
       }
     }
 
@@ -82,6 +116,7 @@ class RelevanceEngine {
     final rawSet = intent.rawTerms.map((t) => _norm(t)).toSet();
     final synonymTerms = intent.terms.where((t) => !rawSet.contains(_norm(t))).toList();
 
+    final exactPhrase = intent.rawTerms.join(' ');
     final scored = files.map((file) {
       final fn = file.name;
       final loc = _locationText(file);
@@ -90,7 +125,7 @@ class RelevanceEngine {
       final locLower = _norm(loc);
       final extLower = _norm(ext);
       final (score, breakdown) = _scoreWithBreakdown(
-          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower);
+          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower, exactPhrase);
       file.debugScore = score;
       file.debugScoreBreakdown = breakdown;
       return _ScoredFile(file, score);

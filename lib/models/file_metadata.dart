@@ -44,6 +44,15 @@ class FileMetadata {
   /// תגיות לסיווג הקובץ
   List<String>? tags;
 
+  /// קטגוריה מ-AI (מסמך, חשבונית, חוזה וכו')
+  String? category;
+
+  /// האם הקובץ עבר ניתוח AI
+  bool isAiAnalyzed = false;
+
+  /// סטטוס ניתוח AI: null/ok, quotaLimit, error
+  String? aiStatus;
+
   /// האם הקובץ עבר אינדוקס (חילוץ טקסט)
   bool isIndexed = false;
 

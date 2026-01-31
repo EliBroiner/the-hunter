@@ -67,6 +67,7 @@ class AiSearchService {
     String? explicitYear;
     DateTime? dateFrom;
     DateTime? dateTo;
+    bool useDateRangeFilter = false;
     if (apiIntent.dateRange != null) {
       final start = apiIntent.dateRange!.startDate;
       final end = apiIntent.dateRange!.endDate;
@@ -77,6 +78,9 @@ class AiSearchService {
           start.month == 1 && start.day == 1 &&
           end.month == 12 && end.day == 31) {
         explicitYear = '${start.year}';
+        useDateRangeFilter = false; // שנה בשאילתה — לא מסנן ב-Isar
+      } else {
+        useDateRangeFilter = true; // טווח תאריכים מיחסי — מסנן
       }
     }
 
@@ -86,6 +90,7 @@ class AiSearchService {
       explicitYear: explicitYear,
       dateFrom: dateFrom,
       dateTo: dateTo,
+      useDateRangeFilter: useDateRangeFilter,
       fileTypes: apiIntent.fileTypes,
     );
   }

@@ -117,8 +117,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _updateSearchStream();
   }
 
-  SearchIntent? _parserIntentToApi(String query) {
-    final p = parser_util.SmartSearchParser.parse(query);
+  Future<SearchIntent?> _parserIntentToApi(String query) async {
+    final p = await parser_util.SmartSearchParser.parseAsync(query);
     if (!p.hasContent) return null;
     return SearchIntent(
       terms: p.terms,
