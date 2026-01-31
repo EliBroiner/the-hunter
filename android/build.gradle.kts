@@ -1,5 +1,5 @@
 import com.android.build.gradle.LibraryExtension
-import com.android.build.gradle.LibraryPlugin
+import org.gradle.api.tasks.compile.JavaCompile
 
 plugins {
     // Google Services - Firebase
@@ -14,11 +14,14 @@ allprojects {
         google()
         mavenCentral()
     }
-    
     // Set extra properties that plugins read
     extra["compileSdkVersion"] = sdkVersion
-    extra["targetSdkVersion"] = sdkVersion  
+    extra["targetSdkVersion"] = sdkVersion
     extra["minSdkVersion"] = 24
+    // השתקת הערות Java מספריות צד־שלישי (כולל פלאגינים מ-pub cache)
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.addAll(listOf("-Xlint:-options", "-Xlint:-deprecation", "-Xlint:-unchecked"))
+    }
 }
 
 val newBuildDir: Directory =
@@ -34,7 +37,15 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 }
-
+// כפיית compileSdk 36 על ספריות (פותר android:attr/lStar not found)
+subprojects {
+    fun setCompileSdk() {
+        project.extensions.findByType(LibraryExtension::class.java)?.apply {
+            compileSdk = 36
+        }
+    }
+    if (project.state.executed) setCompileSdk() else project.afterEvaluate { setCompileSdk() }
+}
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

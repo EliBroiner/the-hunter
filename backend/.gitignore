@@ -1,0 +1,13 @@
+# .NET build outputs
+bin/
+obj/
+**/bin/
+**/obj/
+
+# SQLite
+app.db
+app.db-shm
+app.db-wal
+*.db
+*.db-shm
+*.db-wal

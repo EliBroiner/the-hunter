@@ -1,9 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
 import 'database_service.dart';
@@ -479,7 +477,7 @@ class BackupService {
       );
     } catch (e) {
       appLog('IncrementalBackup ERROR: $e');
-      throw e; // זורק כדי שה-smartBackup יתפוס ויעשה fallback
+      rethrow; // זורק כדי שה-smartBackup יתפוס ויעשה fallback
     }
   }
   

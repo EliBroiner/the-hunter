@@ -16,6 +16,7 @@ public class GeminiService
     private readonly JsonSerializerOptions _jsonOptions;
 
     private const string GeminiModel = "gemini-3-flash-preview";
+    private const string GeminiDocModel = "gemini-1.5-flash";
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
@@ -101,6 +102,11 @@ public class GeminiService
         7. OUTPUT: Return ONLY the raw JSON object. No explanations, no markdown code fences, no text before or after.
         """;
 
+    private const string DocAnalysisPrompt = """
+        Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
+        Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
+        """;
+
     public GeminiService(
         IHttpClientFactory httpClientFactory,
         GeminiConfig geminiConfig,
@@ -170,6 +176,75 @@ public class GeminiService
         {
             _logger.LogError(ex, "Unexpected error parsing search intent");
             return GeminiResult<SearchIntent>.Failure($"Unexpected error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// מנתח אצווה של מסמכים ב-Gemini 1.5 Flash במקביל - חסכוני ומהיר
+    /// </summary>
+    public async Task<List<DocumentAnalysisResponse>> AnalyzeDocumentsBatchAsync(List<DocumentPayload> documents)
+    {
+        if (documents.Count == 0) return new List<DocumentAnalysisResponse>();
+        if (!IsConfigured)
+        {
+            _logger.LogWarning("Gemini not configured - returning empty results");
+            return documents.Select(d => new DocumentAnalysisResponse { DocumentId = d.Id, Result = new DocumentAnalysisResult() }).ToList();
+        }
+
+        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d));
+        var results = await Task.WhenAll(tasks);
+        return results.ToList();
+    }
+
+    private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(DocumentPayload doc)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient("GeminiApi");
+            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+
+            var request = new GeminiRequest
+            {
+                Contents = new List<GeminiContent>
+                {
+                    new()
+                    {
+                        Parts = new List<GeminiPart>
+                        {
+                            new GeminiPart { Text = DocAnalysisPrompt },
+                            new GeminiPart { Text = doc.Text }
+                        }
+                    }
+                },
+                GenerationConfig = new GenerationConfig
+                {
+                    Temperature = 0.1,
+                    MaxOutputTokens = 512,
+                    ResponseMimeType = "application/json"
+                }
+            };
+
+            var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(url, httpContent);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Gemini doc analysis failed: {StatusCode} for doc {Id}", response.StatusCode, doc.Id);
+                return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+            }
+
+            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
+                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+            var cleanJson = SanitizeJsonResponse(rawText);
+            var result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = result };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error analyzing document {Id}", doc.Id);
+            return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
         }
     }
 

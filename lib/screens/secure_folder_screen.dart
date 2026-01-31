@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
@@ -6,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../services/secure_folder_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
+import 'secure_folder_screen_helper.dart';
 
 /// מסך תיקייה מאובטחת
 class SecureFolderScreen extends StatefulWidget {
@@ -336,43 +336,43 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           itemBuilder: (context) => [
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'open',
               child: Row(
                 children: [
-                  Icon(Icons.open_in_new, size: 20),
-                  SizedBox(width: 12),
-                  Text(tr('open')),
+                  const Icon(Icons.open_in_new, size: 20),
+                  const SizedBox(width: 12),
+                  PopupMenuItemText(textKey: 'open'),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'share',
               child: Row(
                 children: [
-                  Icon(Icons.share, size: 20),
-                  SizedBox(width: 12),
-                  Text(tr('share')),
+                  const Icon(Icons.share, size: 20),
+                  const SizedBox(width: 12),
+                  PopupMenuItemText(textKey: 'share'),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'restore',
               child: Row(
                 children: [
-                  Icon(Icons.restore, size: 20, color: Colors.blue),
-                  SizedBox(width: 12),
-                  Text(tr('restore_original'), style: TextStyle(color: Colors.blue)),
+                  const Icon(Icons.restore, size: 20, color: Colors.blue),
+                  const SizedBox(width: 12),
+                  PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
                 ],
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'delete',
               child: Row(
                 children: [
-                  Icon(Icons.delete, size: 20, color: Colors.red),
-                  SizedBox(width: 12),
-                  Text(tr('delete'), style: TextStyle(color: Colors.red)),
+                  const Icon(Icons.delete, size: 20, color: Colors.red),
+                  const SizedBox(width: 12),
+                  PopupMenuItemText(textKey: 'delete', color: Colors.red),
                 ],
               ),
             ),

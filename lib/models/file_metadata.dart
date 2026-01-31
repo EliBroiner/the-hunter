@@ -10,8 +10,9 @@ class FileMetadata {
   
   /// יוצר ID ייחודי מהנתיב - מבטיח שכל קובץ יקבל ID שונה
   void generateId() {
-    if (id == 0 && path.isNotEmpty)
+    if (id == 0 && path.isNotEmpty) {
       id = path.hashCode.abs(); // hashCode יכול להיות שלילי, אז abs()
+    }
   }
 
   /// נתיב מלא לקובץ
@@ -43,6 +44,15 @@ class FileMetadata {
   /// תגיות לסיווג הקובץ
   List<String>? tags;
 
+  /// קטגוריה מ-AI (מסמך, חשבונית, חוזה וכו')
+  String? category;
+
+  /// האם הקובץ עבר ניתוח AI
+  bool isAiAnalyzed = false;
+
+  /// סטטוס ניתוח AI: null/ok, quotaLimit, error
+  String? aiStatus;
+
   /// האם הקובץ עבר אינדוקס (חילוץ טקסט)
   bool isIndexed = false;
 
@@ -57,6 +67,14 @@ class FileMetadata {
 
   /// קישור לתמונה ממוזערת בענן
   String? cloudThumbnailLink;
+
+  /// ציון רלוונטיות (לא נשמר ב-Isar) — לבדיקת מיון
+  @Ignore()
+  double? debugScore;
+
+  /// פירוט הציון (למשל "Name(100) + Loc(80)") — לא נשמר ב-Isar
+  @Ignore()
+  String? debugScoreBreakdown;
 
   FileMetadata();
 

@@ -2,7 +2,11 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
+import '../models/search_synonym.dart';
+import '../models/search_intent.dart' as api;
+import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
+import 'relevance_engine.dart';
 
 /// פילטרים לחיפוש
 enum SearchFilter {
@@ -18,16 +22,21 @@ DateTime? parseTimeQuery(String query) {
   final lowerQuery = query.toLowerCase();
   final now = DateTime.now();
   
-  if (lowerQuery.contains('שבועיים') || lowerQuery.contains('2 שבועות'))
+  if (lowerQuery.contains('שבועיים') || lowerQuery.contains('2 שבועות')) {
     return now.subtract(const Duration(days: 14));
-  if (lowerQuery.contains('שבוע') || lowerQuery.contains('week'))
+  }
+  if (lowerQuery.contains('שבוע') || lowerQuery.contains('week')) {
     return now.subtract(const Duration(days: 7));
-  if (lowerQuery.contains('חודש') || lowerQuery.contains('month'))
+  }
+  if (lowerQuery.contains('חודש') || lowerQuery.contains('month')) {
     return now.subtract(const Duration(days: 30));
-  if (lowerQuery.contains('היום') || lowerQuery.contains('today'))
+  }
+  if (lowerQuery.contains('היום') || lowerQuery.contains('today')) {
     return DateTime(now.year, now.month, now.day);
-  if (lowerQuery.contains('אתמול') || lowerQuery.contains('yesterday'))
+  }
+  if (lowerQuery.contains('אתמול') || lowerQuery.contains('yesterday')) {
     return now.subtract(const Duration(days: 1));
+  }
   
   return null;
 }
@@ -50,7 +59,7 @@ class DatabaseService {
 
     final dir = await getApplicationDocumentsDirectory();
     _isar = Isar.open(
-      schemas: [FileMetadataSchema],
+      schemas: [FileMetadataSchema, SearchSynonymSchema],
       directory: dir.path,
       name: 'the_hunter_db',
     );
@@ -108,8 +117,9 @@ class DatabaseService {
         });
         
         totalSaved += batch.length;
-        if (totalSaved % 2000 == 0 || totalSaved == files.length)
+        if (totalSaved % 2000 == 0 || totalSaved == files.length) {
           appLog('DB: Saved $totalSaved / ${files.length}');
+        }
       }
       
       final finalCount = isar.fileMetadatas.count();
@@ -142,8 +152,9 @@ class DatabaseService {
           isar.fileMetadatas.putAll(batch);
         });
         saved += batch.length;
-        if (saved % 2000 == 0 || saved == files.length)
+        if (saved % 2000 == 0 || saved == files.length) {
           appLog('DB: Saved $saved / ${files.length}');
+        }
       }
       
       appLog('DB: Final count: ${isar.fileMetadatas.count()}');
@@ -458,6 +469,139 @@ class DatabaseService {
     return [...nameMatches, ...contentOnlyMatches];
   }
 
+  /// ציון רלוונטיות לקובץ לפי מונחים — שם +10, extractedText +1, עד 30 יום +2
+  int _calculateRelevance(FileMetadata file, List<String> terms) {
+    int score = 0;
+    final nameLower = file.name.toLowerCase();
+    final textLower = file.extractedText?.toLowerCase() ?? '';
+    for (final term in terms) {
+      if (nameLower.contains(term)) score += 10;
+      if (textLower.contains(term)) score += 1;
+    }
+    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+    if (file.lastModified.isAfter(thirtyDaysAgo)) score += 2;
+    return score;
+  }
+
+  /// חיפוש חכם מקומי לפי SearchIntent — קבוצה א' (מונחים OR + short-word exact), קבוצה ב' (שנה מפורשת), מיון ב-RelevanceEngine
+  /// מסנן תאריכים רק כאשר useDateRangeFilter=true (ביטויים יחסיים) — לא משנה בשאילתה
+  Future<List<FileMetadata>> localSmartSearch(SearchIntent intent) async {
+    List<FileMetadata> candidates;
+
+    if (intent.useDateRangeFilter && intent.dateFrom != null) {
+      final from = intent.dateFrom!;
+      final to = intent.dateTo ?? from.add(const Duration(days: 365));
+      candidates = isar.fileMetadatas
+          .where()
+          .lastModifiedBetween(from, to)
+          .findAll();
+    } else {
+      candidates = isar.fileMetadatas.where().findAll();
+    }
+
+    if (intent.fileTypes.isNotEmpty) {
+      final extSet = intent.fileTypes.map((e) => e.toLowerCase()).toSet();
+      candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
+    }
+
+    // קבוצה א': מונחים — OR; מונח קצר (< 3) או מספר = whole-word (שווה ערך ל-.equalTo)
+    if (intent.terms.isNotEmpty) {
+      candidates = candidates.where((f) {
+        final name = f.name.toLowerCase();
+        final text = f.extractedText?.toLowerCase() ?? '';
+        return intent.terms.any((term) {
+          final t = term.toLowerCase().trim();
+          if (t.isEmpty) return false;
+          final exactOnly = t.length < 3 || _isAllDigits(t);
+          if (exactOnly) {
+            return _wholeWordMatch(name, t) || _wholeWordMatch(text, t);
+          }
+          return name.contains(t) || text.contains(t);
+        });
+      }).toList();
+    }
+
+    // קבוצה ב': שנה מפורשת — AND (name או extractedText מכילים שנה או lastModified באותה שנה)
+    if (intent.explicitYear != null && intent.explicitYear!.isNotEmpty) {
+      final yearStr = intent.explicitYear!.trim();
+      final yearNum = int.tryParse(yearStr);
+      candidates = candidates.where((f) {
+        final name = f.name.contains(yearStr);
+        final text = (f.extractedText ?? '').contains(yearStr);
+        final yearMatch = yearNum != null && f.lastModified.year == yearNum;
+        return name || text || yearMatch;
+      }).toList();
+    }
+
+    final results = RelevanceEngine.rankAndSort(candidates, intent);
+    appLog('DB: localSmartSearch -> ${results.length} results');
+    return results;
+  }
+
+  /// התאמת מונח כ־whole-word (גבולות מילה) — למניעת "מס" בתוך "מסמך"
+  static bool _wholeWordMatch(String content, String term) {
+    if (term.isEmpty) return false;
+    int i = 0;
+    while (true) {
+      final idx = content.indexOf(term, i);
+      if (idx == -1) return false;
+      final beforeOk = idx == 0 || !_isWordChar(content.codeUnitAt(idx - 1));
+      final afterOk = idx + term.length >= content.length || !_isWordChar(content.codeUnitAt(idx + term.length));
+      if (beforeOk && afterOk) return true;
+      i = idx + 1;
+    }
+  }
+
+  static bool _isAllDigits(String s) =>
+      s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
+
+  static bool _isWordChar(int code) {
+    return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A) ||
+        (code >= 0x61 && code <= 0x7A) || (code >= 0x05D0 && code <= 0x05EA);
+  }
+
+  /// חיפוש לפי SearchIntent מה-AI — תאריכים, fileTypes, terms (OR)
+  Future<List<FileMetadata>> searchByIntent(api.SearchIntent intent) async {
+    List<FileMetadata> candidates;
+
+    final startDate = intent.dateRange?.startDate;
+    final endDate = intent.dateRange?.endDate;
+
+    if (startDate != null) {
+      final to = endDate ?? startDate.add(const Duration(days: 365));
+      candidates = isar.fileMetadatas
+          .where()
+          .lastModifiedBetween(startDate, to)
+          .findAll();
+    } else {
+      candidates = isar.fileMetadatas.where().findAll();
+    }
+
+    if (intent.fileTypes.isNotEmpty) {
+      final extSet = intent.fileTypes.map((e) => e.toLowerCase()).toSet();
+      candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
+    }
+
+    final termsLower = intent.terms.map((t) => t.toLowerCase()).toList();
+    if (termsLower.isNotEmpty) {
+      candidates = candidates.where((f) {
+        final name = f.name.toLowerCase();
+        final text = f.extractedText?.toLowerCase() ?? '';
+        return termsLower.any((term) => name.contains(term) || text.contains(term));
+      }).toList();
+    }
+
+    candidates.sort((a, b) {
+      final scoreA = _calculateRelevance(a, termsLower);
+      final scoreB = _calculateRelevance(b, termsLower);
+      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+      return b.lastModified.compareTo(a.lastModified);
+    });
+
+    appLog('DB: searchByIntent -> ${candidates.length} results');
+    return candidates;
+  }
+
   /// מחזיר קבצי תמונות שטרם עברו אינדוקס
   List<FileMetadata> getPendingImageFiles() {
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
@@ -485,6 +629,30 @@ class DatabaseService {
         .findAll()
         .where((f) => !f.isIndexed)
         .toList();
+  }
+
+  static const _imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+
+  /// מאפס תמונות לפני סריקת OCR מחדש.
+  /// [onlyEmptyText] true = רק תמונות בלי טקסט מחולץ (חוסך סריקות קיימות).
+  int resetOcrForImages({bool onlyEmptyText = false}) {
+    final all = isar.fileMetadatas.where().findAll();
+    final images = all.where((f) =>
+        _imageExtensions.contains(f.extension.toLowerCase())).toList();
+    final toReset = onlyEmptyText
+        ? images.where((f) {
+            final t = f.extractedText;
+            return t == null || t.trim().isEmpty;
+          }).toList()
+        : images;
+
+    for (final f in toReset) {
+      f.isIndexed = false;
+      f.extractedText = null;
+      updateFile(f);
+    }
+    appLog('DB: resetOcrForImages onlyEmpty=$onlyEmptyText -> ${toReset.length} images');
+    return toReset.length;
   }
 
   /// מעדכן קובץ במסד

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -24,8 +23,8 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
   int _usedStorage = 0;
   
   // העלאה
-  bool _isUploading = false;
-  double _uploadProgress = 0;
+  final bool _isUploading = false;
+  final double _uploadProgress = 0;
   
   // הורדה
   final Map<String, double> _downloadProgress = {};
@@ -255,33 +254,33 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
             trailing: PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               itemBuilder: (context) => [
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'download',
                   child: Row(
                     children: [
-                      Icon(Icons.download, size: 20),
-                      SizedBox(width: 12),
+                      const Icon(Icons.download, size: 20),
+                      const SizedBox(width: 12),
                       Text(tr('download')),
                     ],
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'share',
                   child: Row(
                     children: [
-                      Icon(Icons.share, size: 20),
-                      SizedBox(width: 12),
+                      const Icon(Icons.share, size: 20),
+                      const SizedBox(width: 12),
                       Text(tr('share_link')),
                     ],
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete, size: 20, color: Colors.red),
-                      SizedBox(width: 12),
-                      Text(tr('delete'), style: TextStyle(color: Colors.red)),
+                      const Icon(Icons.delete, size: 20, color: Colors.red),
+                      const SizedBox(width: 12),
+                      Text(tr('delete'), style: const TextStyle(color: Colors.red)),
                     ],
                   ),
                 ),

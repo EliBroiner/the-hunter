@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
@@ -333,11 +334,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             }
         }
 
-        final purchaseInfo = await Purchases.purchasePackage(_selectedPackage!.rcPackage!);
+        final purchaseParams = PurchaseParams.package(_selectedPackage!.rcPackage!);
+        final purchaseInfo = await Purchases.purchase(purchaseParams);
         
-        // בדיקה אם יש entitlement פעיל
-        final isPro = purchaseInfo.entitlements.active.containsKey('pro') ||
-                      purchaseInfo.entitlements.active.containsKey('premium');
+        // בדיקה אם יש entitlement פעיל (RevenueCat 9: דרך customerInfo)
+        final isPro = purchaseInfo.customerInfo.entitlements.active.containsKey('pro') ||
+                      purchaseInfo.customerInfo.entitlements.active.containsKey('premium');
         
         if (isPro) {
           await SettingsService.instance.setIsPremium(true);
@@ -345,10 +347,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 8),
                     Text(tr('purchase_success')),
                   ],
                 ),
@@ -427,11 +429,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(tr('restore_success')),
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text(tr('restore_subscription_success')),
                   ],
                 ),
                 backgroundColor: Colors.green,
@@ -448,10 +450,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Row(
+                content: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.white),
-                    SizedBox(width: 8),
+                    const Icon(Icons.info_outline, color: Colors.white),
+                    const SizedBox(width: 8),
                     Text(tr('no_subscription_found')),
                   ],
                 ),
@@ -472,7 +474,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text(tr('restore_error').replaceFirst('\$error', e.toString()))),
+                Expanded(child: Text(tr('restore_error_with_details').replaceFirst('\$error', e.toString()))),
               ],
             ),
             backgroundColor: Colors.red,
@@ -516,14 +518,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: Colors.orange),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.developer_mode, color: Colors.orange, size: 14),
-                                  SizedBox(width: 4),
+                                  const Icon(Icons.developer_mode, color: Colors.orange, size: 14),
+                                  const SizedBox(width: 4),
                                   Text(
                                     tr('dev_mode_badge'),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       color: Colors.orange,
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
@@ -557,6 +559,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                       // שחזור רכישות
                       _buildRestorePurchases(),
+                      const SizedBox(height: 8),
+                      // ניהול / ביטול מנוי (פותח את Play Store)
+                      _buildManageSubscription(),
                       const SizedBox(height: 24),
 
                       // הערות קטנות
@@ -607,9 +612,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             shaderCallback: (bounds) => const LinearGradient(
               colors: [_goldLight, _goldPrimary, _goldDark],
             ).createShader(bounds),
-            child: const Text(
+            child: Text(
               tr('subscription_title'),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
@@ -866,14 +871,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       strokeWidth: 2,
                     ),
                   )
-                : const Row(
+                : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.star, color: Colors.black, size: 22),
-                      SizedBox(width: 10),
+                      const Icon(Icons.star, color: Colors.black, size: 22),
+                      const SizedBox(width: 10),
                       Text(
                         tr('subscribe_now'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.black,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -900,6 +905,30 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ),
       ),
     );
+  }
+
+  /// ניהול / ביטול מנוי – פותח את דף המנויים ב-Play Store
+  Widget _buildManageSubscription() {
+    return TextButton.icon(
+      onPressed: _isPurchasing ? null : _openManageSubscription,
+      icon: Icon(Icons.settings, size: 16, color: Colors.grey.shade500),
+      label: Text(
+        tr('manage_subscription'),
+        style: TextStyle(
+          color: Colors.grey.shade500,
+          fontSize: 14,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openManageSubscription() async {
+    // Android: דף המנויים של המשתמש ב-Play Store
+    final uri = Uri.parse('https://play.google.com/store/account/subscriptions');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   /// הערות משפטיות

@@ -36,7 +36,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
   
   bool _isScanning = false;
   double _progress = 0;
-  String _statusMessage = tr('scan_duplicates');
+  String _statusMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _statusMessage = tr('scan_duplicates');
+  }
   
   List<DuplicateGroup> _duplicateGroups = [];
   final Set<String> _selectedForDeletion = {};
@@ -393,9 +399,9 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                                     color: Colors.green,
                                     borderRadius: BorderRadius.circular(4),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     tr('original'),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 9,
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,

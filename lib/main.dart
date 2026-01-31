@@ -14,9 +14,11 @@ import 'services/secure_folder_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'services/ai_auto_tagger_service.dart';
 import 'services/auth_service.dart';
 import 'services/backup_service.dart';
 import 'services/database_service.dart';
+import 'services/knowledge_base_service.dart';
 import 'services/favorites_service.dart';
 import 'services/recent_files_service.dart';
 import 'services/tags_service.dart';
@@ -24,9 +26,10 @@ import 'services/widget_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
-import 'services/permission_service.dart';
 import 'services/settings_service.dart';
 import 'services/user_activity_service.dart';
+import 'services/localization_service.dart';
+import 'utils/smart_search_parser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,8 +43,10 @@ void main() async {
     PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
   );
   
-  // אתחול מסד הנתונים והגדרות
+  // אתחול מסד הנתונים והגדרות — smart_search_config.json נטען ב-KnowledgeBaseService
   await DatabaseService.instance.init();
+  await KnowledgeBaseService.instance.initialize();
+  SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
   await SettingsService.instance.init();
   await FavoritesService.instance.init();
   await RecentFilesService.instance.init();
@@ -342,11 +347,40 @@ class AutoScanManager with WidgetsBindingObserver {
   }
 }
 
-class TheHunterApp extends StatelessWidget {
+class TheHunterApp extends StatefulWidget {
   const TheHunterApp({super.key});
 
+  @override
+  State<TheHunterApp> createState() => _TheHunterAppState();
+
+  static ThemeData get darkTheme => _TheHunterAppState._darkTheme;
+  static ThemeData get lightTheme => _TheHunterAppState._lightTheme;
+}
+
+class _TheHunterAppState extends State<TheHunterApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      debugPrint('🛑 App pausing. Flushing AI queue...');
+      AiAutoTaggerService.instance.dispose();
+    }
+  }
+
   // ערכת צבעים כהה
-  static ThemeData get darkTheme => ThemeData(
+  static ThemeData get _darkTheme => ThemeData(
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.dark,
@@ -385,7 +419,7 @@ class TheHunterApp extends StatelessWidget {
   );
 
   // ערכת צבעים בהירה - מעוצבת יפה
-  static ThemeData get lightTheme => ThemeData(
+  static ThemeData get _lightTheme => ThemeData(
     colorScheme: ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
       brightness: Brightness.light,
@@ -607,19 +641,11 @@ class _MainScreenState extends State<MainScreen> {
     
     manager.onScanComplete = (result) {
       if (!mounted) return;
-      
-      if (result.newFilesAdded > 0) {
-        _showSnackBar('נמצאו ${result.newFilesAdded} קבצים חדשים');
-      }
+      // הודעות סריקה הוסרו לבקשת המשתמש
     };
     
     manager.onProcessComplete = (result) {
       if (!mounted) return;
-      
-      if (result.filesWithText > 0) {
-        _showSnackBar('חולץ טקסט מ-${result.filesWithText} קבצים');
-      }
-      
       setState(() {
         _isFirstScan = false;
       });
@@ -627,9 +653,7 @@ class _MainScreenState extends State<MainScreen> {
     
     manager.onNewFileFound = (path) {
       if (!mounted) return;
-      
-      final fileName = path.split('/').last;
-      _showSnackBar('קובץ חדש: $fileName');
+      // הודעות קובץ חדש הוסרו לבקשת המשתמש
     };
     
     // הרצת אתחול
@@ -687,7 +711,7 @@ class _MainScreenState extends State<MainScreen> {
   /// בונה פאנל לוגים
   Widget _buildLogPanel() {
     return Container(
-      height: 150,
+      height: 300,
       color: Colors.black87,
       child: Column(
         children: [
@@ -698,13 +722,13 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 const Icon(Icons.terminal, size: 16, color: Colors.green),
                 const SizedBox(width: 8),
-                const Text('לוגים', style: TextStyle(color: Colors.white, fontSize: 12)),
+                Text(tr('logs_title'), style: const TextStyle(color: Colors.white, fontSize: 12)),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.share, size: 16, color: Colors.white70),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'שתף לוגים',
+                  tooltip: tr('share_logs'),
                   onPressed: () => LogService.instance.exportLogs(),
                 ),
                 IconButton(
@@ -713,7 +737,7 @@ class _MainScreenState extends State<MainScreen> {
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: LogService.instance.getAllLogs()));
-                    _showSnackBar('לוגים הועתקו');
+                    _showSnackBar(tr('logs_copied'));
                   },
                 ),
                 IconButton(

@@ -1,0 +1,67 @@
+{
+  "synonyms": {
+    "invoice": ["invoice", "bill", "receipt", "חשבונית", "קבלה", "חשבון מס", "inv"],
+    "חשבונית": ["invoice", "bill", "receipt", "חשבונית", "קבלה", "חשבון", "זיכוי"],
+    "receipt": ["invoice", "receipt", "קבלה", "חשבונית", "אישור תשלום"],
+    "קבלה": ["receipt", "invoice", "קבלה", "חשבונית", "אסמכתא"],
+    
+    "transfer": ["transfer", "bit", "paybox", "ביט", "פייבוקס", "העברה", "אסמכתא"],
+    "ביט": ["bit", "payment", "העברה", "קבלה"],
+    "פייבוקס": ["paybox", "payment", "העברה", "קבלה"],
+
+    "check": ["check", "cheque", "צ'ק", "שיק", "המחאה"],
+    "צ'ק": ["check", "cheque", "צ'ק", "שיק", "המחאה"],
+    
+    "id": ["id", "identity", "תעודת זהות", "ת.ז", "תז", "דרכון", "passport"],
+    "ת.ז": ["id", "תעודת זהות", "ת.ז", "תז", "ספח"],
+    
+    "salary": ["salary", "payslip", "תלוש", "משכורת", "שכר", "106"],
+    "תלוש": ["salary", "payslip", "תלוש", "משכורת", "שכר"],
+    "106": ["form 106", "טופס 106", "מס", "משכורת"],
+
+    "insurance": ["insurance", "ביטוח", "פוליסה", "policy", "הראל", "מגדל", "פניקס", "כלל", "menora"],
+    "ביטוח": ["insurance", "ביטוח", "פוליסה", "policy"],
+    
+    "car": ["car", "רכב", "vehicle", "רישיון רכב", "טסט", "ביטוח חובה", "מקיף"],
+    "רכב": ["car", "רכב", "vehicle", "רישיון", "ביטוח"],
+
+    "medical": ["medical", "רפואי", "בריאות", "רופא", "מרשם", "כללית", "מכבי", "מאוחדת", "לאומית"],
+    "קופת חולים": ["hmo", "קופת חולים", "כללית", "מכבי", "מאוחדת", "לאומית", "טופס 17"],
+    
+    "army": ["army", "idf", "צבא", "מילואים", "3010", "אישור מילואים", "צו"],
+    "מילואים": ["reserves", "מילואים", "3010", "צבא"],
+
+    "municipality": ["municipality", "עירייה", "עיריה", "ארנונה", "מים", "water"],
+    "ארנונה": ["property tax", "ארנונה", "עירייה", "תשלום"],
+
+    "rent": ["rent", "שכירות", "חוזה", "contract", "lease", "בעל הבית"],
+    "חוזה": ["contract", "חוזה", "הסכם", "agreement"],
+    
+    "bank": ["bank", "בנק", "poalim", "leumi", "discount", "פועלים", "לאומי", "דיסקונט", "יהב", "איגוד", "statement", "עו\"ש"],
+    "עו\"ש": ["current account", "עו\"ש", "תדפיס", "בנק"],
+
+    "document": ["document", "doc", "מסמך", "קובץ", "file", "scan"],
+    "scan": ["scan", "סריקה", "צילום", "photo"]
+  },
+
+  "datePhrases": [
+    { "pattern": "\\b(today|היום)\\b", "type": "today" },
+    { "pattern": "\\b(yesterday|אתמול)\\b", "type": "yesterday" },
+    { "pattern": "\\b(last\\s+week|previous\\s+week|שבוע\\s+שעבר|השבוע\\s+שעבר|לפני\\s+שבוע)\\b", "days": 7 },
+    { "pattern": "\\b(last\\s+month|previous\\s+month|חודש\\s+שעבר|בחודש\\s+שעבר|לפני\\s+חודש)\\b", "days": 30 },
+    { "pattern": "\\b(last\\s+year|שנה\\s+שעברה|בשנה\\s+שעברה)\\b", "days": 365 },
+    { "pattern": "\\b(2\\s*weeks|שבועיים|שתי?\\s*שבועות?)\\b", "days": 14 }
+  ],
+
+  "fileTypeKeywords": {
+    "תמונות": ["jpg", "jpeg", "png", "gif", "webp", "heic"],
+    "תמונה": ["jpg", "jpeg", "png", "gif", "webp", "heic"],
+    "images": ["jpg", "jpeg", "png", "gif", "webp", "heic"],
+    "מסמכים": ["pdf", "doc", "docx", "txt", "rtf"],
+    "מסמך": ["pdf", "doc", "docx", "txt"],
+    "pdf": ["pdf"],
+    "אקסל": ["xls", "xlsx", "csv", "sheets"],
+    "excel": ["xls", "xlsx", "csv"],
+    "טבלה": ["xls", "xlsx", "csv"]
+  }
+}
