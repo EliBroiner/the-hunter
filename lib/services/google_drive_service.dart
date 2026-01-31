@@ -3,8 +3,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
-import '../models/search_intent.dart';
+import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
+import 'relevance_engine.dart';
 
 /// שירות לניהול אינטגרציה עם Google Drive
 class GoogleDriveService {
@@ -63,8 +64,8 @@ class GoogleDriveService {
     // רק מנקים את ה-API client
   }
 
-  /// חיפוש קבצים ב-Drive — תומך ב-SearchIntent (synonyms, תאריכים, סוגי קבצים)
-  /// [intent] — intent מפרסר מקומי או AI; [query] — חיפוש פשוט כאשר אין intent
+  /// חיפוש קבצים ב-Drive — תומך ב-SearchIntent (מונחים, שנה מפורשת, MIME); מיון ב-RelevanceEngine
+  /// [intent] — intent מפרסר; [query] — חיפוש פשוט כאשר אין intent
   Future<List<FileMetadata>> searchFiles({SearchIntent? intent, String? query}) async {
     if (_driveApi == null) {
       final connected = await connect();
@@ -72,7 +73,7 @@ class GoogleDriveService {
     }
 
     final effectiveIntent = intent ?? (query != null && query.trim().isNotEmpty
-        ? SearchIntent(terms: [query.trim()], fileTypes: [], dateRange: null)
+        ? SearchIntent(terms: [query.trim()], rawTerms: [query.trim()])
         : null);
     if (effectiveIntent == null) return [];
 
@@ -84,79 +85,85 @@ class GoogleDriveService {
       final fileList = await _driveApi!.files.list(
         q: q,
         $fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)',
-        pageSize: 20,
-        orderBy: 'modifiedTime desc',
+        pageSize: 100,
       );
 
       if (fileList.files == null || fileList.files!.isEmpty) {
         return [];
       }
 
-      // המרה ל-FileMetadata
-      return fileList.files!.map((driveFile) {
+      // המרה ל-FileMetadata ואז מיון רלוונטיות — לא מסתמכים על orderBy של ה-API
+      final list = fileList.files!.map((driveFile) {
         return FileMetadata()
           ..name = driveFile.name ?? 'Unknown'
-          ..path = 'Google Drive' // נתיב וירטואלי
+          ..path = 'Google Drive'
           ..extension = _getExtensionFromMimeType(driveFile.mimeType, driveFile.name)
           ..size = int.tryParse(driveFile.size ?? '0') ?? 0
           ..lastModified = driveFile.modifiedTime ?? DateTime.now()
           ..addedAt = DateTime.now()
-          ..isIndexed = false // לא סרקנו תוכן
-          ..extractedText = null // וודא שאין טקסט מחולץ
+          ..isIndexed = false
+          ..extractedText = null
           ..isCloud = true
           ..cloudId = driveFile.id
           ..cloudWebViewLink = driveFile.webViewLink
           ..cloudThumbnailLink = driveFile.thumbnailLink;
       }).toList();
 
+      return RelevanceEngine.rankAndSort(list, effectiveIntent);
     } catch (e) {
       appLog('Drive: Search error - $e');
-      // אם השגיאה היא 401/403, אולי הטוקן פג תוקף
       if (e.toString().contains('401') || e.toString().contains('403')) {
-        _driveApi = null; // נאלץ התחברות מחדש בפעם הבאה
+        _driveApi = null;
       }
       return [];
     }
   }
 
-  /// בונה שאילתת q ל-Drive API — terms (OR), תאריכים, סוגי קבצים
+  /// בונה שאילתת q ל-Drive API: trashed = false AND (terms) AND (year) AND (MIME)
   String _buildDriveQuery(SearchIntent intent) {
     final parts = <String>[];
 
-    // מונחים — OR: (name contains 'a' or name contains 'b')
+    // תמיד: לא באשפה, לא תיקיות
+    parts.add("trashed = false");
+    parts.add("mimeType != 'application/vnd.google-apps.folder'");
+
+    // מונחים — OR: (name contains 'term1' or name contains 'term2')
     if (intent.terms.isNotEmpty) {
-      final escaped = intent.terms.map((t) => _escapeDriveQuery(t)).where((t) => t.isNotEmpty).toList();
+      final escaped = intent.terms.map((t) => _escapeDriveQuery(t.trim())).where((t) => t.isNotEmpty).toList();
       if (escaped.isNotEmpty) {
         final orGroup = escaped.map((t) => "name contains '$t'").join(' or ');
         parts.add('($orGroup)');
       }
     }
 
-    // תאריכים — modifiedTime
-    if (intent.dateRange != null) {
-      final start = intent.dateRange!.startDate;
-      final end = intent.dateRange!.endDate;
-      if (start != null) {
-        final iso = _toDriveDateTime(start, startOfDay: true);
-        parts.add("modifiedTime >= '$iso'");
+    // שנה מפורשת — AND (name contains '2014' OR modifiedTime בטווח השנה)
+    if (intent.explicitYear != null && intent.explicitYear!.trim().isNotEmpty) {
+      final yearStr = _escapeDriveQuery(intent.explicitYear!.trim());
+      final yearNum = int.tryParse(intent.explicitYear!.trim());
+      if (yearNum != null) {
+        final startIso = _toDriveDateTime(DateTime(yearNum, 1, 1), startOfDay: true);
+        final endIso = _toDriveDateTime(DateTime(yearNum, 12, 31, 23, 59, 59), startOfDay: false);
+        parts.add("(name contains '$yearStr' or (modifiedTime >= '$startIso' and modifiedTime <= '$endIso'))");
+      } else {
+        parts.add("name contains '$yearStr'");
       }
-      if (end != null) {
-        final iso = _toDriveDateTime(end, startOfDay: false);
-        parts.add("modifiedTime <= '$iso'");
+    } else if (intent.dateFrom != null) {
+      // טווח תאריכים (ללא שנה מפורשת): modifiedTime
+      final startIso = _toDriveDateTime(intent.dateFrom!, startOfDay: true);
+      parts.add("modifiedTime >= '$startIso'");
+      if (intent.dateTo != null) {
+        final endIso = _toDriveDateTime(intent.dateTo!, startOfDay: false);
+        parts.add("modifiedTime <= '$endIso'");
       }
     }
 
-    // סוגי קבצים — מיפוי לסוגי MIME
+    // סוגי קבצים — MIME
     if (intent.fileTypes.isNotEmpty) {
       final mimeConditions = _fileTypesToMimeConditions(intent.fileTypes);
       if (mimeConditions.isNotEmpty) {
         parts.add('(${mimeConditions.join(' or ')})');
       }
     }
-
-    // תמיד: לא באשפה, לא תיקיות
-    parts.add("trashed = false");
-    parts.add("mimeType != 'application/vnd.google-apps.folder'");
 
     return parts.join(' and ');
   }

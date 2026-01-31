@@ -295,7 +295,12 @@ class LocalizationService {
     'recent_searches_title': 'חיפושים אחרונים',
     'cancel_smart_search': 'ביטול',
     'ai_scanning_deeper': 'מחפש עמוק יותר עם AI...',
-    
+    'searching_cloud': 'מחפש בענן...',
+    'ai_analyzing': 'מנתח...',
+    'section_on_device': 'במכשיר',
+    'section_google_drive': 'מ-Google Drive',
+    'show_more': 'הצג עוד...',
+
     // הגדרות
     'settings_title': 'הגדרות',
     'section_backup': 'גיבוי ושחזור',
@@ -654,7 +659,12 @@ class LocalizationService {
     'recent_searches_title': 'Recent Searches',
     'cancel_smart_search': 'Cancel',
     'ai_scanning_deeper': 'Scanning deeper with AI...',
-    
+    'searching_cloud': 'Searching cloud...',
+    'ai_analyzing': 'Analyzing...',
+    'section_on_device': 'On This Device',
+    'section_google_drive': 'From Google Drive',
+    'show_more': 'Show More...',
+
     // Settings
     'settings_title': 'Settings',
     'section_backup': 'Backup & Restore',

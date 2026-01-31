@@ -59,6 +59,14 @@ class FileMetadata {
   /// קישור לתמונה ממוזערת בענן
   String? cloudThumbnailLink;
 
+  /// ציון רלוונטיות (לא נשמר ב-Isar) — לבדיקת מיון
+  @Ignore()
+  double? debugScore;
+
+  /// פירוט הציון (למשל "Name(100) + Loc(80)") — לא נשמר ב-Isar
+  @Ignore()
+  String? debugScoreBreakdown;
+
   FileMetadata();
 
   /// יוצר אובייקט FileMetadata מאובייקט File

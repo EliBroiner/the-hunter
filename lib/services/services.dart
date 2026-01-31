@@ -1,10 +1,12 @@
 // Barrel file - ייצוא כל השירותים
+export 'ai_search_service.dart';
 export 'auth_service.dart';
 export 'backup_service.dart';
 export 'database_service.dart';
 export 'favorites_service.dart';
 export 'file_scanner_service.dart';
 export 'file_watcher_service.dart';
+export 'location_enrichment_service.dart';
 export 'log_service.dart';
 export 'ocr_service.dart';
 export 'permission_service.dart';
@@ -14,6 +16,7 @@ export 'tags_service.dart';
 export 'widget_service.dart';
 export 'secure_folder_service.dart';
 export 'cloud_storage_service.dart';
+export 'relevance_engine.dart';
 export 'smart_search_filter.dart';
 export 'smart_search_service.dart';
 export 'hybrid_search_controller.dart';

@@ -1,25 +1,38 @@
 import 'dart:convert';
 
-/// תוצאת פירוק חיפוש — מילות מפתח, טווח תאריכים וסוגי קבצים
+/// תוצאת פירוק חיפוש — מילות מקור, מונחים מורחבים, שנה מפורשת, תאריכים וסוגי קבצים
 class SearchIntent {
+  /// המילים בדיוק כפי שהמשתמש הקליד (ללא שנה שהוסרה)
+  final List<String> rawTerms;
+  /// רשימה מורחבת: שורשים + מילים נרדפות (ללא שנה)
   final List<String> terms;
+  /// שנה בת 4 ספרות אם נמצאה — הוסרה מ־terms
+  final String? explicitYear;
   final DateTime? dateFrom;
   final DateTime? dateTo;
   final List<String> fileTypes;
 
   const SearchIntent({
+    this.rawTerms = const [],
     this.terms = const [],
+    this.explicitYear,
     this.dateFrom,
     this.dateTo,
     this.fileTypes = const [],
   });
 
   bool get hasContent =>
-      terms.isNotEmpty || fileTypes.isNotEmpty || dateFrom != null || dateTo != null;
+      terms.isNotEmpty ||
+      rawTerms.isNotEmpty ||
+      fileTypes.isNotEmpty ||
+      dateFrom != null ||
+      dateTo != null ||
+      explicitYear != null;
 
   @override
   String toString() =>
-      'SearchIntent(terms: $terms, dateFrom: $dateFrom, dateTo: $dateTo, fileTypes: $fileTypes)';
+      'SearchIntent(rawTerms: $rawTerms, terms: $terms, explicitYear: $explicitYear, '
+      'dateFrom: $dateFrom, dateTo: $dateTo, fileTypes: $fileTypes)';
 }
 
 /// קונפיגורציה לחיפוש חכם — נטענת מ-JSON (או ברירת מחדל בקוד)
@@ -166,8 +179,8 @@ class SmartSearchParser {
     DatePhraseConfig(pattern: r'\b(2\s*weeks|שבועיים|שתי?\s*שבועות?)\b', days: 14),
   ];
 
-  /// שנים מפורשות 2020–2039 — מוצא ומחזיר טווח שנה מלאה; מוסר מהשאילתה
-  static final RegExp _yearRegex = RegExp(r'\b20[1-3][0-9]\b');
+  /// שנים מפורשות 4 ספרות (למשל 1990–2039) — מוצא, שומר כ־explicitYear, מוסר מהשאילתה
+  static final RegExp _yearRegex = RegExp(r'\b(19[5-9]\d|20[0-3]\d)\b');
 
   static const Map<String, List<String>> _builtInFileTypeKeywords = {
     'תמונות': ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'],
@@ -186,27 +199,31 @@ class SmartSearchParser {
   static Map<String, List<String>> get _fileTypeKeywords =>
       config?.fileTypeKeywords ?? _defaultFileTypeKeywords;
 
-  /// מחזיר (dateFrom, dateTo, remainingQuery) — שנה מפורשת דורסת ביטויים יחסיים
-  static (DateTime?, DateTime?, String) _parseDates(String query) {
+  /// שלב א': תאריכים ושנים — מחזיר (dateFrom, dateTo, explicitYear, remainingQuery)
+  /// שנה מפורשת דורסת ביטויים יחסיים; מוצאת מהשאילתה ולא נכנסת ל־terms
+  static (DateTime?, DateTime?, String?, String) _parseDatesAndYear(String query) {
     String remaining = query.trim();
     DateTime? dateFrom;
     DateTime? dateTo;
+    String? explicitYear;
     final now = DateTime.now();
 
-    // קודם: זיהוי שנה מפורשת (2020–2039) — דורס ביטויים יחסיים
+    // קודם: זיהוי שנה מפורשת (4 ספרות) — דורס ביטויים יחסיים, מוסר מהשאילתה
     final yearMatch = _yearRegex.firstMatch(remaining);
     if (yearMatch != null) {
-      final year = int.tryParse(yearMatch.group(0)!);
+      final yearStr = yearMatch.group(0)!;
+      final year = int.tryParse(yearStr);
       if (year != null) {
+        explicitYear = yearStr;
         dateFrom = DateTime(year, 1, 1);
         dateTo = DateTime(year, 12, 31, 23, 59, 59);
         remaining = remaining.replaceAll(_yearRegex, ' ').trim();
         remaining = _collapseSpaces(remaining);
-        return (dateFrom, dateTo, remaining);
+        return (dateFrom, dateTo, explicitYear, remaining);
       }
     }
 
-    // אחרת: ביטויים יחסיים (today, yesterday, last week, last month וכו') — רק מפורשים
+    // אחרת: ביטויים יחסיים (today, yesterday, last week וכו')
     for (final phrase in _datePhrases) {
       final regex = RegExp(phrase.pattern, caseSensitive: false, unicode: true);
       final match = regex.firstMatch(remaining);
@@ -218,40 +235,125 @@ class SmartSearchParser {
       }
     }
     remaining = _collapseSpaces(remaining);
-    return (dateFrom, dateTo, remaining);
+    return (dateFrom, dateTo, explicitYear, remaining);
   }
 
-  /// מפרק שאילתה גולמית ל־SearchIntent
+  /// שלב ב': הסרת תחיליות עבריות — ה, ו, מ, ב, כ, ל, כש (מנסה כש לפני כ)
+  static String _stripHebrewPrefixes(String word) {
+    if (word.isEmpty) return word;
+    String rest = word.trim();
+    const prefixes = ['כש', 'ה', 'ו', 'מ', 'ב', 'כ', 'ל'];
+    bool changed = true;
+    while (changed && rest.isNotEmpty) {
+      changed = false;
+      for (final p in prefixes) {
+        if (rest.startsWith(p) && rest.length > p.length) {
+          rest = rest.substring(p.length);
+          changed = true;
+          break;
+        }
+      }
+    }
+    return rest;
+  }
+
+  /// מיפוי מיקומים (עברית↔אנגלית) — שלב ג': מילים נרדפות + לוקיישנים
+  static const Map<String, List<String>> _builtInLocations = {
+    'תאילנד': ['Thailand', 'תאילנד'],
+    'Thailand': ['Thailand', 'תאילנד'],
+    'אירופה': ['Europe', 'אירופה'],
+    'Europe': ['Europe', 'אירופה'],
+  };
+
+  static Map<String, List<String>> get _allSynonyms {
+    final out = Map<String, List<String>>.from(_synonyms);
+    for (final e in _builtInLocations.entries) {
+      out.putIfAbsent(e.key, () => e.value);
+    }
+    return out;
+  }
+
+  /// מילון = כל המפתחות (מילים מוכרות) — לבדיקת "במילון" לפני/אחרי הסרת תחיליות
+  static Set<String> get _dictionary {
+    final set = <String>{};
+    for (final k in _allSynonyms.keys) {
+      set.add(k);
+      set.add(k.toLowerCase());
+    }
+    for (final k in _fileTypeKeywords.keys) {
+      set.add(k);
+      set.add(k.toLowerCase());
+    }
+    return set;
+  }
+
+  /// מחזיר מפתח להשוואה (לטינית: lowercase; עברית:-is)
+  static String _keyFor(String word) =>
+      word.contains(RegExp(r'[a-zA-Z]')) ? word.toLowerCase() : word;
+
+  /// מפרק שאילתה גולמית ל־SearchIntent (שלבים א'–ג')
   static SearchIntent parse(String query) {
     if (query.trim().isEmpty) {
       return const SearchIntent();
     }
 
-    final (dateFrom, dateTo, remaining) = _parseDates(query);
-
-    // שלב ג': נורמליזציה — הסרת פיסוק, פיצול למילים, מילים נרדפות + סוגי קבצים
-    final terms = <String>{};
-    final fileTypesSet = <String>{};
+    // שלב א': תאריכים ושנים — explicitYear מוצא ומוסר מהשאילתה
+    final (dateFrom, dateTo, explicitYear, remaining) = _parseDatesAndYear(query);
     final normalized = _normalizeText(remaining);
-    final words = normalized.split(RegExp(r'\s+')).where((s) => s.isNotEmpty);
+    final rawTerms = normalized
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
 
-    for (final word in words) {
-      terms.add(word);
-      final key = word.toLowerCase();
-      final syns = _synonyms[key];
-      if (syns != null) {
-        for (final s in syns) {
-          if (s.isNotEmpty) terms.add(s.toLowerCase());
-        }
-      }
+    final termsSet = <String>{};
+    final fileTypesSet = <String>{};
+    final dict = _dictionary;
+    final synonymsMap = _allSynonyms;
+
+    for (final word in rawTerms) {
+      final key = _keyFor(word);
+
+      // סוגי קבצים — תמיד לפי מילת מפתח
       final extList = _fileTypeKeywords[key];
       if (extList != null) {
         fileTypesSet.addAll(extList.map((e) => e.toLowerCase()));
       }
+
+      // שלב ב' + ג': במילון → הוסף מילה + נרדפות; אחרת נסה שורש עברי
+      if (dict.contains(key)) {
+        termsSet.add(word);
+        final syns = synonymsMap[key] ?? synonymsMap[word];
+        if (syns != null) {
+          for (final s in syns) {
+            if (s.isNotEmpty) termsSet.add(s.contains(RegExp(r'[a-zA-Z]')) ? s.toLowerCase() : s);
+          }
+        }
+        continue;
+      }
+
+      final root = _stripHebrewPrefixes(word);
+      if (root.isEmpty) {
+        termsSet.add(word);
+        continue;
+      }
+      final rootKey = _keyFor(root);
+      if (dict.contains(rootKey)) {
+        termsSet.add(root);
+        final syns = synonymsMap[rootKey] ?? synonymsMap[root];
+        if (syns != null) {
+          for (final s in syns) {
+            if (s.isNotEmpty) termsSet.add(s.contains(RegExp(r'[a-zA-Z]')) ? s.toLowerCase() : s);
+          }
+        }
+      } else {
+        termsSet.add(word);
+      }
     }
 
     return SearchIntent(
-      terms: terms.toList(),
+      rawTerms: rawTerms,
+      terms: termsSet.toList(),
+      explicitYear: explicitYear,
       dateFrom: dateFrom,
       dateTo: dateTo,
       fileTypes: fileTypesSet.toList(),

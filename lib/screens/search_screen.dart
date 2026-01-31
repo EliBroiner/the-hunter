@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
@@ -15,7 +16,6 @@ import '../services/recent_files_service.dart';
 import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
-import '../services/smart_search_service.dart';
 import '../services/hybrid_search_controller.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
@@ -49,7 +49,6 @@ class _SearchScreenState extends State<SearchScreen> {
   final _databaseService = DatabaseService.instance;
   final _permissionService = PermissionService.instance;
   final _settingsService = SettingsService.instance;
-  final _smartSearchService = SmartSearchService.instance;
   final _favoritesService = FavoritesService.instance;
   final _googleDriveService = GoogleDriveService.instance;
   
@@ -84,20 +83,28 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSelectionMode = false;
   final Set<String> _selectedFiles = {};
 
+  /// Temporary: Force show score even in Release mode for QA. Change to false before publishing to Store!
+  static const bool _showDebugScore = true;
+
   @override
   void initState() {
     super.initState();
     _hybridController = HybridSearchController(
       databaseService: _databaseService,
-      smartSearchService: _smartSearchService,
+      driveService: _googleDriveService,
       debounceDuration: const Duration(milliseconds: 800),
       isPremium: () => _settingsService.isPremium,
     )
       ..onResults = _onHybridResults
       ..onAILoading = _onHybridAILoading;
+    _hybridController.addListener(_onHybridControllerChanged);
     _updateSearchStream();
     _initSpeech();
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
+  }
+
+  void _onHybridControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onHybridResults(List<FileMetadata> results, {required bool isFromAI}) {
@@ -106,8 +113,10 @@ class _SearchScreenState extends State<SearchScreen> {
       _hybridResultsOverride = results.isNotEmpty ? results : null;
       _isSmartSearchActive = results.isNotEmpty;
       _lastSmartIntent = _hybridController.lastIntent;
+      // Drive כבר כלול ב-results של הקונטרולר — מונע כפילות ב-mergeWithCloud
+      if (_hybridResultsOverride != null) _cloudResults = [];
     });
-    _updateSearchStream(); // יקרא ל-_searchCloudWithIntent כשמתאים
+    _updateSearchStream();
   }
 
   SearchIntent? _parserIntentToApi(String query) {
@@ -158,6 +167,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
+    _hybridController.removeListener(_onHybridControllerChanged);
     _hybridController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -202,19 +212,13 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     });
 
-    if (query.isNotEmpty && query.length > 2 && _googleDriveService.isConnected) {
-      if (_hybridResultsOverride != null) {
-        final intent = _hybridController.lastIntent ?? _parserIntentToApi(query);
-        if (intent != null && intent.hasContent) {
-          _searchCloudWithIntent(intent);
-        } else {
-          _searchCloud(query);
-        }
-      } else {
+    // Drive רץ כבר מתוך HybridSearchController.executeSearch — לא קוראים שוב כשמתקבלות תוצאות היברידיות
+    if (query.isEmpty || query.length <= 2 || _hybridResultsOverride == null) {
+      if (query.isNotEmpty && query.length > 2 && _googleDriveService.isConnected) {
         _searchCloud(query);
+      } else {
+        setState(() => _cloudResults = []);
       }
-    } else {
-      setState(() => _cloudResults = []);
     }
   }
 
@@ -233,8 +237,8 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /// חיפוש בענן עם SearchIntent — synonyms, תאריכים, סוגי קבצים
-  Future<void> _searchCloudWithIntent(SearchIntent intent) async {
+  /// חיפוש בענן עם SearchIntent (parser) — מונחים, שנה, MIME; מיון ב-RelevanceEngine
+  Future<void> _searchCloudWithIntent(parser_util.SearchIntent intent) async {
     if (_isSearchingCloud) return;
     setState(() => _isSearchingCloud = true);
     try {
@@ -2653,13 +2657,16 @@ class _SearchScreenState extends State<SearchScreen> {
         }
 
         final results = snapshot.data ?? [];
-        final hasQuery = _searchController.text.trim().length >= 2;
+
+        // חיפוש חכם: שני אזורים — במכשיר + Google Drive
+        if (_hybridResultsOverride != null) {
+          return _buildSmartSearchResults(theme);
+        }
 
         if (results.isEmpty) return _buildEmptyState();
 
         return Column(
           children: [
-            // מספר תוצאות
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Row(
@@ -2680,20 +2687,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (_isSmartSearchActive)
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _hybridResultsOverride = null;
-                          _isSmartSearchActive = false;
-                          _lastSmartIntent = null;
-                        });
-                        _hybridController.cancel();
-                        _updateSearchStream();
-                      },
-                      child: Text(tr('cancel_smart_search'), style: const TextStyle(fontSize: 12)),
-                    ),
-                  if (_searchController.text.isNotEmpty && !_isSmartSearchActive)
+                  if (_searchController.text.isNotEmpty)
                     Text(
                       'ממוין לפי תאריך',
                       style: TextStyle(
@@ -2704,7 +2698,6 @@ class _SearchScreenState extends State<SearchScreen> {
                 ],
               ),
             ),
-            // רשימת תוצאות עם Pull to Refresh
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _onRefresh,
@@ -2716,7 +2709,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   itemCount: results.length,
                   itemBuilder: (context, index) {
                     final file = results[index];
-                    // אנימציית כניסה מדורגת
                     return TweenAnimationBuilder<double>(
                       key: ValueKey(file.path),
                       tween: Tween(begin: 0.0, end: 1.0),
@@ -2743,6 +2735,142 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  /// תוצאות חיפוש חכם — שני אזורים: במכשיר (עם "הצג עוד") + Google Drive
+  Widget _buildSmartSearchResults(ThemeData theme) {
+    final local = _hybridController.localResults;
+    final drive = _hybridController.driveResults;
+    final visible = _hybridController.visibleLocalCount;
+    final localVisible = local.take(visible).toList();
+    final hasMoreLocal = local.length > visible;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${local.length + drive.length} תוצאות',
+                  style: TextStyle(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _hybridResultsOverride = null;
+                    _isSmartSearchActive = false;
+                    _lastSmartIntent = null;
+                  });
+                  _hybridController.cancel();
+                  _updateSearchStream();
+                },
+                child: Text(tr('cancel_smart_search'), style: const TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _onRefresh,
+            color: theme.colorScheme.primary,
+            backgroundColor: theme.colorScheme.surface,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: [
+                // Section 1: On This Device
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                  child: Text(
+                    tr('section_on_device'),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                ...localVisible.asMap().entries.map((e) {
+                  final file = e.value;
+                  return TweenAnimationBuilder<double>(
+                    key: ValueKey(file.path),
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, 20 * (1 - value)),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: _buildResultItem(file),
+                  );
+                }),
+                if (hasMoreLocal)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Center(
+                      child: TextButton(
+                        onPressed: () => _hybridController.showMoreLocal(),
+                        child: Text(tr('show_more')),
+                      ),
+                    ),
+                  ),
+                // Section 2: From Google Drive
+                if (drive.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16, bottom: 4),
+                    child: Text(
+                      tr('section_google_drive'),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  ...drive.asMap().entries.map((e) {
+                    final file = e.value;
+                    return TweenAnimationBuilder<double>(
+                      key: ValueKey(file.path),
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, 20 * (1 - value)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _buildResultItem(file),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// בונה מצב ריק - מודרני
   Widget _buildEmptyState() {
     final theme = Theme.of(context);
@@ -2757,11 +2885,15 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     
     final isAIScanning = hasSearchQuery && _isAILoading;
-    final emptyTitle = hasSearchQuery 
-        ? (isSmartSearchEmpty && !isAIScanning ? tr('smart_search_no_results') : (isAIScanning ? tr('ai_scanning_deeper') : 'לא נמצאו תוצאות'))
+    final isDriveScanning = hasSearchQuery && _hybridController.isDriveSearching;
+    final loadingTitle = isAIScanning
+        ? tr('ai_analyzing')
+        : (isDriveScanning ? tr('searching_cloud') : (hasSearchQuery && _hybridController.isLocalSearching ? tr('ai_scanning_deeper') : null));
+    final emptyTitle = hasSearchQuery
+        ? (loadingTitle ?? (isSmartSearchEmpty && !isAIScanning ? tr('smart_search_no_results') : 'לא נמצאו תוצאות'))
         : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?');
     final emptyDesc = hasSearchQuery
-        ? (isAIScanning ? '' : tr('empty_state_desc_search'))
+        ? ((isAIScanning || isDriveScanning) ? '' : tr('empty_state_desc_search'))
         : (dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start'));
     Widget content = Column(
       mainAxisSize: MainAxisSize.min,
@@ -3354,6 +3486,19 @@ class _SearchScreenState extends State<SearchScreen> {
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                 textDirection: TextDirection.ltr,
                               ),
+                              // Temporary: Force show score even in Release mode for QA purposes
+                              if (_showDebugScore && file.debugScore != null) ...[
+                                const SizedBox(width: 12),
+                                Text(
+                                  '⭐ ${file.debugScore!.toStringAsFixed(1)} [${file.debugScoreBreakdown ?? ""}]',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.deepOrange,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ],
                           ),
                           // תגיות (אם יש)

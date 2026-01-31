@@ -5,6 +5,7 @@ import '../models/file_metadata.dart';
 import '../models/search_intent.dart' as api;
 import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
+import 'relevance_engine.dart';
 
 /// פילטרים לחיפוש
 enum SearchFilter {
@@ -481,10 +482,8 @@ class DatabaseService {
     return score;
   }
 
-  /// חיפוש חכם מקומי לפי SearchIntent — תאריכים + OR על מונחים (שם / extractedText)
-  Future<List<FileMetadata>> localSmartSearch(String rawQuery) async {
-    final intent = SmartSearchParser.parse(rawQuery);
-
+  /// חיפוש חכם מקומי לפי SearchIntent — קבוצה א' (מונחים OR + short-word exact), קבוצה ב' (שנה מפורשת), מיון ב-RelevanceEngine
+  Future<List<FileMetadata>> localSmartSearch(SearchIntent intent) async {
     List<FileMetadata> candidates;
 
     if (intent.dateFrom != null) {
@@ -498,33 +497,62 @@ class DatabaseService {
       candidates = isar.fileMetadatas.where().findAll();
     }
 
-    // סינון לפי סוג קובץ (fileTypes) — אם זוהו ב-Parser
     if (intent.fileTypes.isNotEmpty) {
       final extSet = intent.fileTypes.map((e) => e.toLowerCase()).toSet();
       candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
     }
 
-    final termsLower = intent.terms.map((t) => t.toLowerCase()).toList();
-
-    // סינון מונחים: OR — כל קובץ שמתאים לפחות למונח אחד (בשם או ב-extractedText), case insensitive
-    if (termsLower.isNotEmpty) {
+    // קבוצה א': מונחים — OR; מונח קצר (אורך < 3) = התאמה מדויקת (whole-word), אחרת .contains()
+    if (intent.terms.isNotEmpty) {
       candidates = candidates.where((f) {
         final name = f.name.toLowerCase();
         final text = f.extractedText?.toLowerCase() ?? '';
-        return termsLower.any((term) => name.contains(term) || text.contains(term));
+        return intent.terms.any((term) {
+          final t = term.toLowerCase().trim();
+          if (t.isEmpty) return false;
+          final exactOnly = t.length < 3;
+          if (exactOnly) {
+            return _wholeWordMatch(name, t) || _wholeWordMatch(text, t);
+          }
+          return name.contains(t) || text.contains(t);
+        });
       }).toList();
     }
 
-    // מיון לפי רלוונטיות (גבוה קודם), ואז לפי תאריך
-    candidates.sort((a, b) {
-      final scoreA = _calculateRelevance(a, termsLower);
-      final scoreB = _calculateRelevance(b, termsLower);
-      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
-      return b.lastModified.compareTo(a.lastModified);
-    });
+    // קבוצה ב': שנה מפורשת — AND (name או extractedText מכילים שנה או lastModified באותה שנה)
+    if (intent.explicitYear != null && intent.explicitYear!.isNotEmpty) {
+      final yearStr = intent.explicitYear!.trim();
+      final yearNum = int.tryParse(yearStr);
+      candidates = candidates.where((f) {
+        final name = f.name.contains(yearStr);
+        final text = (f.extractedText ?? '').contains(yearStr);
+        final yearMatch = yearNum != null && f.lastModified.year == yearNum;
+        return name || text || yearMatch;
+      }).toList();
+    }
 
-    appLog('DB: localSmartSearch "${rawQuery.trim()}" -> ${candidates.length} results');
-    return candidates;
+    final results = RelevanceEngine.rankAndSort(candidates, intent);
+    appLog('DB: localSmartSearch -> ${results.length} results');
+    return results;
+  }
+
+  /// התאמת מונח כ־whole-word (גבולות מילה) — למניעת "מס" בתוך "מסמך"
+  static bool _wholeWordMatch(String content, String term) {
+    if (term.isEmpty) return false;
+    int i = 0;
+    while (true) {
+      final idx = content.indexOf(term, i);
+      if (idx == -1) return false;
+      final beforeOk = idx == 0 || !_isWordChar(content.codeUnitAt(idx - 1));
+      final afterOk = idx + term.length >= content.length || !_isWordChar(content.codeUnitAt(idx + term.length));
+      if (beforeOk && afterOk) return true;
+      i = idx + 1;
+    }
+  }
+
+  static bool _isWordChar(int code) {
+    return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A) ||
+        (code >= 0x61 && code <= 0x7A) || (code >= 0x05D0 && code <= 0x05EA);
   }
 
   /// חיפוש לפי SearchIntent מה-AI — תאריכים, fileTypes, terms (OR)
