@@ -1,0 +1,13 @@
+# .NET build outputs
+bin/
+obj/
+
+# SQLite
+app.db
+app.db-shm
+app.db-wal
+*.db
+*.db-shm
+*.db-wal
+# הוסף ל־.gitignore – Git יתעלם מהקובץ
+echo "backend/TheHunterApi/Properties/launchSettings.json" >> .gitignore

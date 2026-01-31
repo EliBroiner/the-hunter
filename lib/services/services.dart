@@ -1,4 +1,5 @@
 // Barrel file - ייצוא כל השירותים
+export 'ai_auto_tagger_service.dart';
 export 'ai_search_service.dart';
 export 'auth_service.dart';
 export 'backup_service.dart';
@@ -20,4 +21,5 @@ export 'relevance_engine.dart';
 export 'smart_search_filter.dart';
 export 'smart_search_service.dart';
 export 'hybrid_search_controller.dart';
+export 'knowledge_base_service.dart';
 export 'text_extraction_service.dart';

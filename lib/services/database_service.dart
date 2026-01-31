@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
+import '../models/search_synonym.dart';
 import '../models/search_intent.dart' as api;
 import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
@@ -58,7 +59,7 @@ class DatabaseService {
 
     final dir = await getApplicationDocumentsDirectory();
     _isar = Isar.open(
-      schemas: [FileMetadataSchema],
+      schemas: [FileMetadataSchema, SearchSynonymSchema],
       directory: dir.path,
       name: 'the_hunter_db',
     );
@@ -483,10 +484,11 @@ class DatabaseService {
   }
 
   /// חיפוש חכם מקומי לפי SearchIntent — קבוצה א' (מונחים OR + short-word exact), קבוצה ב' (שנה מפורשת), מיון ב-RelevanceEngine
+  /// מסנן תאריכים רק כאשר useDateRangeFilter=true (ביטויים יחסיים) — לא משנה בשאילתה
   Future<List<FileMetadata>> localSmartSearch(SearchIntent intent) async {
     List<FileMetadata> candidates;
 
-    if (intent.dateFrom != null) {
+    if (intent.useDateRangeFilter && intent.dateFrom != null) {
       final from = intent.dateFrom!;
       final to = intent.dateTo ?? from.add(const Duration(days: 365));
       candidates = isar.fileMetadatas
@@ -502,7 +504,7 @@ class DatabaseService {
       candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
     }
 
-    // קבוצה א': מונחים — OR; מונח קצר (אורך < 3) = התאמה מדויקת (whole-word), אחרת .contains()
+    // קבוצה א': מונחים — OR; מונח קצר (< 3) או מספר = whole-word (שווה ערך ל-.equalTo)
     if (intent.terms.isNotEmpty) {
       candidates = candidates.where((f) {
         final name = f.name.toLowerCase();
@@ -510,7 +512,7 @@ class DatabaseService {
         return intent.terms.any((term) {
           final t = term.toLowerCase().trim();
           if (t.isEmpty) return false;
-          final exactOnly = t.length < 3;
+          final exactOnly = t.length < 3 || _isAllDigits(t);
           if (exactOnly) {
             return _wholeWordMatch(name, t) || _wholeWordMatch(text, t);
           }
@@ -549,6 +551,9 @@ class DatabaseService {
       i = idx + 1;
     }
   }
+
+  static bool _isAllDigits(String s) =>
+      s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
 
   static bool _isWordChar(int code) {
     return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A) ||
