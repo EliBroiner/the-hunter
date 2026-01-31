@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using TheHunterApi.Data;
 using TheHunterApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -5,8 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 // קריאת PORT מ-environment variables (ברירת מחדל: 8080 עבור Cloud Run)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 
-// קריאת GEMINI_API_KEY מ-environment variables
-var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+// קריאת GEMINI_API_KEY מ-environment / user secrets / appsettings
+var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+    ?? builder.Configuration["GEMINI_API_KEY"]
+    ?? "";
 if (string.IsNullOrEmpty(geminiApiKey))
 {
     Console.WriteLine("⚠️ WARNING: GEMINI_API_KEY is not set. AI search will not work.");
@@ -46,10 +50,28 @@ builder.Services.AddHttpClient("GeminiApi", client =>
 // רישום GeminiConfig כ-Singleton
 builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
 
-// רישום GeminiService
+// רישום GeminiService ו-QuotaService
 builder.Services.AddScoped<GeminiService>();
+builder.Services.AddScoped<QuotaService>();
+
+// SQLite - מכסת AI
+var dbPath = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "the-hunter",
+    "usage.db");
+var dbDir = Path.GetDirectoryName(dbPath);
+if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
+builder.Services.AddDbContextFactory<AppDbContext>(opts =>
+    opts.UseSqlite($"Data Source={dbPath}"));
 
 var app = builder.Build();
+
+// יצירת DB אם לא קיים
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
+    await db.Database.EnsureCreatedAsync();
+}
 
 // Root endpoint
 app.MapGet("/", () => new { 

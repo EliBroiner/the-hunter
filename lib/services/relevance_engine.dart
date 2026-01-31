@@ -57,7 +57,7 @@ class RelevanceEngine {
       });
       if (hasAllRaw) {
         score *= _coverageMultiplier;
-        parts.add('Coverage×${_coverageMultiplier}');
+        parts.add('Coverage×$_coverageMultiplier');
       }
     }
 

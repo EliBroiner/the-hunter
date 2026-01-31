@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
@@ -13,7 +12,6 @@ import '../services/database_service.dart';
 import '../utils/smart_search_parser.dart' as parser_util;
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
-import '../services/log_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../services/hybrid_search_controller.dart';
