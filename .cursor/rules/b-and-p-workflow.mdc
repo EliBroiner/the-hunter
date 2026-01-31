@@ -1,0 +1,17 @@
+---
+description: When user says "B AND P" or "בניה" — build APK then commit and push if build succeeds
+alwaysApply: true
+---
+
+# B AND P — Build APK then Commit & Push
+
+When the user writes **"B AND P"** (or "B and P", "B&P") or **"בניה"** (Hebrew):
+
+1. **Build APK:** Run `flutter build apk` (from project root).
+2. **If build succeeds (exit 0):** Run:
+   - `git add -A`
+   - `git commit -m "<descriptive message>"` (summarize recent changes if obvious)
+   - `git push`
+3. **If build fails:** Do not commit or push; report the error.
+
+Do not ask for confirmation between build and commit/push when the user explicitly requested "B AND P".

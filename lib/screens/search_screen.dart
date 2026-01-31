@@ -2155,14 +2155,13 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: Row(
                 children: [
-                  // מתאריך
                   Expanded(
                     child: GestureDetector(
                       onTap: _showStartDatePicker,
                       child: Row(
                         children: [
                           Text(
-                            'מ: ',
+                            tr('date_from_label'),
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -2172,7 +2171,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             child: Text(
                               _selectedStartDate != null
                                   ? _formatDate(_selectedStartDate!)
-                                  : 'כל הזמנים',
+                                  : tr('date_range_all'),
                               style: TextStyle(
                                 fontSize: 14,
                                 color: _selectedStartDate != null
@@ -2187,14 +2186,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // עד תאריך
                   Expanded(
                     child: GestureDetector(
                       onTap: _showEndDatePicker,
                       child: Row(
                         children: [
                           Text(
-                            'עד: ',
+                            tr('date_to_label'),
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -2204,7 +2202,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             child: Text(
                               _selectedEndDate != null
                                   ? _formatDate(_selectedEndDate!)
-                                  : 'ללא',
+                                  : tr('date_none'),
                               style: TextStyle(
                                 fontSize: 14,
                                 color: _selectedEndDate != null
@@ -2413,14 +2411,13 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
         children: [
-          _buildModernFilterChip('הכל', LocalFilter.all, Icons.apps),
+          _buildModernFilterChip(tr('filter_chip_all'), LocalFilter.all, Icons.apps),
           const SizedBox(width: 10),
-          // מועדפים - פרימיום בלבד
           _buildFavoritesChip(isPremium, favoritesCount),
           const SizedBox(width: 10),
-          _buildModernFilterChip('תמונות', LocalFilter.images, Icons.image),
+          _buildModernFilterChip(tr('filter_chip_images'), LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
-          _buildModernFilterChip('PDF', LocalFilter.pdfs, Icons.picture_as_pdf),
+          _buildModernFilterChip(tr('filter_chip_pdf'), LocalFilter.pdfs, Icons.picture_as_pdf),
         ],
       ),
     );
@@ -2434,7 +2431,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return GestureDetector(
       onTap: () {
         if (!isPremium) {
-          _showPremiumUpgradeMessage('מועדפים');
+          _showPremiumUpgradeMessage(tr('filter_favorites'));
         } else {
           _onFilterChanged(LocalFilter.favorites);
         }
@@ -2470,7 +2467,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(width: 6),
             Text(
-              'מועדפים',
+              tr('filter_favorites'),
               style: TextStyle(
                 color: isSelected 
                     ? Colors.white 
@@ -2689,7 +2686,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   const Spacer(),
                   if (_searchController.text.isNotEmpty)
                     Text(
-                      'ממוין לפי תאריך',
+                      tr('sort_date'),
                       style: TextStyle(
                         color: Colors.grey.shade500,
                         fontSize: 12,
