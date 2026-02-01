@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Serilog;
 using TheHunterApi.Models;
 
 namespace TheHunterApi.Services;
@@ -156,8 +157,8 @@ public class GeminiService
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
 
-            // לוג מפורט של התשובה מ-Gemini API - בשורה אחת
-            Console.WriteLine($"📡 GEMINI_RAW_RESPONSE | Status: {response.StatusCode} | Body: {responseBody.Replace("\n", " ").Replace("\r", "")}");
+            _logger.LogDebug("📡 GEMINI_RAW_RESPONSE | Status: {StatusCode} | Body: {Body}",
+                response.StatusCode, responseBody.Replace("\n", " ").Replace("\r", ""));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -291,12 +292,12 @@ public class GeminiService
         string promptTemplate;
         if (!string.IsNullOrEmpty(customPrompt))
         {
-            Console.WriteLine("📝 Using Custom Prompt from SYSTEM_PROMPT environment variable");
+            Log.Information("📝 Using Custom Prompt from SYSTEM_PROMPT environment variable");
             promptTemplate = customPrompt;
         }
         else
         {
-            Console.WriteLine("📝 Using Default Prompt");
+            Log.Debug("📝 Using Default Prompt");
             promptTemplate = DefaultPrompt;
         }
         
@@ -318,47 +319,44 @@ public class GeminiService
             var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions);
             rawText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
 
-            // לוג ראשוני - לפני כל עיבוד
-            Console.WriteLine($"[Gemini Raw]: {rawText}");
+            _logger.LogDebug("[Gemini Raw]: {RawText}", rawText);
 
             if (string.IsNullOrEmpty(rawText))
             {
-                Console.WriteLine("❌ ERROR: Empty response from Gemini");
+                _logger.LogError("❌ Empty response from Gemini");
                 return GeminiResult<SearchIntent>.Failure("Empty response from AI");
             }
 
-            // לוג מפורט של התשובה הגולמית
-            Console.WriteLine($"🔍 EXTRACTED_TEXT | Length: {rawText.Length} | Content: {rawText.Replace("\n", " ").Replace("\r", "")}");
+            _logger.LogDebug("🔍 EXTRACTED_TEXT | Length: {Length} | Content: {Content}",
+                rawText.Length, rawText.Replace("\n", " ").Replace("\r", ""));
 
-            // שלב 2: ניקוי וסניטציה של ה-JSON
             cleanJson = SanitizeJsonResponse(rawText);
-            
-            // לוג של ה-JSON המנוקה
-            Console.WriteLine($"✅ SANITIZED_JSON | Length: {cleanJson.Length} | Content: {cleanJson.Replace("\n", " ").Replace("\r", "")}");
 
-            // שלב 3: פירסור ה-JSON ל-SearchIntent
+            _logger.LogDebug("✅ SANITIZED_JSON | Length: {Length} | Content: {Content}",
+                cleanJson.Length, cleanJson.Replace("\n", " ").Replace("\r", ""));
+
             var intent = JsonSerializer.Deserialize<SearchIntent>(cleanJson, _jsonOptions);
-            
+
             if (intent == null)
             {
-                Console.WriteLine("❌ ERROR: Deserialized intent is null");
+                _logger.LogError("❌ Deserialized intent is null");
                 return GeminiResult<SearchIntent>.Failure("Failed to parse AI response - null result");
             }
 
-            Console.WriteLine($"✅ SUCCESS | Terms: [{string.Join(", ", intent.Terms)}] | FileTypes: [{string.Join(", ", intent.FileTypes)}] | DateRange: {(intent.DateRange != null ? $"{intent.DateRange.Start} to {intent.DateRange.End}" : "null")}");
+            _logger.LogInformation("✅ SUCCESS | Terms: [{Terms}] | FileTypes: [{FileTypes}] | DateRange: {DateRange}",
+                string.Join(", ", intent.Terms), string.Join(", ", intent.FileTypes),
+                intent.DateRange != null ? $"{intent.DateRange.Start} to {intent.DateRange.End}" : "null");
             return GeminiResult<SearchIntent>.Success(intent);
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "Failed to parse Gemini response as JSON");
-            Console.WriteLine($"❌ JSON_PARSE_ERROR | Message: {ex.Message} | Path: {ex.Path} | Line: {ex.LineNumber} | BytePos: {ex.BytePositionInLine}");
-            Console.WriteLine($"❌ FAILED_JSON_CONTENT: {cleanJson}");
+            _logger.LogError(ex, "❌ JSON_PARSE_ERROR | Message: {Message} | Path: {Path} | Line: {Line} | BytePos: {BytePos} | FAILED_JSON: {Json}",
+                ex.Message, ex.Path, ex.LineNumber, ex.BytePositionInLine, cleanJson);
             return GeminiResult<SearchIntent>.Failure($"JSON parse error: {ex.Message}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error parsing Gemini response");
-            Console.WriteLine($"❌ UNEXPECTED_ERROR | Type: {ex.GetType().Name} | Message: {ex.Message}");
+            _logger.LogError(ex, "❌ UNEXPECTED_ERROR | Type: {Type} | Message: {Message}", ex.GetType().Name, ex.Message);
             return GeminiResult<SearchIntent>.Failure($"Unexpected error: {ex.Message}");
         }
     }
@@ -368,51 +366,45 @@ public class GeminiService
     /// </summary>
     private static string SanitizeJsonResponse(string responseText)
     {
-        // לוג התחלתי
-        Console.WriteLine($"🧹 SANITIZE_START | Input Length: {responseText?.Length ?? 0}");
-        
+        Log.Debug("🧹 SANITIZE_START | Input Length: {Length}", responseText?.Length ?? 0);
+
         if (string.IsNullOrWhiteSpace(responseText))
         {
-            Console.WriteLine("⚠️ SANITIZE: Empty input, returning empty object");
+            Log.Warning("⚠️ SANITIZE: Empty input, returning empty object");
             return "{}";
         }
 
-        // שלב 1: הסרת Markdown code blocks
         responseText = responseText
             .Replace("```json", "")
             .Replace("```JSON", "")
             .Replace("```", "")
             .Trim();
 
-        Console.WriteLine($"🧹 AFTER_MARKDOWN_REMOVAL | Length: {responseText.Length}");
+        Log.Debug("🧹 AFTER_MARKDOWN_REMOVAL | Length: {Length}", responseText.Length);
 
-        // שלב 2: מציאת ה-JSON בלבד (בין הסוגריים המסולסלים הראשונים והאחרונים)
         int firstBrace = responseText.IndexOf('{');
         int lastBrace = responseText.LastIndexOf('}');
 
-        Console.WriteLine($"🧹 BRACE_POSITIONS | FirstBrace: {firstBrace} | LastBrace: {lastBrace}");
+        Log.Debug("🧹 BRACE_POSITIONS | FirstBrace: {First} | LastBrace: {Last}", firstBrace, lastBrace);
 
         if (firstBrace >= 0 && lastBrace > firstBrace)
         {
-            // מצאנו JSON תקין
             responseText = responseText.Substring(firstBrace, lastBrace - firstBrace + 1);
-            Console.WriteLine($"🧹 JSON_EXTRACTED | Length: {responseText.Length}");
+            Log.Debug("🧹 JSON_EXTRACTED | Length: {Length}", responseText.Length);
         }
         else
         {
-            // Fallback: אם לא מצאנו סוגריים, ננסה לפרסר את הטקסט המקורי
-            Console.WriteLine($"⚠️ WARNING: Could not find valid JSON braces. Attempting to parse raw text. Length: {responseText.Length}");
+            Log.Warning("⚠️ Could not find valid JSON braces. Attempting to parse raw text. Length: {Length}", responseText.Length);
         }
 
-        // שלב 3: ניקוי תווים בעייתיים שעלולים לשבור JSON
         responseText = responseText
-            .Replace("\r\n", "\n")  // נרמול line endings
-            .Replace("\r", "")      // הסרת CR בודדים
-            .Replace("\t", " ");    // החלפת tabs ברווחים
+            .Replace("\r\n", "\n")
+            .Replace("\r", "")
+            .Replace("\t", " ");
 
         var result = responseText.Trim();
-        Console.WriteLine($"🧹 SANITIZE_COMPLETE | Final Length: {result.Length}");
-        
+        Log.Debug("🧹 SANITIZE_COMPLETE | Final Length: {Length}", result.Length);
+
         return result;
     }
 }

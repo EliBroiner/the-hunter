@@ -1,8 +1,16 @@
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using TheHunterApi.Data;
 using TheHunterApi.Services;
 
+// לוגר גלובלי — קונסול + קובץ יומי בתיקיית logs
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog();
 
 // קריאת PORT מ-environment variables (ברירת מחדל: 8080 עבור Cloud Run)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
@@ -13,7 +21,7 @@ var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
     ?? "";
 if (string.IsNullOrEmpty(geminiApiKey))
 {
-    Console.WriteLine("⚠️ WARNING: GEMINI_API_KEY is not set. AI search will not work.");
+    Log.Warning("GEMINI_API_KEY is not set. AI search will not work.");
 }
 
 // הגדרת Services
@@ -96,8 +104,19 @@ app.MapControllers();
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-Console.WriteLine($"🚀 The Hunter API is running on port {port}");
-app.Run($"http://0.0.0.0:{port}");
+try
+{
+    Log.Information("🚀 Starting Web API...");
+    app.Run($"http://0.0.0.0:{port}");
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "💥 Host terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
 /// <summary>
 /// הגדרות Gemini API

@@ -4,6 +4,9 @@ obj/
 **/bin/
 **/obj/
 
+# Serilog daily logs
+logs/
+
 # SQLite
 app.db
 app.db-shm

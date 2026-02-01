@@ -31,7 +31,7 @@ public class AnalyzeController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> AnalyzeBatch([FromBody] BatchRequest request)
     {
-        Console.WriteLine("📥 [Server] Received request from client.");
+        _logger.LogInformation("📥 [Server] Received request from client.");
         try
         {
             if (request.Documents == null || request.Documents.Count == 0)
@@ -49,12 +49,12 @@ public class AnalyzeController : ControllerBase
             var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents);
             await _quotaService.IncrementUsageAsync(userId, count);
 
-            Console.WriteLine("✅ [Server] Successfully processed batch. Returning 200 OK.");
+            _logger.LogInformation("✅ [Server] Successfully processed batch. Returning 200 OK.");
             return Ok(results);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ [Server] Error in processing: {ex.Message}");
+            _logger.LogError(ex, "❌ [Server] Error in processing: {Message}", ex.Message);
             throw;
         }
     }

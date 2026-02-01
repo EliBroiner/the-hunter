@@ -1,3 +1,4 @@
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -1412,6 +1413,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            leading: const Icon(Icons.bug_report, size: 22, color: Colors.red),
+            title: const Text('Test Crash'),
+            subtitle: const Text('Forces a crash to verify Crashlytics'),
+            onTap: () => FirebaseCrashlytics.instance.crash(),
           ),
         ),
       ],

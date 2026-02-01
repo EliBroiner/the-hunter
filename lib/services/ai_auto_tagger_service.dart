@@ -20,7 +20,7 @@ class AiAutoTaggerService {
 
   AiAutoTaggerService._();
 
-  static const String _baseUrl = 'http://10.0.2.2:8080/api/analyze-batch';
+  static const String _baseUrl = 'https://the-hunter-105628026575.me-west1.run.app/api/analyze-batch';
   static const int _batchSize = 10;
   static const Duration _flushInterval = Duration(seconds: 5);
   static const int _maxTextLength = 1000;
