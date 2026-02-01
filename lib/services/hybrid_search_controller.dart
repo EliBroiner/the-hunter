@@ -158,7 +158,8 @@ class HybridSearchController extends ChangeNotifier {
               : <FileMetadata>[];
           local2 = local2.where((file) => file.isCloud || File(file.path).existsSync()).toList();
           final merged = [...local2, ...drive2];
-          final combined = RelevanceEngine.rankAndSort(merged, semanticIntent);
+          var combined = RelevanceEngine.rankAndSort(merged, semanticIntent);
+          combined = _applyDynamicGapFilter(combined);
           _localResults = local2;
           _driveResults = drive2;
           _results = combined;
@@ -172,9 +173,10 @@ class HybridSearchController extends ChangeNotifier {
 
       // מיזוג ומיון — מקומי + Drive כבר ממוינים; מיישמים rankAndSort על המאוחד
       final merged = [...localResults, ...driveResults];
-      _results = merged.isEmpty
-          ? []
+      var ranked = merged.isEmpty
+          ? <FileMetadata>[]
           : RelevanceEngine.rankAndSort(merged, parserIntent);
+      _results = _applyDynamicGapFilter(ranked);
       _isSmartSearchActive = _results.isNotEmpty;
       onResults?.call(_results, isFromAI: false);
       notifyListeners();
@@ -194,6 +196,17 @@ class HybridSearchController extends ChangeNotifier {
 
   void _runWaterfall(String query) async {
     await executeSearch(query);
+  }
+
+  /// Dynamic Gap Filter — מסיר רעש כשקיים מנצח ברור (ציון גבוה)
+  static List<FileMetadata> _applyDynamicGapFilter(List<FileMetadata> results) {
+    if (results.isEmpty) return results;
+    results = List.from(results)
+      ..sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
+    final maxScore = results.first.debugScore ?? 0.0;
+    if (maxScore <= 50.0) return results;
+    final threshold = maxScore * 0.3;
+    return results.where((f) => (f.debugScore ?? 0) >= threshold).toList();
   }
 
   /// המרת parser SearchIntent ל־API SearchIntent (לשימוש ב־lastIntent / תצוגה)

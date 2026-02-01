@@ -832,6 +832,9 @@ class _SearchScreenState extends State<SearchScreen> {
                       Icons.text_snippet,
                     ),
                   ],
+                  // AI Debug — סטטוס וקטגוריה ותגיות מ־AI
+                  const Divider(height: 20, color: Colors.white12),
+                  _buildAIDetailSection(file),
                 ],
               ),
             ),
@@ -861,12 +864,41 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
   
+  static String _aiTagsDisplay(List<String>? tags) {
+    final s = tags?.join(', ');
+    return (s != null && s.isNotEmpty) ? s : '—';
+  }
+
+  /// בונה סקציית AI — צבע טורקיז ואייקון לבולטות ב־debug
+  Widget _buildAIDetailSection(FileMetadata file) {
+    const aiColor = Color(0xFF26A69A);
+    const aiIcon = Icons.psychology;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: aiColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildDetailRow(tr('detail_ai_status'), file.aiStatus ?? '—', aiIcon, accentColor: aiColor),
+          const Divider(height: 16, color: Colors.white12),
+          _buildDetailRow(tr('detail_ai_category'), file.category ?? '—', aiIcon, accentColor: aiColor),
+          const Divider(height: 16, color: Colors.white12),
+          _buildDetailRow(tr('detail_ai_tags'), _aiTagsDisplay(file.tags), aiIcon, accentColor: aiColor),
+        ],
+      ),
+    );
+  }
+
   /// בונה שורת פרט
-  Widget _buildDetailRow(String label, String value, IconData icon, {bool isPath = false}) {
+  Widget _buildDetailRow(String label, String value, IconData icon, {bool isPath = false, Color? accentColor}) {
+    final iconColor = accentColor ?? Colors.grey.shade500;
     return Row(
       crossAxisAlignment: isPath ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade500),
+        Icon(icon, size: 18, color: iconColor),
         const SizedBox(width: 12),
         SizedBox(
           width: 80,

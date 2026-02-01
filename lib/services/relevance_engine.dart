@@ -10,8 +10,24 @@ class RelevanceEngine {
   static const int _ptsLocation = 80;
   static const int _ptsExtracted = 20;
   static const double _synonymFactor = 0.7;
-  static const double _coverageMultiplier = 1.5;
   static const int _exactPhraseBonus = 150;
+  static const int _aiMetadataBonus = 80;
+  static const double _multiWordSeverePenalty = 0.2;
+  static const double _multiWordFullBonus = 1.2;
+
+  static bool _isAllDigits(String s) =>
+      s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
+
+  /// התאמת מונח — מספרים: גבולות regex; אחרת: contains
+  static bool _termMatches(String text, String term) {
+    final t = _norm(term);
+    if (t.isEmpty) return false;
+    if (_isAllDigits(t)) {
+      final pattern = '(^|\\D)' + RegExp.escape(t) + r'(\D|$)';
+      return RegExp(pattern).hasMatch(text);
+    }
+    return text.contains(t);
+  }
 
   /// נתיב התיקייה (ללא שם הקובץ) — לחישוב locationText
   static String _locationText(FileMetadata file) {
@@ -22,15 +38,15 @@ class RelevanceEngine {
   }
 
   /// מחשב ציון + פירוט: התאמות ב־filename / location / extracted; rawTerms מלא, synonyms 70%
-  /// כולל Density Penalty ו־Exact Phrase Bonus
+  /// כולל Density Penalty, Exact Phrase Bonus, Strict Number, Multi-Word Penalty, AI Metadata
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
       String exactPhrase) {
     final rawSet = rawTerms.map((t) => _norm(t)).toSet();
+    final termsFound = <String>{};
     double score = 0;
     double namePts = 0, locPts = 0, extPts = 0;
 
-    /// Density penalty: score *= (termLength / foundTokenLength)
     double _densityFactor(String term, int foundTokenLen) {
       if (foundTokenLen <= 0) return 1.0;
       final factor = term.length / foundTokenLen;
@@ -41,15 +57,18 @@ class RelevanceEngine {
       final t = _norm(term);
       if (t.isEmpty) return;
       final pts = isRaw ? 1.0 : _synonymFactor;
-      if (fnLower.contains(t)) {
+      if (_termMatches(fnLower, term)) {
+        termsFound.add(t);
         final factor = _densityFactor(t, fnLower.length);
         namePts += _ptsFilename * pts * factor;
       }
-      if (locLower.contains(t)) {
+      if (_termMatches(locLower, term)) {
+        termsFound.add(t);
         final factor = _densityFactor(t, locLower.length);
         locPts += _ptsLocation * pts * factor;
       }
-      if (extLower.contains(t)) {
+      if (_termMatches(extLower, term)) {
+        termsFound.add(t);
         final factor = _densityFactor(t, extLower.length);
         extPts += _ptsExtracted * pts * factor;
       }
@@ -73,26 +92,63 @@ class RelevanceEngine {
       }
     }
 
+    // Multi-Word Penalty — קנס על התאמה חלקית, בונוס על התאמה מלאה
+    final totalQueryTerms = rawTerms.length;
+    if (totalQueryTerms > 0) {
+      final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
+      final termsFoundCount = rawNormSet.intersection(termsFound).length;
+      final matchRatio = termsFoundCount / totalQueryTerms;
+      if (matchRatio < 0.5) {
+        score *= _multiWordSeverePenalty;
+      } else if (matchRatio >= 1.0) {
+        score *= _multiWordFullBonus;
+      }
+    }
+
+    // AI Metadata — התאמה ל־category או tags
+    final cat = file.category?.toLowerCase();
+    final aiTags = file.tags?.map((t) => t.toLowerCase()).toList();
+    if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
+      for (final term in rawTerms) {
+        final t = _norm(term);
+        if (t.isEmpty) continue;
+        if (cat != null && (cat == t || cat.contains(t))) {
+          score += _aiMetadataBonus;
+          break;
+        }
+        if (aiTags != null && aiTags.any((tag) => tag == t || tag.contains(t))) {
+          score += _aiMetadataBonus;
+          break;
+        }
+      }
+    }
+
     final parts = <String>[];
     if (namePts > 0) parts.add('Name(${namePts.toInt()})');
     if (locPts > 0) parts.add('Loc(${locPts.toInt()})');
     if (extPts > 0) parts.add('Ext(${extPts.toInt()})');
-
     if (rawTerms.isNotEmpty) {
-      final hasAllRaw = rawTerms.every((t) {
-        final n = _norm(t);
-        return n.isNotEmpty && (fnLower.contains(n) || locLower.contains(n) || extLower.contains(n));
-      });
-      if (hasAllRaw) {
-        score *= _coverageMultiplier;
-        parts.add('Coverage×$_coverageMultiplier');
-      }
+      final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
+      final termsFoundCount = rawNormSet.intersection(termsFound).length;
+      final matchRatio = termsFoundCount / rawTerms.length;
+      if (matchRatio < 0.5) parts.add('MultiWord×$_multiWordSeverePenalty');
+      else if (matchRatio >= 1.0) parts.add('MultiWord×$_multiWordFullBonus');
     }
     if (exactPhrase.length >= 2) {
       final phraseLower = _norm(exactPhrase);
       if (fnLower.contains(phraseLower) || extLower.contains(phraseLower)) {
         parts.add('Exact+$_exactPhraseBonus');
       }
+    }
+    if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
+      var aiMatch = false;
+      for (final term in rawTerms) {
+        final t = _norm(term);
+        if (t.isEmpty) continue;
+        if (cat != null && (cat == t || cat.contains(t))) { aiMatch = true; break; }
+        if (aiTags != null && aiTags.any((tag) => tag == t || tag.contains(t))) { aiMatch = true; break; }
+      }
+      if (aiMatch) parts.add('AI+$_aiMetadataBonus');
     }
 
     final breakdown = parts.isEmpty ? 'No match' : parts.join(' + ');
