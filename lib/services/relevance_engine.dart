@@ -14,19 +14,21 @@ class RelevanceEngine {
   static const int _aiMetadataBonus = 80;
   static const double _multiWordSeverePenalty = 0.2;
   static const double _multiWordFullBonus = 1.2;
+  static const double _multiWordFullBonusAdd = 50.0;
 
   static bool _isAllDigits(String s) =>
       s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
 
-  /// התאמת מונח — מספרים: גבולות regex; אחרת: contains
+  /// התאמת מונח — אחרי נרמול (ניקוד, רווחים, לא־אלפאנומרי); מספרים: גבולות regex
   static bool _termMatches(String text, String term) {
-    final t = _norm(term);
+    final textNorm = _normalize(text);
+    final t = _normalize(term);
     if (t.isEmpty) return false;
     if (_isAllDigits(t)) {
       final pattern = '(^|\\D)' + RegExp.escape(t) + r'(\D|$)';
-      return RegExp(pattern).hasMatch(text);
+      return RegExp(pattern).hasMatch(textNorm);
     }
-    return text.contains(t);
+    return textNorm.contains(t);
   }
 
   /// נתיב התיקייה (ללא שם הקובץ) — לחישוב locationText
@@ -47,7 +49,7 @@ class RelevanceEngine {
     double score = 0;
     double namePts = 0, locPts = 0, extPts = 0;
 
-    double _densityFactor(String term, int foundTokenLen) {
+    double densityFactor(String term, int foundTokenLen) {
       if (foundTokenLen <= 0) return 1.0;
       final factor = term.length / foundTokenLen;
       return factor > 1.0 ? 1.0 : factor;
@@ -59,17 +61,17 @@ class RelevanceEngine {
       final pts = isRaw ? 1.0 : _synonymFactor;
       if (_termMatches(fnLower, term)) {
         termsFound.add(t);
-        final factor = _densityFactor(t, fnLower.length);
+        final factor = densityFactor(t, fnLower.length);
         namePts += _ptsFilename * pts * factor;
       }
       if (_termMatches(locLower, term)) {
         termsFound.add(t);
-        final factor = _densityFactor(t, locLower.length);
+        final factor = densityFactor(t, locLower.length);
         locPts += _ptsLocation * pts * factor;
       }
       if (_termMatches(extLower, term)) {
         termsFound.add(t);
-        final factor = _densityFactor(t, extLower.length);
+        final factor = densityFactor(t, extLower.length);
         extPts += _ptsExtracted * pts * factor;
       }
     }
@@ -84,15 +86,17 @@ class RelevanceEngine {
 
     score = namePts + locPts + extPts;
 
-    // Exact phrase bonus — התאמה מדויקת לשאילתה
+    // Exact phrase bonus — התאמה מדויקת (לאחר נרמול רווחים/שורות)
     if (exactPhrase.length >= 2) {
-      final phraseLower = _norm(exactPhrase);
-      if (fnLower.contains(phraseLower) || extLower.contains(phraseLower)) {
+      final phraseNorm = _normalize(exactPhrase);
+      final fnNorm = _normalize(fnLower);
+      final extNorm = _normalize(extLower);
+      if (fnNorm.contains(phraseNorm) || extNorm.contains(phraseNorm)) {
         score += _exactPhraseBonus;
       }
     }
 
-    // Multi-Word Penalty — קנס על התאמה חלקית, בונוס על התאמה מלאה
+    // Multi-Word — קנס על התאמה חלקית; בונוס + מכפיל על התאמה מלאה
     final totalQueryTerms = rawTerms.length;
     if (totalQueryTerms > 0) {
       final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
@@ -101,7 +105,7 @@ class RelevanceEngine {
       if (matchRatio < 0.5) {
         score *= _multiWordSeverePenalty;
       } else if (matchRatio >= 1.0) {
-        score *= _multiWordFullBonus;
+        score = (score * _multiWordFullBonus) + _multiWordFullBonusAdd;
       }
     }
 
@@ -124,19 +128,24 @@ class RelevanceEngine {
     }
 
     final parts = <String>[];
-    if (namePts > 0) parts.add('Name(${namePts.toInt()})');
-    if (locPts > 0) parts.add('Loc(${locPts.toInt()})');
-    if (extPts > 0) parts.add('Ext(${extPts.toInt()})');
+    if (namePts != 0) parts.add('Fn(${_fmtScore(namePts)})');
+    if (locPts != 0) parts.add('Loc(${_fmtScore(locPts)})');
+    if (extPts != 0) parts.add('Ext(${_fmtScore(extPts)})');
     if (rawTerms.isNotEmpty) {
       final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
       final termsFoundCount = rawNormSet.intersection(termsFound).length;
       final matchRatio = termsFoundCount / rawTerms.length;
-      if (matchRatio < 0.5) parts.add('MultiWord×$_multiWordSeverePenalty');
-      else if (matchRatio >= 1.0) parts.add('MultiWord×$_multiWordFullBonus');
+      if (matchRatio < 0.5) {
+        parts.add('MultiWord×$_multiWordSeverePenalty');
+      } else if (matchRatio >= 1.0) {
+        parts.add('MultiWord(x1.2+50)');
+      }
     }
     if (exactPhrase.length >= 2) {
-      final phraseLower = _norm(exactPhrase);
-      if (fnLower.contains(phraseLower) || extLower.contains(phraseLower)) {
+      final phraseNorm = _normalize(exactPhrase);
+      final fnNorm = _normalize(fnLower);
+      final extNorm = _normalize(extLower);
+      if (fnNorm.contains(phraseNorm) || extNorm.contains(phraseNorm)) {
         parts.add('Exact+$_exactPhraseBonus');
       }
     }
@@ -148,7 +157,7 @@ class RelevanceEngine {
         if (cat != null && (cat == t || cat.contains(t))) { aiMatch = true; break; }
         if (aiTags != null && aiTags.any((tag) => tag == t || tag.contains(t))) { aiMatch = true; break; }
       }
-      if (aiMatch) parts.add('AI+$_aiMetadataBonus');
+      if (aiMatch) parts.add('AI($_aiMetadataBonus)');
     }
 
     final breakdown = parts.isEmpty ? 'No match' : parts.join(' + ');
@@ -156,6 +165,20 @@ class RelevanceEngine {
   }
 
   static String _norm(String s) => s.trim().toLowerCase();
+
+  /// פורמט ציון לדיבוג — מספר שלם או עשרוני אחד
+  static String _fmtScore(double d) =>
+      d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(1);
+
+  /// נרמול לטקסט מ־PDF: הסרת ניקוד, רווחים מרובים, תווים לא־אלפאנומריים ("ק ב ל ה" → "קבלה")
+  static String _normalize(String input) {
+    var s = input.trim().toLowerCase();
+    // הסרת ניקוד עברי (U+0591–U+05BD, U+05BF–U+05C2, U+05C4–U+05C7)
+    s = s.replaceAll(RegExp(r'[\u0591-\u05BD\u05BF-\u05C2\u05C4-\u05C7]'), '');
+    s = s.replaceAll(RegExp(r'\s+'), '');
+    // שמירה רק על אותיות (כולל עברית) וספרות — טיפול ב־"H e b r e w" / "ק.ב.ל.ה"
+    return s.replaceAll(RegExp(r'[^a-z0-9\u0590-\u05FF]'), '');
+  }
 
   /// מדרג ומיין קבצים לפי ציון רלוונטיות; ממלא debugScore/debugScoreBreakdown; לוג Top 5
   static List<FileMetadata> rankAndSort(List<FileMetadata> files, SearchIntent intent) {

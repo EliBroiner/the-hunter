@@ -4,6 +4,7 @@ export 'ai_search_service.dart';
 export 'auth_service.dart';
 export 'backup_service.dart';
 export 'database_service.dart';
+export 'dev_logger.dart';
 export 'favorites_service.dart';
 export 'file_scanner_service.dart';
 export 'file_watcher_service.dart';

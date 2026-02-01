@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
+import '../services/dev_logger.dart';
 import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
@@ -27,6 +29,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isReindexing = false;
   int _reindexCurrent = 0;
   int _reindexTotal = 0;
+  /// Developer Mode — נסתר כברירת מחדל; נפתח ב־7 לחיצות על גרסה
+  bool _isDevMode = false;
 
   @override
   void initState() {
@@ -195,6 +199,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () => _showAboutSheet(context),
                 ),
               ],
+            ),
+            Visibility(
+              visible: _isDevMode,
+              maintainSize: false,
+              maintainAnimation: false,
+              child: _buildDeveloperConsoleSection(context, theme),
             ),
             const SizedBox(height: 24),
             
@@ -1338,63 +1348,163 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// מציג מידע על האפליקציה
+  Widget _buildDeveloperConsoleSection(BuildContext context, ThemeData theme) {
+    final devLogger = DevLogger.instance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.only(right: 16, bottom: 8),
+          child: Text(
+            'Developer Console',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Card(
+          margin: EdgeInsets.zero,
+          child: ExpansionTile(
+            leading: const Icon(Icons.terminal, size: 22),
+            title: const Text('Logs (last 100)'),
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: ValueListenableBuilder<List<String>>(
+                  valueListenable: devLogger.logsNotifier,
+                  builder: (context, logs, _) {
+                    if (logs.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'No logs yet.',
+                          style: TextStyle(color: theme.hintColor),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      itemCount: logs.length,
+                      itemBuilder: (context, i) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: SelectableText(
+                            logs[i],
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: TextButton.icon(
+                  onPressed: () => devLogger.clear(),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Clear'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// מציג מידע על האפליקציה; 7 לחיצות על גרסה פותחות Developer Mode
   void _showAboutSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        padding: EdgeInsets.only(
-          left: 24,
-          right: 24,
-          top: 24,
-          bottom: MediaQuery.of(context).padding.bottom + 88,
-        ),
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ידית
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade700,
-                borderRadius: BorderRadius.circular(2),
-              ),
+      builder: (sheetContext) => _AboutSheetContent(
+        onDevModeUnlock: () {
+          final messenger = ScaffoldMessenger.of(sheetContext);
+          Navigator.pop(sheetContext);
+          setState(() => _isDevMode = true);
+          messenger.showSnackBar(
+            const SnackBar(
+              content: const Text('Developer Mode Unlocked!'),
+              behavior: SnackBarBehavior.floating,
             ),
-            const SizedBox(height: 24),
-            
-            // לוגו
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(Icons.search, size: 40, color: Colors.white),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// תוכן גיליון "אודות" — 7 לחיצות על גרסה מפעילות Developer Mode
+class _AboutSheetContent extends StatefulWidget {
+  const _AboutSheetContent({required this.onDevModeUnlock});
+
+  final VoidCallback onDevModeUnlock;
+
+  @override
+  State<_AboutSheetContent> createState() => _AboutSheetContentState();
+}
+
+class _AboutSheetContentState extends State<_AboutSheetContent> {
+  int _tapCount = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).padding.bottom + 88,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1E3F),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade700,
+              borderRadius: BorderRadius.circular(2),
             ),
-            const SizedBox(height: 16),
-            
-            // שם
-            Text(
-              tr('app_name'),
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
+          ),
+          const SizedBox(height: 24),
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
               ),
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(height: 8),
-            
-            // גרסה
-            FutureBuilder<PackageInfo>(
+            child: const Icon(Icons.search, size: 40, color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            tr('app_name'),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () {
+              setState(() => _tapCount++);
+              if (_tapCount >= 7) widget.onDevModeUnlock();
+            },
+            child: FutureBuilder<PackageInfo>(
               future: PackageInfo.fromPlatform(),
               builder: (context, snapshot) {
                 final version = snapshot.data?.version ?? '1.0.0';
@@ -1405,27 +1515,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               },
             ),
-            const SizedBox(height: 16),
-            
-            // תיאור
-            Text(
-              tr('app_description_long'),
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade400),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            tr('app_description_long'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade400),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(tr('close')),
             ),
-            const SizedBox(height: 24),
-            
-            // כפתור סגירה
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(tr('close')),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }

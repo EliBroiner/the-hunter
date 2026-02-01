@@ -31,22 +31,32 @@ public class AnalyzeController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> AnalyzeBatch([FromBody] BatchRequest request)
     {
-        if (request.Documents == null || request.Documents.Count == 0)
-            return BadRequest(new ErrorResponse { Error = "Documents cannot be empty" });
-
-        var userId = string.IsNullOrEmpty(request.UserId) ? "anonymous" : request.UserId;
-        var count = request.Documents.Count;
-
-        if (!await _quotaService.CanUserScanAsync(userId, count))
+        Console.WriteLine("📥 [Server] Received request from client.");
+        try
         {
-            _logger.LogWarning("Quota exceeded for user {UserId}", userId);
-            return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 50 scans/month" });
+            if (request.Documents == null || request.Documents.Count == 0)
+                return BadRequest(new ErrorResponse { Error = "Documents cannot be empty" });
+
+            var userId = string.IsNullOrEmpty(request.UserId) ? "anonymous" : request.UserId;
+            var count = request.Documents.Count;
+
+            if (!await _quotaService.CanUserScanAsync(userId, count))
+            {
+                _logger.LogWarning("Quota exceeded for user {UserId}", userId);
+                return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 50 scans/month" });
+            }
+
+            var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents);
+            await _quotaService.IncrementUsageAsync(userId, count);
+
+            Console.WriteLine("✅ [Server] Successfully processed batch. Returning 200 OK.");
+            return Ok(results);
         }
-
-        var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents);
-        await _quotaService.IncrementUsageAsync(userId, count);
-
-        return Ok(results);
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ [Server] Error in processing: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>

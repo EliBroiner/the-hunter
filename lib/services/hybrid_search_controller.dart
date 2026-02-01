@@ -198,15 +198,22 @@ class HybridSearchController extends ChangeNotifier {
     await executeSearch(query);
   }
 
-  /// Dynamic Gap Filter — מסיר רעש כשקיים מנצח ברור (ציון גבוה)
+  /// Smart Cutoff — אם יש התאמה מושלמת (>200) מסתירים חלשים; אחרת cutoff יחסי
   static List<FileMetadata> _applyDynamicGapFilter(List<FileMetadata> results) {
     if (results.isEmpty) return results;
     results = List.from(results)
       ..sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
     final maxScore = results.first.debugScore ?? 0.0;
-    if (maxScore <= 50.0) return results;
-    final threshold = maxScore * 0.3;
-    return results.where((f) => (f.debugScore ?? 0) >= threshold).toList();
+    // Phase A: התאמה מושלמת (Exact + AI) — רק תוצאות ביטחון גבוה
+    if (maxScore > 200) {
+      return results.where((f) => (f.debugScore ?? 0) >= 100).toList();
+    }
+    // Phase B: התאמה טובה — cutoff יחסי
+    if (maxScore > 80) {
+      final threshold = maxScore * 0.4;
+      return results.where((f) => (f.debugScore ?? 0) >= threshold).toList();
+    }
+    return results;
   }
 
   /// המרת parser SearchIntent ל־API SearchIntent (לשימוש ב־lastIntent / תצוגה)

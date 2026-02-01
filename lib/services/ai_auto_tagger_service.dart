@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
 import 'database_service.dart';
+import 'dev_logger.dart';
 import 'knowledge_base_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
@@ -29,6 +30,10 @@ class AiAutoTaggerService {
   Timer? _flushTimer;
   bool _disposed = false;
   bool _backfillScheduled = false;
+  /// אצווה בהעלאה — לא לבטל גם אם המשתמש פעיל
+  bool _isUploading = false;
+
+  bool get isUploading => _isUploading;
 
   /// מאתחל ומתזמן Backfill לקבצים ישנים (3 שניות עיכוב)
   void initialize() {
@@ -120,21 +125,24 @@ class AiAutoTaggerService {
   Future<void> _sendBatch(List<FileMetadata> batch) async {
     if (batch.isEmpty) return;
 
-    final documents = <Map<String, String>>[];
-    for (final file in batch) {
-      String text = file.extractedText ?? '';
-      if (text.isEmpty) text = await _extractTextAsync(file);
-      final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
-      documents.add({'id': file.path, 'text': truncated});
-    }
-
+    _isUploading = true;
     try {
+      final documents = <Map<String, String>>[];
+      for (final file in batch) {
+        String text = file.extractedText ?? '';
+        if (text.isEmpty) text = await _extractTextAsync(file);
+        final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
+        documents.add({'id': file.path, 'text': truncated});
+      }
       final userId = 'anonymous'; // TODO: AuthService.instance.currentUser?.uid
       final body = jsonEncode({
         'userId': userId,
         'documents': documents.map((d) => {'id': d['id'], 'text': d['text']}).toList(),
       });
 
+      final sendMsg = '🚀 sending batch of ${batch.length} files to $_baseUrl';
+      debugPrint(sendMsg);
+      DevLogger.instance.log(sendMsg);
       final response = await http
           .post(
             Uri.parse(_baseUrl),
@@ -143,7 +151,12 @@ class AiAutoTaggerService {
           )
           .timeout(const Duration(seconds: 60));
 
+      debugPrint('📡 [Client] Response Status: ${response.statusCode}');
+      debugPrint('📄 [Client] Response Body: ${response.body}');
+      DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
+      DevLogger.instance.log('📄 [Client] Response Body: ${response.body}');
       if (response.statusCode == 200) {
+        DevLogger.instance.log('✅ Status: ${response.statusCode}');
         final list = jsonDecode(response.body) as List<dynamic>;
         for (final item in list) {
           final map = item as Map<String, dynamic>;
@@ -175,12 +188,17 @@ class AiAutoTaggerService {
         }
       }
     } catch (e) {
+      final errMsg = '💥 Error: $e';
+      debugPrint(errMsg);
+      DevLogger.instance.log(errMsg);
       appLog('AiAutoTagger: Network error - $e');
       for (final file in batch) {
         file.aiStatus = 'error';
         _updateInIsar(file);
         if (!_disposed) _queue.add(file);
       }
+    } finally {
+      _isUploading = false;
     }
   }
 

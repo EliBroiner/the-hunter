@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -71,6 +72,9 @@ class AutoScanManager with WidgetsBindingObserver {
   bool _isProcessing = false;
   bool _isPaused = false;  // האם העיבוד מושהה
   bool _hasLifecycleObserver = false;
+  bool _appInBackground = false;  // אפליקציה ברקע — לא להשהות סריקה
+  Timer? _resumeDebounceTimer;
+  static const Duration _resumeDebounce = Duration(seconds: 3);
   
   /// callback כשסריקה הושלמה
   Function(ScanResult result)? onScanComplete;
@@ -115,17 +119,24 @@ class AutoScanManager with WidgetsBindingObserver {
   void _onUserActivityChanged() {
     final isActive = UserActivityService.instance.isUserActive.value;
     if (isActive) {
-      // משתמש פעיל - להשהות
-      if (!_isPaused) {
+      _resumeDebounceTimer?.cancel();
+      // משתמש פעיל — להשהות רק אם באפליקציה (לא ברקע)
+      if (!_appInBackground && !_isPaused) {
         _isPaused = true;
         appLog('AutoScan: Paused (user active)');
       }
     } else {
-      // משתמש במנוחה - להמשיך
+      // משתמש במנוחה — דיבונס 3 שניות לפני המשך (מונע Ping-Pong)
       if (_isPaused) {
-        _isPaused = false;
-        appLog('AutoScan: Resumed (user idle)');
-        _resumeProcessingIfNeeded();
+        _resumeDebounceTimer?.cancel();
+        _resumeDebounceTimer = Timer(_resumeDebounce, () {
+          _resumeDebounceTimer = null;
+          if (_isPaused) {
+            _isPaused = false;
+            appLog('AutoScan: Resumed (user idle, debounced)');
+            _resumeProcessingIfNeeded();
+          }
+        });
       }
     }
   }
@@ -135,13 +146,14 @@ class AutoScanManager with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        // המשתמש חזר לאפליקציה - מצב התחלתי הוא פעיל עד שיוכח אחרת
-        // אבל UserActivityService ינהל את זה
+        _appInBackground = false;
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
-        // האפליקציה ברקע - אפשר להמשיך לעבוד (אלא אם כן מערכת ההפעלה תהרוג אותנו)
-        // במקרה הזה המשתמש לא פעיל באפליקציה
+        _appInBackground = true;
+        _resumeDebounceTimer?.cancel();
+        _resumeDebounceTimer = null;
+        // ברקע — להמשיך סריקה בלי קשר ל"פעילות משתמש"
         if (_isPaused) {
           _isPaused = false;
           appLog('AutoScan: Resumed (app backgrounded)');
@@ -155,8 +167,11 @@ class AutoScanManager with WidgetsBindingObserver {
   }
   
   /// ממשיך עיבוד קבצים ממתינים אם צריך
+  /// shouldPause: לא מחזיר true בזמן העלאה לשרת (אצווה אטומית)
+  bool _shouldPause() => _isPaused && !AiAutoTaggerService.instance.isUploading;
+
   Future<void> _resumeProcessingIfNeeded() async {
-    if (_isProcessing || _isPaused) return;
+    if (_isProcessing || _shouldPause()) return;
     
     final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
     if (pendingCount > 0) {
@@ -164,7 +179,7 @@ class AutoScanManager with WidgetsBindingObserver {
       _isProcessing = true;
       
       final result = await FileScannerService.instance.processPendingFiles(
-        shouldPause: () => _isPaused,
+        shouldPause: _shouldPause,
       );
       onProcessComplete?.call(result);
       
@@ -211,7 +226,7 @@ class AutoScanManager with WidgetsBindingObserver {
             onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים חדשים...');
             
             final processResult = await FileScannerService.instance.processPendingFiles(
-              shouldPause: () => _isPaused,
+              shouldPause: _shouldPause,
             );
             onProcessComplete?.call(processResult);
           }
@@ -243,7 +258,7 @@ class AutoScanManager with WidgetsBindingObserver {
         onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים...');
         
         final processResult = await FileScannerService.instance.processPendingFiles(
-          shouldPause: () => _isPaused,
+          shouldPause: _shouldPause,
         );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
@@ -308,7 +323,7 @@ class AutoScanManager with WidgetsBindingObserver {
         onStatusUpdate?.call('מחלץ טקסט...');
         
         final processResult = await FileScannerService.instance.processPendingFiles(
-          shouldPause: () => _isPaused,
+          shouldPause: _shouldPause,
         );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
@@ -332,7 +347,7 @@ class AutoScanManager with WidgetsBindingObserver {
       if (!_isProcessing && !_isPaused) {
         _isProcessing = true;
         await FileScannerService.instance.processPendingFiles(
-          shouldPause: () => _isPaused,
+          shouldPause: _shouldPause,
         );
         _isProcessing = false;
       }
@@ -343,6 +358,7 @@ class AutoScanManager with WidgetsBindingObserver {
 
   /// עוצר את כל השירותים
   Future<void> dispose() async {
+    _resumeDebounceTimer?.cancel();
     await FileWatcherService.instance.stopWatching();
     UserActivityService.instance.isUserActive.removeListener(_onUserActivityChanged);
   }
@@ -374,10 +390,7 @@ class _TheHunterAppState extends State<TheHunterApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      debugPrint('🛑 App pausing. Flushing AI queue...');
-      AiAutoTaggerService.instance.dispose();
-    }
+    // לא קוראים dispose() ברקע — מונע SocketException בהעלאה אטומית
   }
 
   // ערכת צבעים כהה
