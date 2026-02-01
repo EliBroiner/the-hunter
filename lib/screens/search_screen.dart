@@ -102,6 +102,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     _updateSearchStream();
     _initSpeech();
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
+    // שחזור חיבור Drive בהפעלה — אם המשתמש כבר התחבר בעבר, חיפוש יכלול Drive בלי ללחוץ "חבר Drive"
+    _googleDriveService.restoreSessionIfPossible();
   }
 
   void _onHybridControllerChanged() {
@@ -819,6 +821,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               ),
               child: Column(
                 children: [
+                  _buildAnalysisSmartBadge(file),
+                  const Divider(height: 20, color: Colors.white12),
                   _buildDetailRow(tr('detail_name'), file.name, Icons.insert_drive_file),
                   const Divider(height: 20, color: Colors.white12),
                   _buildDetailRow(tr('detail_type'), file.extension.toUpperCase(), Icons.category),
@@ -830,13 +834,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   _buildDetailRow(tr('detail_path'), file.path, Icons.folder_open, isPath: true),
                   if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
                     const Divider(height: 20, color: Colors.white12),
-                    _buildDetailRow(
-                      tr('detail_extracted_text'), 
-                      '${file.extractedText!.length} ${tr('detail_chars')}',
-                      Icons.text_snippet,
-                    ),
+                    _buildExtractedTextExpansion(file),
                   ],
-                  // AI Debug — סטטוס וקטגוריה ותגיות מ־AI
                   const Divider(height: 20, color: Colors.white12),
                   _buildAIDetailSection(file),
                 ],
@@ -868,12 +867,105 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  static String _aiTagsDisplay(List<String>? tags) {
-    final s = tags?.join(', ');
-    return (s != null && s.isNotEmpty) ? s : '—';
+  /// Smart Badge — מציג מקור התיוג (מילון / AI / מכסה / שגיאה / ממתין)
+  Widget _buildAnalysisSmartBadge(FileMetadata file) {
+    final String label;
+    final IconData icon;
+    final Color color;
+    if (file.aiStatus == 'local_match') {
+      label = '⚡ Auto-Tagged (Dictionary)';
+      icon = Icons.bolt;
+      color = const Color(0xFF26A69A); // Green/Teal
+    } else if (file.isAiAnalyzed && file.aiStatus == null) {
+      label = '✨ AI Analysis (Gemini)';
+      icon = Icons.auto_awesome;
+      color = const Color(0xFF9C27B0); // Purple
+    } else if (file.aiStatus == 'quotaLimit') {
+      label = '⚠️ Analysis Skipped (Quota)';
+      icon = Icons.warning_amber_rounded;
+      color = const Color(0xFFFF9800); // Orange
+    } else if (file.aiStatus == 'error') {
+      label = '❌ Analysis Failed';
+      icon = Icons.error_outline;
+      color = const Color(0xFFE53935); // Red
+    } else {
+      label = '⏳ Pending Analysis...';
+      icon = Icons.schedule;
+      color = Colors.grey;
+    }
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+        ),
+      ],
+    );
   }
 
-  /// בונה סקציית AI — צבע טורקיז ואייקון לבולטות ב־debug
+  /// ExpansionTile לטקסט מחולץ — תצוגה מקוצרת, הרחבה, והעתקה
+  Widget _buildExtractedTextExpansion(FileMetadata file) {
+    final text = file.extractedText ?? '';
+    final previewLines = text.split('\n').take(3).join('\n');
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.text_snippet, size: 18, color: Colors.grey.shade500),
+              const SizedBox(width: 8),
+              Text(
+                '📄 ${tr('detail_extracted_text')} (OCR)',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          if (previewLines.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              previewLines,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textDirection: _isHebrew(previewLines) ? TextDirection.rtl : TextDirection.ltr,
+            ),
+          ],
+        ],
+      ),
+      children: [
+        SelectableText(
+          text,
+          style: const TextStyle(fontSize: 13),
+          textDirection: _isHebrew(text) ? TextDirection.rtl : TextDirection.ltr,
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: text));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Copied'), duration: Duration(seconds: 2)),
+              );
+            },
+            icon: const Icon(Icons.copy, size: 18),
+            label: const Text('Copy'),
+          ),
+        ),
+      ],
+      initiallyExpanded: false,
+    );
+  }
+
+  /// בונה סקציית AI — קטגוריה + תגיות כ־Chips
   Widget _buildAIDetailSection(FileMetadata file) {
     const aiColor = Color(0xFF26A69A);
     const aiIcon = Icons.psychology;
@@ -886,11 +978,25 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDetailRow(tr('detail_ai_status'), file.aiStatus ?? '—', aiIcon, accentColor: aiColor),
-          const Divider(height: 16, color: Colors.white12),
           _buildDetailRow(tr('detail_ai_category'), file.category ?? '—', aiIcon, accentColor: aiColor),
-          const Divider(height: 16, color: Colors.white12),
-          _buildDetailRow(tr('detail_ai_tags'), _aiTagsDisplay(file.tags), aiIcon, accentColor: aiColor),
+          if (file.tags != null && file.tags!.isNotEmpty) ...[
+            const Divider(height: 16, color: Colors.white12),
+            Text(
+              tr('detail_ai_tags'),
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: file.tags!.map((tag) => Chip(
+                label: Text(tag, style: const TextStyle(fontSize: 12)),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              )).toList(),
+            ),
+          ],
         ],
       ),
     );

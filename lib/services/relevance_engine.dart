@@ -15,6 +15,12 @@ class RelevanceEngine {
   static const double _multiWordSeverePenalty = 0.2;
   static const double _multiWordFullBonus = 1.2;
   static const double _multiWordFullBonusAdd = 50.0;
+  /// בונוס לשם קובץ עברי נקי; קנס לשם מערכת/קריפטי
+  static const double _hebrewNameBonus = 45.0;
+  static const double _crypticNamePenalty = -35.0;
+  static final RegExp _hebrewChars = RegExp(r'[\u0590-\u05FF]');
+  static final RegExp _guidLikeName = RegExp(r'^[a-fA-F0-9\-]{20,}$');
+  static final RegExp _pdfDotNumbers = RegExp(r'^pdf\.\d+', caseSensitive: false);
 
   static bool _isAllDigits(String s) =>
       s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
@@ -86,6 +92,16 @@ class RelevanceEngine {
 
     score = namePts + locPts + extPts;
 
+    // עדיפות שפה: בונוס לשם עברי נקי, קנס לשם מערכת (GUID, pdf.123)
+    final baseName = fnLower.contains('.') ? fnLower.substring(0, fnLower.lastIndexOf('.')) : fnLower;
+    if (baseName.length >= 20 && _guidLikeName.hasMatch(baseName)) {
+      score += _crypticNamePenalty;
+    } else if (_pdfDotNumbers.hasMatch(fnLower)) {
+      score += _crypticNamePenalty;
+    } else if (_hebrewChars.hasMatch(file.name) && baseName.length >= 2) {
+      score += _hebrewNameBonus;
+    }
+
     // Exact phrase bonus — התאמה מדויקת (לאחר נרמול רווחים/שורות)
     if (exactPhrase.length >= 2) {
       final phraseNorm = _normalize(exactPhrase);
@@ -148,6 +164,13 @@ class RelevanceEngine {
       if (fnNorm.contains(phraseNorm) || extNorm.contains(phraseNorm)) {
         parts.add('Exact+$_exactPhraseBonus');
       }
+    }
+    if (baseName.length >= 20 && _guidLikeName.hasMatch(baseName)) {
+      parts.add('Cryptic($_crypticNamePenalty)');
+    } else if (_pdfDotNumbers.hasMatch(fnLower)) {
+      parts.add('Cryptic($_crypticNamePenalty)');
+    } else if (_hebrewChars.hasMatch(file.name) && baseName.length >= 2) {
+      parts.add('Hebrew+$_hebrewNameBonus');
     }
     if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
       var aiMatch = false;

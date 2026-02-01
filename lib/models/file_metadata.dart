@@ -76,6 +76,10 @@ class FileMetadata {
   @Ignore()
   String? debugScoreBreakdown;
 
+  /// גיבוב תוכן (אופציונלי) — לדה־דופליקציה כשמוגדר
+  @Ignore()
+  String? contentHash;
+
   FileMetadata();
 
   /// יוצר אובייקט FileMetadata מאובייקט File

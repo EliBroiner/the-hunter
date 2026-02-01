@@ -9,6 +9,7 @@ import 'database_service.dart';
 import 'google_drive_service.dart';
 import 'log_service.dart';
 import 'relevance_engine.dart';
+import 'search_result_cleanup.dart';
 
 /// קונטרולר חיפוש: מקומי + Drive במקביל; אם שניהם ריקים — AI Rescue + RelevanceEngine
 class HybridSearchController extends ChangeNotifier {
@@ -113,9 +114,21 @@ class HybridSearchController extends ChangeNotifier {
     notifyListeners();
 
     final isPro = _isPremium();
-    final isSignedIn = _driveService.isConnected;
     final hasNet = _hasNetwork();
+    // חיבור ל-Drive רק למשתמשי פרימיום: שחזור סשן (שקט) או מסך התחברות בפעם הראשונה
+    if (isPro && !_driveService.isConnected) {
+      await _driveService.restoreSessionIfPossible();
+      if (!_driveService.isConnected && hasNet) {
+        final connected = await _driveService.connect();
+        if (connected) {
+          await executeSearch(query);
+          return;
+        }
+      }
+    }
+    final isSignedIn = _driveService.isConnected;
     debugPrint('User Pro: $isPro, SignedIn: $isSignedIn, Internet: $hasNet');
+    // חיפוש ב-Drive רק לפרימיום, כשמחובר ויש רשת
     final shouldSearchDrive = isPro && isSignedIn && hasNet;
 
     final parserIntent = await parser.SmartSearchParser.parseAsync(query);
@@ -140,8 +153,8 @@ class HybridSearchController extends ChangeNotifier {
       _localResults = localResults;
       _driveResults = driveResults;
 
-      // שלב ג: AI Rescue — רק אם מקומי + Drive ריקים
-      if (localResults.isEmpty && driveResults.isEmpty && isPro) {
+      // שלב ג: AI Rescue — רק אם מקומי + Drive ריקים, פרימיום, ויש רשת
+      if (localResults.isEmpty && driveResults.isEmpty && isPro && hasNet) {
         onAILoading?.call(true);
         _isAISearching = true;
         notifyListeners();
@@ -158,7 +171,8 @@ class HybridSearchController extends ChangeNotifier {
               : <FileMetadata>[];
           local2 = local2.where((file) => file.isCloud || File(file.path).existsSync()).toList();
           final merged = [...local2, ...drive2];
-          var combined = RelevanceEngine.rankAndSort(merged, semanticIntent);
+          final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
+          var combined = RelevanceEngine.rankAndSort(cleaned, semanticIntent);
           combined = _applyDynamicGapFilter(combined);
           _localResults = local2;
           _driveResults = drive2;
@@ -171,11 +185,12 @@ class HybridSearchController extends ChangeNotifier {
         }
       }
 
-      // מיזוג ומיון — מקומי + Drive כבר ממוינים; מיישמים rankAndSort על המאוחד
+      // מיזוג, סינון/דה־דופ, מיון — מקומי + Drive; אחר כך rankAndSort
       final merged = [...localResults, ...driveResults];
-      var ranked = merged.isEmpty
+      final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
+      var ranked = cleaned.isEmpty
           ? <FileMetadata>[]
-          : RelevanceEngine.rankAndSort(merged, parserIntent);
+          : RelevanceEngine.rankAndSort(cleaned, parserIntent);
       _results = _applyDynamicGapFilter(ranked);
       _isSmartSearchActive = _results.isNotEmpty;
       onResults?.call(_results, isFromAI: false);
@@ -198,22 +213,39 @@ class HybridSearchController extends ChangeNotifier {
     await executeSearch(query);
   }
 
-  /// Smart Cutoff — אם יש התאמה מושלמת (>200) מסתירים חלשים; אחרת cutoff יחסי
+  /// קליפינג סופי: כלל פער (>50% צניחה), סף מינימלי (50), לוג
+  static const double _gapRatioThreshold = 0.5;
+  static const double _minScoreThreshold = 50.0;
+  static const double _strongMatchThreshold = 150.0;
+
   static List<FileMetadata> _applyDynamicGapFilter(List<FileMetadata> results) {
     if (results.isEmpty) return results;
-    results = List.from(results)
+    final list = List<FileMetadata>.from(results)
       ..sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
-    final maxScore = results.first.debugScore ?? 0.0;
-    // Phase A: התאמה מושלמת (Exact + AI) — רק תוצאות ביטחון גבוה
-    if (maxScore > 200) {
-      return results.where((f) => (f.debugScore ?? 0) >= 100).toList();
+
+    // כלל פער: ברגע שציון יורד ביותר מ־50% מהקודם — זורקים מהנקודה הזו והלאה
+    int keepCount = list.length;
+    for (int i = 1; i < list.length; i++) {
+      final prev = list[i - 1].debugScore ?? 0;
+      final curr = list[i].debugScore ?? 0;
+      if (prev > 0 && curr < prev * _gapRatioThreshold) {
+        keepCount = i;
+        break;
+      }
     }
-    // Phase B: התאמה טובה — cutoff יחסי
-    if (maxScore > 80) {
-      final threshold = maxScore * 0.4;
-      return results.where((f) => (f.debugScore ?? 0) >= threshold).toList();
+    var clipped = list.sublist(0, keepCount);
+
+    // סף מוחלט: אם יש התאמות חזקות (150+) — מסירים תוצאות מתחת ל־50
+    final hasStrongMatch = clipped.any((f) => (f.debugScore ?? 0) >= _strongMatchThreshold);
+    if (hasStrongMatch) {
+      clipped = clipped.where((f) => (f.debugScore ?? 0) >= _minScoreThreshold).toList();
     }
-    return results;
+
+    final dropped = list.length - clipped.length;
+    if (dropped > 0) {
+      appLog('[Search] Clipping: Keeping top ${clipped.length} results, dropping $dropped results due to score gap.');
+    }
+    return clipped;
   }
 
   /// המרת parser SearchIntent ל־API SearchIntent (לשימוש ב־lastIntent / תצוגה)

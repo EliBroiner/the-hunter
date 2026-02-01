@@ -84,9 +84,17 @@ class AiSearchService {
       }
     }
 
+    // שנה נשארת גם ב־terms כמילת מפתח (לחיפוש Drive/מקומי)
+    final terms = List<String>.from(apiIntent.terms);
+    if (explicitYear != null &&
+        explicitYear.trim().isNotEmpty &&
+        !terms.any((t) => t.trim() == explicitYear!.trim())) {
+      terms.add(explicitYear!);
+    }
+
     return SearchIntent(
       rawTerms: rawTerms,
-      terms: apiIntent.terms,
+      terms: terms,
       explicitYear: explicitYear,
       dateFrom: dateFrom,
       dateTo: dateTo,

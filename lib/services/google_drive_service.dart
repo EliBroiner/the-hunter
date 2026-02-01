@@ -64,6 +64,21 @@ class GoogleDriveService {
     // רק מנקים את ה-API client
   }
 
+  /// שחזור סשן Drive בהפעלה — signInSilently בלי UI; אם המשתמש כבר התחבר בעבר, isConnected יהיה true
+  Future<void> restoreSessionIfPossible() async {
+    if (_driveApi != null) return;
+    try {
+      final user = await _googleSignIn.signInSilently();
+      if (user == null) return;
+      final authHeaders = await user.authHeaders;
+      final client = GoogleAuthClient(authHeaders);
+      _driveApi = drive.DriveApi(client);
+      appLog('Drive: Session restored (signInSilently).');
+    } catch (e) {
+      appLog('Drive: Restore session failed - $e');
+    }
+  }
+
   /// חיפוש קבצים ב-Drive — תומך ב-SearchIntent (מונחים, שנה מפורשת, MIME); מיון ב-RelevanceEngine
   /// [intent] — intent מפרסר; [query] — חיפוש פשוט כאשר אין intent
   Future<List<FileMetadata>> searchFiles({SearchIntent? intent, String? query}) async {
@@ -78,6 +93,7 @@ class GoogleDriveService {
     if (effectiveIntent == null) return [];
 
     try {
+      appLog('[DriveSearch]: Initiating search with terms: ${effectiveIntent.terms}');
       appLog('Drive: Searching with intent: $effectiveIntent');
       final q = _buildDriveQuery(effectiveIntent);
       if (q.isEmpty) return [];
@@ -89,6 +105,7 @@ class GoogleDriveService {
       );
 
       if (fileList.files == null || fileList.files!.isEmpty) {
+        appLog('[DriveSearch]: Found 0 results');
         return [];
       }
 
@@ -109,6 +126,7 @@ class GoogleDriveService {
           ..cloudThumbnailLink = driveFile.thumbnailLink;
       }).toList();
 
+      appLog('[DriveSearch]: Found ${list.length} results');
       return RelevanceEngine.rankAndSort(list, effectiveIntent);
     } catch (e) {
       appLog('Drive: Search error - $e');

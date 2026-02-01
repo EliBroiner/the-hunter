@@ -1,13 +1,14 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
+import 'ai_auto_tagger_service.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
+import 'knowledge_base_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
 import 'text_extraction_service.dart';
-
 import 'user_activity_service.dart';
 
 /// מפתח לשמירת תיקיות נבחרות
@@ -779,6 +780,17 @@ class FileScannerService {
             }
           }
           
+          // Filter First: נסיון התאמה מקומית (חינם) — רק אם נכשל שולחים לענן
+          final localCategory = await KnowledgeBaseService.instance.findMatchingCategory(extractedText);
+          if (localCategory != null) {
+            file.category = localCategory.category;
+            file.tags = localCategory.tags;
+            file.isAiAnalyzed = true;
+            file.aiStatus = 'local_match';
+          } else if (extractedText.length > 5) {
+            AiAutoTaggerService.instance.addToQueue(file);
+          }
+          
           _databaseService.updateFile(file);
 
           filesProcessed++;
@@ -849,6 +861,17 @@ class FileScannerService {
             if (newTags.isNotEmpty) {
               file.tags = [...currentTags, ...newTags];
             }
+          }
+          
+          // Filter First: נסיון התאמה מקומית (חינם) — רק אם נכשל שולחים לענן
+          final localCategory = await KnowledgeBaseService.instance.findMatchingCategory(extractedText);
+          if (localCategory != null) {
+            file.category = localCategory.category;
+            file.tags = localCategory.tags;
+            file.isAiAnalyzed = true;
+            file.aiStatus = 'local_match';
+          } else if (extractedText.length > 5) {
+            AiAutoTaggerService.instance.addToQueue(file);
           }
           
           _databaseService.updateFile(file);

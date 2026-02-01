@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
+import 'auth_service.dart';
 import 'database_service.dart';
 import 'dev_logger.dart';
 import 'knowledge_base_service.dart';
@@ -134,7 +135,7 @@ class AiAutoTaggerService {
         final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
         documents.add({'id': file.path, 'text': truncated});
       }
-      final userId = 'anonymous'; // TODO: AuthService.instance.currentUser?.uid
+      final userId = AuthService.instance.currentUser?.uid ?? 'anonymous';
       final body = jsonEncode({
         'userId': userId,
         'documents': documents.map((d) => {'id': d['id'], 'text': d['text']}).toList(),
@@ -168,7 +169,9 @@ class AiAutoTaggerService {
           if (file == null) continue;
 
           file.category = result['category'] as String?;
-          file.tags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          final newTags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          final existing = file.tags ?? [];
+          file.tags = [...existing, ...newTags.where((t) => !existing.contains(t))].toList();
           file.isAiAnalyzed = true;
           file.aiStatus = null;
           _updateInIsar(file);
