@@ -163,6 +163,15 @@ class DatabaseService {
     }
   }
 
+  /// מחזיר קבצים שלא נותחו ב-AI — ל-Backfill (extractedText קיים, aiStatus != quotaLimit)
+  List<FileMetadata> getUnanalyzedFilesForAiBackfill() {
+    final all = isar.fileMetadatas.where().findAll();
+    return all.where((f) =>
+        !f.isAiAnalyzed &&
+        (f.extractedText != null && f.extractedText!.isNotEmpty) &&
+        f.aiStatus != 'quotaLimit').toList();
+  }
+
   /// מחזיר את כל הקבצים
   List<FileMetadata> getAllFiles() {
     final files = isar.fileMetadatas.where().findAll();

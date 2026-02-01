@@ -47,6 +47,7 @@ void main() async {
   await DatabaseService.instance.init();
   await KnowledgeBaseService.instance.initialize();
   SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
+  AiAutoTaggerService.instance.initialize(); // Backfill קבצים ישנים (3s delay)
   await SettingsService.instance.init();
   await FavoritesService.instance.init();
   await RecentFilesService.instance.init();

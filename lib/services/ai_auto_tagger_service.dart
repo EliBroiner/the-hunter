@@ -28,6 +28,31 @@ class AiAutoTaggerService {
   final List<FileMetadata> _queue = [];
   Timer? _flushTimer;
   bool _disposed = false;
+  bool _backfillScheduled = false;
+
+  /// מאתחל ומתזמן Backfill לקבצים ישנים (3 שניות עיכוב)
+  void initialize() {
+    if (_backfillScheduled) return;
+    _backfillScheduled = true;
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!_disposed) processUnanalyzedFiles();
+    });
+  }
+
+  /// Backfill — מוסיף קבצים ישנים (extractedText קיים, ללא AI) לתור
+  Future<void> processUnanalyzedFiles() async {
+    if (_disposed) return;
+    try {
+      final legacy = DatabaseService.instance.getUnanalyzedFilesForAiBackfill();
+      debugPrint('Found ${legacy.length} legacy files. Adding to AI queue...');
+      for (final file in legacy) {
+        if (_disposed) break;
+        await addToQueue(file);
+      }
+    } catch (e) {
+      appLog('AiAutoTagger: Backfill failed - $e');
+    }
+  }
 
   /// מוסיף קובץ לתור — בודק קודם התאמה מקומית
   Future<void> addToQueue(FileMetadata file) async {
