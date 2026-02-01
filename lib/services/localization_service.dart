@@ -305,6 +305,9 @@ class LocalizationService {
     'ai_analyzing': 'מנתח...',
     'section_on_device': 'במכשיר',
     'section_google_drive': 'מ-Google Drive',
+    'tab_local': 'במכשיר',
+    'tab_cloud': 'ענן',
+    'tab_cloud_empty': 'לא נמצאו קבצים בענן',
     'show_more': 'הצג עוד...',
 
     // הגדרות
@@ -675,6 +678,9 @@ class LocalizationService {
     'ai_analyzing': 'Analyzing...',
     'section_on_device': 'On This Device',
     'section_google_drive': 'From Google Drive',
+    'tab_local': 'Device',
+    'tab_cloud': 'Cloud',
+    'tab_cloud_empty': 'No cloud files found',
     'show_more': 'Show More...',
 
     // Settings

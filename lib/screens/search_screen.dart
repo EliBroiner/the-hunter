@@ -41,7 +41,7 @@ class SearchScreen extends StatefulWidget {
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderStateMixin {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   final _databaseService = DatabaseService.instance;
@@ -76,6 +76,8 @@ class _SearchScreenState extends State<SearchScreen> {
   // חיפוש חכם (AI) — נשלט על ידי HybridSearchController
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
+
+  late TabController _resultsTabController;
   
   // מצב בחירה מרובה
   bool _isSelectionMode = false;
@@ -96,6 +98,7 @@ class _SearchScreenState extends State<SearchScreen> {
       ..onResults = _onHybridResults
       ..onAILoading = _onHybridAILoading;
     _hybridController.addListener(_onHybridControllerChanged);
+    _resultsTabController = TabController(length: 2, vsync: this);
     _updateSearchStream();
     _initSpeech();
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
@@ -164,6 +167,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _resultsTabController.dispose();
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
     _hybridController.removeListener(_onHybridControllerChanged);
     _hybridController.dispose();
@@ -2762,7 +2766,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// תוצאות חיפוש חכם — שני אזורים: במכשיר (עם "הצג עוד") + Google Drive
+  /// תוצאות חיפוש חכם — טאבים: במכשיר | ענן (Google Drive)
   Widget _buildSmartSearchResults(ThemeData theme) {
     final local = _hybridController.localResults;
     final drive = _hybridController.driveResults;
@@ -2807,94 +2811,121 @@ class _SearchScreenState extends State<SearchScreen> {
             ],
           ),
         ),
+        TabBar(
+          controller: _resultsTabController,
+          labelColor: theme.colorScheme.primary,
+          unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          indicatorColor: theme.colorScheme.primary,
+          indicatorSize: TabBarIndicatorSize.label,
+          tabs: [
+            Tab(text: '${tr('tab_local')} (${local.length})'),
+            Tab(text: '${tr('tab_cloud')} (${drive.length})'),
+          ],
+        ),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: _onRefresh,
-            color: theme.colorScheme.primary,
-            backgroundColor: theme.colorScheme.surface,
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              children: [
-                // Section 1: On This Device
-                Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 4),
-                  child: Text(
-                    tr('section_on_device'),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                ...localVisible.asMap().entries.map((e) {
-                  final file = e.value;
-                  return TweenAnimationBuilder<double>(
-                    key: ValueKey(file.path),
-                    tween: Tween(begin: 0.0, end: 1.0),
-                    duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, value, child) {
-                      return Opacity(
-                        opacity: value,
-                        child: Transform.translate(
-                          offset: Offset(0, 20 * (1 - value)),
-                          child: child,
-                        ),
-                      );
-                    },
-                    child: _buildResultItem(file),
-                  );
-                }),
-                if (hasMoreLocal)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Center(
-                      child: TextButton(
-                        onPressed: () => _hybridController.showMoreLocal(),
-                        child: Text(tr('show_more')),
-                      ),
-                    ),
-                  ),
-                // Section 2: From Google Drive
-                if (drive.isNotEmpty) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16, bottom: 4),
-                    child: Text(
-                      tr('section_google_drive'),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                  ...drive.asMap().entries.map((e) {
-                    final file = e.value;
-                    return TweenAnimationBuilder<double>(
-                      key: ValueKey(file.path),
-                      tween: Tween(begin: 0.0, end: 1.0),
-                      duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
-                      curve: Curves.easeOutCubic,
-                      builder: (context, value, child) {
-                        return Opacity(
-                          opacity: value,
-                          child: Transform.translate(
-                            offset: Offset(0, 20 * (1 - value)),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: _buildResultItem(file),
-                    );
-                  }),
-                ],
-              ],
-            ),
+          child: TabBarView(
+            controller: _resultsTabController,
+            children: [
+              _buildLocalResultsList(theme, localVisible, hasMoreLocal),
+              _buildCloudResultsList(theme, drive),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLocalResultsList(ThemeData theme, List<FileMetadata> localVisible, bool hasMoreLocal) {
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      color: theme.colorScheme.primary,
+      backgroundColor: theme.colorScheme.surface,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
+          ...localVisible.asMap().entries.map((e) {
+            final file = e.value;
+            return TweenAnimationBuilder<double>(
+              key: ValueKey(file.path),
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 20 * (1 - value)),
+                    child: child,
+                  ),
+                );
+              },
+              child: _buildResultItem(file),
+            );
+          }),
+          if (hasMoreLocal)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Center(
+                child: TextButton(
+                  onPressed: () => _hybridController.showMoreLocal(),
+                  child: Text(tr('show_more')),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCloudResultsList(ThemeData theme, List<FileMetadata> drive) {
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      color: theme.colorScheme.primary,
+      backgroundColor: theme.colorScheme.surface,
+      child: drive.isEmpty
+          ? ListView(
+              padding: const EdgeInsets.all(40),
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade500),
+                      const SizedBox(height: 12),
+                      Text(
+                        tr('tab_cloud_empty'),
+                        style: TextStyle(color: Colors.grey.shade500),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: drive.asMap().entries.map((e) {
+                final file = e.value;
+                return TweenAnimationBuilder<double>(
+                  key: ValueKey(file.cloudId ?? file.path),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, 20 * (1 - value)),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildResultItem(file),
+                );
+              }).toList(),
+            ),
     );
   }
 
