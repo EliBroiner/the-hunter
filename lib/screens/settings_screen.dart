@@ -1,5 +1,4 @@
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
@@ -1442,7 +1441,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           setState(() => _isDevMode = true);
           messenger.showSnackBar(
             const SnackBar(
-              content: const Text('Developer Mode Unlocked!'),
+              content: Text('Developer Mode Unlocked!'),
               behavior: SnackBarBehavior.floating,
             ),
           );

@@ -30,9 +30,6 @@ lib/
 # התקנת חבילות
 flutter pub get
 
-# קבצי tessdata ל-OCR (אנגלית + עברית) – חובה לפני build ראשון
-./scripts/download_tessdata.ps1   # Windows PowerShell
-
 # יצירת קוד Isar
 dart run build_runner build --delete-conflicting-outputs
 

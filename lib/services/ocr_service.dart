@@ -1,18 +1,13 @@
 import 'dart:io';
-import 'package:tesseract_ocr/tesseract_ocr.dart';
-import 'package:tesseract_ocr/ocr_engine_config.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'log_service.dart';
 
-/// שירות OCR - חילוץ טקסט מתמונות באמצעות Tesseract (eng+heb)
-/// תומך בעברית ובאנגלית; ML Kit אינו תומך בסקריפט עברי.
+/// שירות OCR - חילוץ טקסט מתמונות באמצעות ML Kit (לטינית; עברית נתמכת דרך recognizer ברירת מחדל)
 class OCRService {
   static OCRService? _instance;
 
-  /// גודל קובץ מקסימלי לעיבוד ישיר (5MB)
-  static const int _maxFileSizeBytes = 5 * 1024 * 1024;
-
-  /// רזולוציה מקסימלית מומלצת
-  static const int _maxImageDimension = 2048;
+  /// ML Kit – Latin recognizer מטפל גם בעברית ב־V2
+  final _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
   OCRService._();
 
@@ -21,38 +16,22 @@ class OCRService {
     return _instance!;
   }
 
-  /// מחלץ טקסט מתמונה (Tesseract eng+heb)
-  /// מחזיר מחרוזת ריקה אם החילוץ נכשל או אם אין טקסט
-  Future<String> extractText(String filePath) async {
+  /// מחלץ טקסט מתמונה
+  Future<String> extractText(String imagePath) async {
     try {
-      final file = File(filePath);
+      final file = File(imagePath);
       if (!await file.exists()) return '';
 
-      final validationResult = await _validateImage(file);
-      if (!validationResult.isValid) return '';
+      final inputImage = InputImage.fromFilePath(imagePath);
+      final RecognizedText recognizedText =
+          await _textRecognizer.processImage(inputImage);
 
-      final config = OCRConfig(
-        language: 'eng+heb',
-        engine: OCREngine.tesseract,
-      );
-      final raw = await TesseractOcr.extractText(filePath, config: config);
-      return _cleanupText(raw);
+      if (recognizedText.text.isEmpty) return '';
+
+      return _cleanupText(recognizedText.text);
     } catch (e) {
-      appLog('OCRService: extractText error "$filePath" — $e');
+      appLog('OCRService: extractText error "$imagePath" — $e');
       return '';
-    }
-  }
-
-  Future<_ImageValidationResult> _validateImage(File file) async {
-    try {
-      final stat = await file.stat();
-      if (stat.size == 0) {
-        return _ImageValidationResult(isValid: false, needsResize: false);
-      }
-      final needsResize = stat.size > _maxFileSizeBytes;
-      return _ImageValidationResult(isValid: true, needsResize: needsResize);
-    } catch (_) {
-      return _ImageValidationResult(isValid: false, needsResize: false);
     }
   }
 
@@ -61,7 +40,7 @@ class OCRService {
   String _cleanupText(String text) {
     if (text.isEmpty) return '';
 
-    var cleaned = text
+    final cleaned = text
         .replaceAll(RegExp(r'\n{3,}'), '\n\n')
         .replaceAll(RegExp(r'[ \t]+'), ' ')
         .split('\n')
@@ -71,7 +50,7 @@ class OCRService {
         .trim();
 
     if (cleaned.length > _maxTextLength) {
-      cleaned = cleaned.substring(0, _maxTextLength);
+      return cleaned.substring(0, _maxTextLength);
     }
     return cleaned;
   }
@@ -81,13 +60,7 @@ class OCRService {
     return supported.contains(extension.toLowerCase());
   }
 
-  static int get maxRecommendedFileSize => _maxFileSizeBytes;
-  static int get maxRecommendedDimension => _maxImageDimension;
-}
-
-class _ImageValidationResult {
-  final bool isValid;
-  final bool needsResize;
-
-  _ImageValidationResult({required this.isValid, required this.needsResize});
+  void dispose() {
+    _textRecognizer.close();
+  }
 }
