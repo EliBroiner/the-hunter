@@ -780,15 +780,18 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      builder: (context) => SafeArea(
+        top: false,
+        bottom: true,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1E1E3F),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             // ידית למשיכה
             Container(
               width: 40,
@@ -875,10 +878,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 child: Text(tr('close')),
               ),
             ),
-            
-            SizedBox(height: MediaQuery.of(context).padding.bottom),
+            SizedBox(height: 20),
           ],
         ),
+      ),
       ),
     );
   }

@@ -744,6 +744,8 @@ class FileScannerService {
 
       // עיבוד תמונות עם OCR - בקצב מבוקר
       for (final file in pendingImages) {
+        appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
+
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
         if (UserActivityService.instance.isUserActive.value) {
           appLog('PROCESS: Paused (user active), waiting for idle...');
@@ -792,6 +794,7 @@ class FileScannerService {
           }
           
           _databaseService.updateFile(file);
+          appLog('✅ Done processing: ${file.path}');
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
@@ -800,16 +803,16 @@ class FileScannerService {
           _checkAndTriggerBackup(filesProcessed);
           
         } catch (e) {
-          // סימון הקובץ כמעובד גם אם נכשל - כדי לא לנסות שוב ושוב
+          appLog('❌ CRASH on file: ${file.path} - Error: $e');
+          // סימון הקובץ כמעובד כדי שהלולאה לא תיתקע — לא לנסות שוב
           file.isIndexed = true;
           file.extractedText = '';
+          file.aiStatus = 'error';
           _databaseService.updateFile(file);
           filesProcessed++;
           
           // בדיקת גיבוי ביניים גם במקרה כישלון (הקובץ סומן כמעובד)
           _checkAndTriggerBackup(filesProcessed);
-          
-          appLog('PROCESS: Failed to process ${file.name}: $e');
         }
 
         batchCount++;
@@ -827,6 +830,8 @@ class FileScannerService {
 
       // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
+        appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
+
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
         if (UserActivityService.instance.isUserActive.value) {
           appLog('PROCESS: Paused (user active), waiting for idle...');
@@ -875,6 +880,7 @@ class FileScannerService {
           }
           
           _databaseService.updateFile(file);
+          appLog('✅ Done processing: ${file.path}');
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
@@ -883,15 +889,16 @@ class FileScannerService {
           _checkAndTriggerBackup(filesProcessed);
           
         } catch (e) {
+          appLog('❌ CRASH on file: ${file.path} - Error: $e');
+          // סימון הקובץ כמעובד כדי שהלולאה לא תיתקע — לא לנסות שוב
           file.isIndexed = true;
           file.extractedText = '';
+          file.aiStatus = 'error';
           _databaseService.updateFile(file);
           filesProcessed++;
           
           // בדיקת גיבוי ביניים
           _checkAndTriggerBackup(filesProcessed);
-          
-          appLog('PROCESS: Failed to process ${file.name}: $e');
         }
 
         batchCount++;

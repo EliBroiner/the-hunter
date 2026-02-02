@@ -8,14 +8,16 @@ class RelevanceEngine {
 
   static const int _ptsFilename = 100;
   static const int _ptsLocation = 80;
-  /// תוכן: התאמת מילה שלמה (גבוהה) vs תת־מחרוזת (נמוכה) — מונע "ביבי" ב־"שביבים"
-  static const int _ptsContentWholeWord = 50;
-  static const int _ptsContentSubstring = 5;
+  /// תוכן: Query Coverage Ratio — ציון מקסימלי מחולק לפי כמות מילות השאילתה; התאמות חלקיות מקבלות ציון נמוך
+  static const double _maxContentScore = 200.0;
   static const double _synonymFactor = 0.7;
   static const int _exactPhraseBonus = 150;
   static const int _aiMetadataBonus = 80;
   /// בונוס ל-Drive: אין תוכן מחולץ — התאמות בשם קובץ שוקלות יותר כדי לאזן מול מקומי
   static const double _driveMetadataBonus = 55.0;
+  /// בונוס סמיכות: זוגות מונחי שאילתה שמופיעים consecutively בתוכן (מקסימום 4 זוגות = 100 נקודות)
+  static const double _adjacentPairBonus = 25.0;
+  static const int _adjacentPairCap = 4;
   static const double _multiWordSeverePenalty = 0.2;
   static const double _multiWordFullBonus = 1.2;
   static const double _multiWordFullBonusAdd = 50.0;
@@ -59,14 +61,38 @@ class RelevanceEngine {
     return p.substring(0, i);
   }
 
-  /// מחשב ציון + פירוט: filename (חלקי OK), location, תוכן (מילה שלמה גבוה / תת־מחרוזת נמוך)
+  /// סופר כמה זוגות סמוכים (מונח-מונח) מהשאילתה מופיעים consecutively בתוכן — כל זוג נספר פעם אחת
+  static int _countUniqueAdjacentPairs(List<String> rawTerms, String contentWithSpaces) {
+    if (contentWithSpaces.isEmpty) return 0;
+    final terms = rawTerms.map((t) => _norm(t)).where((s) => s.isNotEmpty).toList();
+    if (terms.length < 2) return 0;
+    final queryPairs = <String>{};
+    for (var i = 0; i < terms.length - 1; i++) {
+      queryPairs.add('${terms[i]} ${terms[i + 1]}');
+    }
+    final words = contentWithSpaces
+        .split(RegExp(r'\s+'))
+        .map((s) => _norm(s))
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (words.length < 2) return 0;
+    final foundPairs = <String>{};
+    for (var i = 0; i < words.length - 1; i++) {
+      final pair = '${words[i]} ${words[i + 1]}';
+      if (queryPairs.contains(pair)) foundPairs.add(pair);
+    }
+    return foundPairs.length;
+  }
+
+  /// מחשב ציון + פירוט: filename, location, תוכן (Query Coverage Ratio — כמות מילות שאילתה שמופיעות בתוכן)
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
       String extRaw, String exactPhrase) {
     final rawSet = rawTerms.map((t) => _norm(t)).toSet();
     final termsFound = <String>{};
+    final contentTermsFound = <String>{};
     double score = 0;
-    double namePts = 0, locPts = 0, extPtsWhole = 0, extPtsSub = 0;
+    double namePts = 0, locPts = 0;
 
     double densityFactor(String term, int foundTokenLen) {
       if (foundTokenLen <= 0) return 1.0;
@@ -88,13 +114,11 @@ class RelevanceEngine {
         final factor = densityFactor(t, locLower.length);
         locPts += _ptsLocation * pts * factor;
       }
-      // תוכן: מילה שלמה (גבוה) vs תת־מחרוזת (נמוך)
-      if (extRaw.isNotEmpty && _wholeWordInContent(extRaw, term)) {
+      // תוכן: סופרים רק מונחי שאילתה (raw) שמופיעים — ציון לפי Query Coverage Ratio
+      final inContent = extRaw.isNotEmpty && (_wholeWordInContent(extRaw, term) || extLower.contains(t));
+      if (inContent) {
         termsFound.add(t);
-        extPtsWhole += _ptsContentWholeWord * pts;
-      } else if (extLower.contains(t)) {
-        termsFound.add(t);
-        extPtsSub += _ptsContentSubstring * pts;
+        if (isRaw) contentTermsFound.add(t);
       }
     }
 
@@ -106,7 +130,14 @@ class RelevanceEngine {
       addPts(term, false);
     }
 
-    score = namePts + locPts + extPtsWhole + extPtsSub;
+    final queryWordCount = rawTerms.isEmpty ? 0 : rawTerms.length;
+    final weightPerWord = queryWordCount > 0 ? _maxContentScore / queryWordCount : 0.0;
+    final contentScore = contentTermsFound.length * weightPerWord;
+    score = namePts + locPts + contentScore;
+
+    // בונוס סמיכות — מונחים שמופיעים consecutively בתוכן (כל זוג ייחודי נספר פעם אחת)
+    final adjacencyCount = _countUniqueAdjacentPairs(rawTerms, extRaw);
+    score += (adjacencyCount > _adjacentPairCap ? _adjacentPairCap : adjacencyCount) * _adjacentPairBonus;
 
     // Drive: בונוס מטאדאטה — התאמות בשם קובץ שוקלות יותר (אין OCR)
     if (file.isCloud && namePts > 0) {
@@ -167,8 +198,8 @@ class RelevanceEngine {
     final parts = <String>[];
     if (namePts != 0) parts.add('Fn(${_fmtScore(namePts)})');
     if (locPts != 0) parts.add('Loc(${_fmtScore(locPts)})');
-    if (extPtsWhole != 0) parts.add('ExtW(${_fmtScore(extPtsWhole)})');
-    if (extPtsSub != 0) parts.add('ExtS(${_fmtScore(extPtsSub)})');
+    if (contentScore != 0) parts.add('Content(${_fmtScore(contentScore)})');
+    if (adjacencyCount > 0) parts.add('Adj($adjacencyCount)');
     if (rawTerms.isNotEmpty) {
       final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
       final termsFoundCount = rawNormSet.intersection(termsFound).length;
