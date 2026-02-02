@@ -8,10 +8,14 @@ class RelevanceEngine {
 
   static const int _ptsFilename = 100;
   static const int _ptsLocation = 80;
-  static const int _ptsExtracted = 20;
+  /// תוכן: התאמת מילה שלמה (גבוהה) vs תת־מחרוזת (נמוכה) — מונע "ביבי" ב־"שביבים"
+  static const int _ptsContentWholeWord = 50;
+  static const int _ptsContentSubstring = 5;
   static const double _synonymFactor = 0.7;
   static const int _exactPhraseBonus = 150;
   static const int _aiMetadataBonus = 80;
+  /// בונוס ל-Drive: אין תוכן מחולץ — התאמות בשם קובץ שוקלות יותר כדי לאזן מול מקומי
+  static const double _driveMetadataBonus = 55.0;
   static const double _multiWordSeverePenalty = 0.2;
   static const double _multiWordFullBonus = 1.2;
   static const double _multiWordFullBonusAdd = 50.0;
@@ -37,6 +41,16 @@ class RelevanceEngine {
     return textNorm.contains(t);
   }
 
+  /// התאמת מילה שלמה בתוכן — גבולות: לא אות/ספרה (עברית/אנגלית) לפני ואחרי
+  static bool _wholeWordInContent(String contentWithSpaces, String term) {
+    final t = _norm(term);
+    if (t.isEmpty || contentWithSpaces.isEmpty) return false;
+    final escaped = RegExp.escape(t);
+    // [^\w] = לא אות/ספרה; unicode: true כדי ש־\w יכלול עברית
+    final boundary = RegExp('(^|[^\\w])' + escaped + r'([^\w]|$)', unicode: true);
+    return boundary.hasMatch(contentWithSpaces);
+  }
+
   /// נתיב התיקייה (ללא שם הקובץ) — לחישוב locationText
   static String _locationText(FileMetadata file) {
     final p = file.path;
@@ -45,15 +59,14 @@ class RelevanceEngine {
     return p.substring(0, i);
   }
 
-  /// מחשב ציון + פירוט: התאמות ב־filename / location / extracted; rawTerms מלא, synonyms 70%
-  /// כולל Density Penalty, Exact Phrase Bonus, Strict Number, Multi-Word Penalty, AI Metadata
+  /// מחשב ציון + פירוט: filename (חלקי OK), location, תוכן (מילה שלמה גבוה / תת־מחרוזת נמוך)
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
-      String exactPhrase) {
+      String extRaw, String exactPhrase) {
     final rawSet = rawTerms.map((t) => _norm(t)).toSet();
     final termsFound = <String>{};
     double score = 0;
-    double namePts = 0, locPts = 0, extPts = 0;
+    double namePts = 0, locPts = 0, extPtsWhole = 0, extPtsSub = 0;
 
     double densityFactor(String term, int foundTokenLen) {
       if (foundTokenLen <= 0) return 1.0;
@@ -75,10 +88,13 @@ class RelevanceEngine {
         final factor = densityFactor(t, locLower.length);
         locPts += _ptsLocation * pts * factor;
       }
-      if (_termMatches(extLower, term)) {
+      // תוכן: מילה שלמה (גבוה) vs תת־מחרוזת (נמוך)
+      if (extRaw.isNotEmpty && _wholeWordInContent(extRaw, term)) {
         termsFound.add(t);
-        final factor = densityFactor(t, extLower.length);
-        extPts += _ptsExtracted * pts * factor;
+        extPtsWhole += _ptsContentWholeWord * pts;
+      } else if (extLower.contains(t)) {
+        termsFound.add(t);
+        extPtsSub += _ptsContentSubstring * pts;
       }
     }
 
@@ -90,7 +106,12 @@ class RelevanceEngine {
       addPts(term, false);
     }
 
-    score = namePts + locPts + extPts;
+    score = namePts + locPts + extPtsWhole + extPtsSub;
+
+    // Drive: בונוס מטאדאטה — התאמות בשם קובץ שוקלות יותר (אין OCR)
+    if (file.isCloud && namePts > 0) {
+      score += _driveMetadataBonus;
+    }
 
     // עדיפות שפה: בונוס לשם עברי נקי, קנס לשם מערכת (GUID, pdf.123)
     final baseName = fnLower.contains('.') ? fnLower.substring(0, fnLower.lastIndexOf('.')) : fnLower;
@@ -146,7 +167,8 @@ class RelevanceEngine {
     final parts = <String>[];
     if (namePts != 0) parts.add('Fn(${_fmtScore(namePts)})');
     if (locPts != 0) parts.add('Loc(${_fmtScore(locPts)})');
-    if (extPts != 0) parts.add('Ext(${_fmtScore(extPts)})');
+    if (extPtsWhole != 0) parts.add('ExtW(${_fmtScore(extPtsWhole)})');
+    if (extPtsSub != 0) parts.add('ExtS(${_fmtScore(extPtsSub)})');
     if (rawTerms.isNotEmpty) {
       final rawNormSet = rawTerms.map((t) => _norm(t)).toSet();
       final termsFoundCount = rawNormSet.intersection(termsFound).length;
@@ -182,6 +204,7 @@ class RelevanceEngine {
       }
       if (aiMatch) parts.add('AI($_aiMetadataBonus)');
     }
+    if (file.isCloud && namePts > 0) parts.add('Drive+$_driveMetadataBonus');
 
     final breakdown = parts.isEmpty ? 'No match' : parts.join(' + ');
     return (score, breakdown);
@@ -223,11 +246,12 @@ class RelevanceEngine {
       final fn = file.name;
       final loc = _locationText(file);
       final ext = file.extractedText ?? '';
+      final extRaw = ext.trim().toLowerCase();
       final fnLower = _norm(fn);
       final locLower = _norm(loc);
       final extLower = _norm(ext);
       final (score, breakdown) = _scoreWithBreakdown(
-          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower, exactPhrase);
+          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower, extRaw, exactPhrase);
       file.debugScore = score;
       file.debugScoreBreakdown = breakdown;
       return _ScoredFile(file, score);

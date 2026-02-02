@@ -34,6 +34,8 @@ class HybridSearchController extends ChangeNotifier {
   Timer? _debounceTimer;
 
   List<FileMetadata> _results = [];
+  List<FileMetadata> _primaryResults = [];
+  List<FileMetadata> _secondaryResults = [];
   List<FileMetadata> _localResults = [];
   List<FileMetadata> _driveResults = [];
   bool _isLocalSearching = false;
@@ -42,11 +44,17 @@ class HybridSearchController extends ChangeNotifier {
   bool _isSmartSearchActive = false;
   SearchIntent? _lastIntent;
   String _currentQuery = '';
+  /// 0 = All (מקומי תמיד; Drive רק אם אין תוצאות מקומיות), 1 = Local (מקומי בלבד), 2 = Drive (מקומי + Drive במקביל)
+  int _activeTab = 0;
 
   /// כמות תוצאות מקומיות להצגה (פגינציה) — מתאפס בכל חיפוש חדש
   int visibleLocalCount = 10;
 
   List<FileMetadata> get results => List.unmodifiable(_results);
+  /// תוצאות עם ציון >= 70% מהמקסימלי (להצגה ראשונית)
+  List<FileMetadata> get primaryResults => List.unmodifiable(_primaryResults);
+  /// תוצאות עם ציון < 70% (מוסתרות מאחורי "הצג עוד")
+  List<FileMetadata> get secondaryResults => List.unmodifiable(_secondaryResults);
   List<FileMetadata> get localResults => List.unmodifiable(_localResults);
   List<FileMetadata> get driveResults => List.unmodifiable(_driveResults);
   bool get isLocalSearching => _isLocalSearching;
@@ -61,6 +69,14 @@ class HybridSearchController extends ChangeNotifier {
   bool get isSmartSearchActive => _isSmartSearchActive;
   SearchIntent? get lastIntent => _lastIntent;
   String get currentQuery => _currentQuery;
+  int get activeTab => _activeTab;
+
+  /// עדכון טאב תוצאות: 0 = All, 1 = Local, 2 = Drive — משפיע על executeSearch הבא
+  void setActiveTab(int index) {
+    if (_activeTab == index) return;
+    _activeTab = index.clamp(0, 2);
+    notifyListeners();
+  }
 
   /// Callback לתוצאות סופיות (מקומי או AI)
   void Function(List<FileMetadata> results, {required bool isFromAI})? onResults;
@@ -93,6 +109,8 @@ class HybridSearchController extends ChangeNotifier {
 
   void _resetState() {
     _results = [];
+    _primaryResults = [];
+    _secondaryResults = [];
     _localResults = [];
     _driveResults = [];
     _isLocalSearching = false;
@@ -103,10 +121,9 @@ class HybridSearchController extends ChangeNotifier {
     _currentQuery = '';
   }
 
-  /// מריץ חיפוש מלא: מקומי + Drive (מקביל); אם שניהם ריקים — AI Rescue + rankAndSort
+  /// מריץ חיפוש: מקומי תמיד (baseline); Drive לפי טאב — All: רק אם מקומי ריק, Local: לא, Drive: במקביל
   Future<void> executeSearch(String query) async {
     _currentQuery = query;
-    _isLocalSearching = true;
     _isAISearching = false;
     _isSmartSearchActive = false;
     _lastIntent = null;
@@ -115,7 +132,6 @@ class HybridSearchController extends ChangeNotifier {
 
     final isPro = _isPremium();
     final hasNet = _hasNetwork();
-    // חיבור ל-Drive רק למשתמשי פרימיום: שחזור סשן (שקט) או מסך התחברות בפעם הראשונה
     if (isPro && !_driveService.isConnected) {
       await _driveService.restoreSessionIfPossible();
       if (!_driveService.isConnected && hasNet) {
@@ -127,33 +143,38 @@ class HybridSearchController extends ChangeNotifier {
       }
     }
     final isSignedIn = _driveService.isConnected;
-    debugPrint('User Pro: $isPro, SignedIn: $isSignedIn, Internet: $hasNet');
-    // חיפוש ב-Drive רק לפרימיום, כשמחובר ויש רשת
     final shouldSearchDrive = isPro && isSignedIn && hasNet;
-
     final parserIntent = await parser.SmartSearchParser.parseAsync(query);
 
     try {
-      // שלב א (מקומי) + שלב ב (Drive) — במקביל
+      // כלל: חיפוש מקומי תמיד רץ (baseline) — לעולם לא מדלגים
+      final runDriveParallel = _activeTab == 2 && shouldSearchDrive; // טאב Drive: מקומי + Drive במקביל
+      final runDriveAfterEmpty = _activeTab == 0 && shouldSearchDrive; // טאב All: Drive רק אם מקומי ריק
+
       _isLocalSearching = true;
-      _isDriveSearching = shouldSearchDrive;
+      _isDriveSearching = runDriveParallel;
       notifyListeners();
+
       final localFuture = _databaseService.localSmartSearch(parserIntent);
-      final driveFuture = shouldSearchDrive
+      final driveFuture = runDriveParallel
           ? _driveService.searchFiles(intent: parserIntent)
-          : Future<List<FileMetadata>>.value([]);
+          : Future<List<FileMetadata>>.value(<FileMetadata>[]);
 
       var localResults = await localFuture;
-      final driveResults = await driveFuture;
-      _isLocalSearching = false;
-      _isDriveSearching = false;
-
-      // הסרת קבצים שנמחקו מהדיסק — מונע קריסה על נתיבים לא קיימים
       localResults = localResults.where((file) => file.isCloud || File(file.path).existsSync()).toList();
       _localResults = localResults;
+      _isLocalSearching = false;
+
+      var driveResults = await driveFuture;
+      if (runDriveAfterEmpty && localResults.isEmpty) {
+        _isDriveSearching = true;
+        notifyListeners();
+        driveResults = await _driveService.searchFiles(intent: parserIntent);
+      }
+      _isDriveSearching = false;
       _driveResults = driveResults;
 
-      // שלב ג: AI Rescue — רק אם מקומי + Drive ריקים, פרימיום, ויש רשת
+      // שלב ג: AI Rescue — רק אם מקומי + Drive ריקים, פרימיום, ויש רשת; לא Drive כשטאב Local
       if (localResults.isEmpty && driveResults.isEmpty && isPro && hasNet) {
         onAILoading?.call(true);
         _isAISearching = true;
@@ -166,7 +187,7 @@ class HybridSearchController extends ChangeNotifier {
 
         if (semanticIntent != null && semanticIntent.hasContent) {
           var local2 = await _databaseService.localSmartSearch(semanticIntent);
-          final drive2 = shouldSearchDrive
+          final drive2 = (shouldSearchDrive && _activeTab != 1)
               ? await _driveService.searchFiles(intent: semanticIntent)
               : <FileMetadata>[];
           local2 = local2.where((file) => file.isCloud || File(file.path).existsSync()).toList();
@@ -177,6 +198,7 @@ class HybridSearchController extends ChangeNotifier {
           _localResults = local2;
           _driveResults = drive2;
           _results = combined;
+          _splitPrimarySecondary();
           _lastIntent = _parserIntentToApi(semanticIntent);
           _isSmartSearchActive = combined.isNotEmpty;
           onResults?.call(combined, isFromAI: true);
@@ -192,6 +214,7 @@ class HybridSearchController extends ChangeNotifier {
           ? <FileMetadata>[]
           : RelevanceEngine.rankAndSort(cleaned, parserIntent);
       _results = _applyDynamicGapFilter(ranked);
+      _splitPrimarySecondary();
       _isSmartSearchActive = _results.isNotEmpty;
       onResults?.call(_results, isFromAI: false);
       notifyListeners();
@@ -202,6 +225,8 @@ class HybridSearchController extends ChangeNotifier {
       _isDriveSearching = false;
       _isAISearching = false;
       _results = [];
+      _primaryResults = [];
+      _secondaryResults = [];
       _localResults = [];
       _driveResults = [];
       onResults?.call([], isFromAI: false);
@@ -213,15 +238,65 @@ class HybridSearchController extends ChangeNotifier {
     await executeSearch(query);
   }
 
-  /// קליפינג סופי: כלל פער (>50% צניחה), סף מינימלי (50), לוג
+  /// חיפוש Drive בלבד — לשימוש: מעבר לטאב Drive או לחיצה על "חפש ב-Drive"; ממזג עם _localResults הקיימים
+  Future<void> executeDriveSearchOnly(String query) async {
+    _currentQuery = query;
+    final isPro = _isPremium();
+    final hasNet = _hasNetwork();
+    if (!isPro || !_driveService.isConnected || !hasNet) {
+      _driveResults = [];
+      _results = List<FileMetadata>.from(_localResults);
+      if (_results.isNotEmpty) {
+        final parserIntent = await parser.SmartSearchParser.parseAsync(query);
+        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, parserIntent));
+      }
+      _splitPrimarySecondary();
+      onResults?.call(_results, isFromAI: false);
+      notifyListeners();
+      return;
+    }
+    final parserIntent = await parser.SmartSearchParser.parseAsync(query);
+    _isDriveSearching = true;
+    notifyListeners();
+    try {
+      final driveResults = await _driveService.searchFiles(intent: parserIntent);
+      _driveResults = driveResults;
+      final merged = [..._localResults, ...driveResults];
+      final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
+      var ranked = RelevanceEngine.rankAndSort(cleaned, parserIntent);
+      _results = _applyDynamicGapFilter(ranked);
+      _splitPrimarySecondary();
+      _isSmartSearchActive = _results.isNotEmpty;
+      onResults?.call(_results, isFromAI: false);
+    } catch (e) {
+      appLog('HybridSearch DriveOnly ERROR: $e');
+      _driveResults = [];
+      _results = List<FileMetadata>.from(_localResults);
+      if (_results.isNotEmpty) {
+        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, parserIntent));
+      }
+      _splitPrimarySecondary();
+      onResults?.call(_results, isFromAI: false);
+    } finally {
+      _isDriveSearching = false;
+      notifyListeners();
+    }
+  }
+
+  /// קליפינג סופי: כלל פער (>50% צניחה), סף מינימלי (50), סינון רעש (top>80 → הסתר <10); שומר תוצאות Drive שנפלו
   static const double _gapRatioThreshold = 0.5;
   static const double _minScoreThreshold = 50.0;
   static const double _strongMatchThreshold = 150.0;
+  static const double _topScoreNoiseGate = 80.0;
+  static const double _noiseFilterThreshold = 10.0;
+  static const double _drivePreserveMinScore = 20.0;
+  static const int _drivePreserveMaxCount = 15;
 
   static List<FileMetadata> _applyDynamicGapFilter(List<FileMetadata> results) {
     if (results.isEmpty) return results;
     final list = List<FileMetadata>.from(results)
       ..sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
+    final clippedSet = <String>{};
 
     // כלל פער: ברגע שציון יורד ביותר מ־50% מהקודם — זורקים מהנקודה הזו והלאה
     int keepCount = list.length;
@@ -234,11 +309,32 @@ class HybridSearchController extends ChangeNotifier {
       }
     }
     var clipped = list.sublist(0, keepCount);
+    for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
 
     // סף מוחלט: אם יש התאמות חזקות (150+) — מסירים תוצאות מתחת ל־50
     final hasStrongMatch = clipped.any((f) => (f.debugScore ?? 0) >= _strongMatchThreshold);
     if (hasStrongMatch) {
       clipped = clipped.where((f) => (f.debugScore ?? 0) >= _minScoreThreshold).toList();
+      clippedSet.clear();
+      for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
+    }
+
+    // סינון רעש: אם התוצאה הראשונה > 80 — מסירים תוצאות עם ציון < 10
+    if (clipped.isNotEmpty && (clipped.first.debugScore ?? 0) > _topScoreNoiseGate) {
+      clipped = clipped.where((f) => (f.debugScore ?? 0) >= _noiseFilterThreshold).toList();
+      clippedSet.clear();
+      for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
+    }
+
+    // שימור Drive: תוצאות ענן שנפלו אבל ציון >= 20 — מחזירים עד 15 כדי שלא ייעלמו
+    final droppedDrive = list
+        .where((f) => f.isCloud && !clippedSet.contains(f.path + (f.cloudId ?? '')) && (f.debugScore ?? 0) >= _drivePreserveMinScore)
+        .toList()
+      ..sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
+    final toAdd = droppedDrive.take(_drivePreserveMaxCount).toList();
+    if (toAdd.isNotEmpty) {
+      clipped = [...clipped, ...toAdd];
+      clipped.sort((a, b) => (b.debugScore ?? 0).compareTo(a.debugScore ?? 0));
     }
 
     final dropped = list.length - clipped.length;
@@ -246,6 +342,19 @@ class HybridSearchController extends ChangeNotifier {
       appLog('[Search] Clipping: Keeping top ${clipped.length} results, dropping $dropped results due to score gap.');
     }
     return clipped;
+  }
+
+  /// פיצול ל־Primary (ציון >= 70% מהמקסימלי) ו־Secondary (השאר) — להצגה עם "הצג עוד"
+  void _splitPrimarySecondary() {
+    if (_results.isEmpty) {
+      _primaryResults = [];
+      _secondaryResults = [];
+      return;
+    }
+    final maxScore = _results.first.debugScore ?? 0;
+    final cutoff = maxScore * 0.7;
+    _primaryResults = _results.where((f) => (f.debugScore ?? 0) >= cutoff).toList();
+    _secondaryResults = _results.where((f) => (f.debugScore ?? 0) < cutoff).toList();
   }
 
   /// המרת parser SearchIntent ל־API SearchIntent (לשימוש ב־lastIntent / תצוגה)

@@ -76,6 +76,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   // חיפוש חכם (AI) — נשלט על ידי HybridSearchController
   bool _isSmartSearchActive = false;
   SearchIntent? _lastSmartIntent;
+  /// האם להציג גם תוצאות Secondary (ציון < 70% מהמקסימלי)
+  bool _showAllSearchResults = false;
 
   late TabController _resultsTabController;
   
@@ -98,7 +100,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       ..onResults = _onHybridResults
       ..onAILoading = _onHybridAILoading;
     _hybridController.addListener(_onHybridControllerChanged);
-    _resultsTabController = TabController(length: 2, vsync: this);
+    _resultsTabController = TabController(length: 3, vsync: this);
+    _resultsTabController.addListener(_onResultsTabChanged);
     _updateSearchStream();
     _initSpeech();
     _settingsService.isPremiumNotifier.addListener(_onPremiumChanged);
@@ -110,13 +113,25 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     if (mounted) setState(() {});
   }
 
+  /// סנכרון טאב תוצאות עם הקונטרולר; מעבר לטאב Drive מפעיל חיפוש מקומי+Drive במקביל
+  void _onResultsTabChanged() {
+    if (_resultsTabController.indexIsChanging) return; // מריצים רק כשהאנימציה נגמרת
+    final index = _resultsTabController.index.clamp(0, 2);
+    _hybridController.setActiveTab(index);
+    if (index == 2) {
+      final q = _searchController.text.trim();
+      if (q.length >= 2) _hybridController.executeSearch(q);
+    }
+    if (mounted) setState(() {});
+  }
+
   void _onHybridResults(List<FileMetadata> results, {required bool isFromAI}) {
     if (!mounted) return;
     setState(() {
       _hybridResultsOverride = results.isNotEmpty ? results : null;
       _isSmartSearchActive = results.isNotEmpty;
       _lastSmartIntent = _hybridController.lastIntent;
-      // Drive כבר כלול ב-results של הקונטרולר — מונע כפילות ב-mergeWithCloud
+      _showAllSearchResults = false; // איפוס "הצג עוד" בכל חיפוש חדש
       if (_hybridResultsOverride != null) _cloudResults = [];
     });
     _updateSearchStream();
@@ -169,6 +184,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   @override
   void dispose() {
+    _resultsTabController.removeListener(_onResultsTabChanged);
     _resultsTabController.dispose();
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
     _hybridController.removeListener(_onHybridControllerChanged);
@@ -2815,7 +2831,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '${results.length} תוצאות',
+                      _searchController.text.trim().isEmpty
+                          ? 'סך הכל קבצים: ${results.length}'
+                          : 'נמצאו ${results.length} תוצאות',
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.w600,
@@ -2872,13 +2890,29 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
-  /// תוצאות חיפוש חכם — טאבים: במכשיר | ענן (Google Drive)
+  /// תוצאות חיפוש חכם — טאבים "הכל" / "מקומי" / "Drive"; מקומי תמיד רץ; Drive לפי טאב + כפתור "חפש ב-Drive"
   Widget _buildSmartSearchResults(ThemeData theme) {
-    final local = _hybridController.localResults;
-    final drive = _hybridController.driveResults;
-    final visible = _hybridController.visibleLocalCount;
-    final localVisible = local.take(visible).toList();
-    final hasMoreLocal = local.length > visible;
+    final primary = _hybridController.primaryResults;
+    final secondary = _hybridController.secondaryResults;
+    final totalCount = primary.length + secondary.length;
+    final tabIndex = _resultsTabController.index.clamp(0, 2);
+    final isAllTab = tabIndex == 0;
+    final isLocalTab = tabIndex == 1;
+    final isDriveTab = tabIndex == 2;
+    final localOnly = _hybridController.results.where((f) => !f.isCloud).toList();
+    final driveOnly = _hybridController.results.where((f) => f.isCloud).toList();
+    final canSearchDrive = _settingsService.isPremium && _googleDriveService.isConnected;
+    final showSearchDriveChip = isAllTab &&
+        _hybridController.localResults.isNotEmpty &&
+        _hybridController.driveResults.isEmpty &&
+        canSearchDrive &&
+        _searchController.text.trim().length >= 2;
+
+    String countLabel() {
+      if (isDriveTab) return 'נמצאו ${driveOnly.length} תוצאות Drive';
+      if (isLocalTab) return 'נמצאו ${localOnly.length} תוצאות מקומי';
+      return 'נמצאו $totalCount תוצאות';
+    }
 
     return Column(
       children: [
@@ -2893,7 +2927,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '${local.length + drive.length} תוצאות',
+                  countLabel(),
                   style: TextStyle(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.w600,
@@ -2921,23 +2955,76 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           controller: _resultsTabController,
           labelColor: theme.colorScheme.primary,
           unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          indicatorColor: theme.colorScheme.primary,
-          indicatorSize: TabBarIndicatorSize.label,
-          tabs: [
-            Tab(text: '${tr('tab_local')} (${local.length})'),
-            Tab(text: '${tr('tab_cloud')} (${drive.length})'),
+          tabs: const [
+            Tab(text: 'הכל'),
+            Tab(text: 'מקומי'),
+            Tab(text: 'Drive'),
           ],
         ),
         Expanded(
-          child: TabBarView(
-            controller: _resultsTabController,
-            children: [
-              _buildLocalResultsList(theme, localVisible, hasMoreLocal),
-              _buildCloudResultsList(theme, drive),
-            ],
+          child: RefreshIndicator(
+            onRefresh: _onRefresh,
+            color: theme.colorScheme.primary,
+            backgroundColor: theme.colorScheme.surface,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: [
+                if (isDriveTab)
+                  ...driveOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                if (isLocalTab)
+                  ...localOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                if (isAllTab) ...[
+                  ...primary.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                  if (secondary.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: TextButton(
+                          onPressed: () => setState(() => _showAllSearchResults = true),
+                          child: Text('הצג עוד ${secondary.length} תוצאות...'),
+                        ),
+                      ),
+                    ),
+                  if (_showAllSearchResults)
+                    ...secondary.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                  if (showSearchDriveChip)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: ActionChip(
+                          label: const Text('חפש ב-Drive'),
+                          onPressed: () {
+                            _hybridController.executeDriveSearchOnly(_searchController.text.trim());
+                          },
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAnimatedResultItem(FileMetadata file, int index) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('${file.path}_${file.cloudId ?? ""}'),
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 200 + (index.clamp(0, 10) * 30)),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: _buildResultItem(file),
     );
   }
 
@@ -3650,11 +3737,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                 textDirection: TextDirection.ltr,
                               ),
-                              // Temporary: Force show score even in Release mode for QA purposes
+                              // Debug: ציון בתחילה, פורמולה מקוצרת
                               if (_showDebugScore && file.debugScore != null) ...[
                                 const SizedBox(width: 12),
                                 Text(
-                                  '⭐ ${file.debugScore!.toStringAsFixed(1)} [${file.debugScoreBreakdown ?? ""}]',
+                                  _formatDebugScore(file.debugScore!, file.debugScoreBreakdown),
                                   style: TextStyle(
                                     fontSize: 10,
                                     color: Colors.deepOrange,
@@ -4035,6 +4122,16 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
     // ניקוי רווחים מיותרים ושורות חדשות
     return snippet.replaceAll('\n', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// פורמט דיבוג: ציון בתחילה, פורמולה מקוצרת
+  static const int _debugFormulaMaxLen = 40;
+  String _formatDebugScore(double score, String? breakdown) {
+    final formula = breakdown ?? '';
+    final truncated = formula.length > _debugFormulaMaxLen
+        ? '${formula.substring(0, _debugFormulaMaxLen)}...'
+        : formula;
+    return '${score.round()} : [$truncated]';
   }
 
   /// פורמט תאריך
