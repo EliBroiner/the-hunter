@@ -47,6 +47,11 @@ class HybridSearchController extends ChangeNotifier {
   /// 0 = All (מקומי תמיד; Drive רק אם אין תוצאות מקומיות), 1 = Local (מקומי בלבד), 2 = Drive (מקומי + Drive במקביל)
   int _activeTab = 0;
 
+  /// פילטרים מהממשק — תאריכים וסוג קובץ (PDF/Images) — ממוזגים ל־intent בכל חיפוש
+  DateTime? _uiDateFrom;
+  DateTime? _uiDateTo;
+  List<String>? _uiFileTypes;
+
   /// כמות תוצאות מקומיות להצגה (פגינציה) — מתאפס בכל חיפוש חדש
   int visibleLocalCount = 10;
 
@@ -76,6 +81,46 @@ class HybridSearchController extends ChangeNotifier {
     if (_activeTab == index) return;
     _activeTab = index.clamp(0, 2);
     notifyListeners();
+  }
+
+  /// מגדיר פילטרים מהממשק (תאריכים, סוג קובץ) — משמשים באיחוד עם parser intent
+  void setUiFilters({DateTime? dateFrom, DateTime? dateTo, List<String>? fileTypes}) {
+    _uiDateFrom = dateFrom;
+    _uiDateTo = dateTo;
+    _uiFileTypes = fileTypes;
+  }
+
+  /// מחזיר intent ממוזג: parser + פילטרי UI (תאריכים, סוג קובץ)
+  parser.SearchIntent _mergeUiFilters(parser.SearchIntent parserIntent) {
+    final dateFrom = _uiDateFrom ?? parserIntent.dateFrom;
+    final dateTo = _uiDateTo ?? parserIntent.dateTo;
+    final useDateRange = (_uiDateFrom != null || _uiDateTo != null) || parserIntent.useDateRangeFilter;
+    final fileTypes = (_uiFileTypes != null && _uiFileTypes!.isNotEmpty)
+        ? _uiFileTypes!
+        : parserIntent.fileTypes;
+    if (dateFrom == parserIntent.dateFrom &&
+        dateTo == parserIntent.dateTo &&
+        useDateRange == parserIntent.useDateRangeFilter &&
+        fileTypes == parserIntent.fileTypes) {
+      return parserIntent;
+    }
+    return parser.SearchIntent(
+      rawTerms: parserIntent.rawTerms,
+      terms: parserIntent.terms,
+      explicitYear: parserIntent.explicitYear,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      useDateRangeFilter: useDateRange,
+      fileTypes: fileTypes,
+    );
+  }
+
+  /// מריץ חיפוש עכשיו (ביטול debounce) — לשימוש כשמשנים פילטר/תאריך
+  Future<void> runSearchNow() async {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    final q = _currentQuery.trim();
+    if (q.length >= 2) await executeSearch(q);
   }
 
   /// Callback לתוצאות סופיות (מקומי או AI)
@@ -145,6 +190,7 @@ class HybridSearchController extends ChangeNotifier {
     final isSignedIn = _driveService.isConnected;
     final shouldSearchDrive = isPro && isSignedIn && hasNet;
     final parserIntent = await parser.SmartSearchParser.parseAsync(query);
+    final effectiveIntent = _mergeUiFilters(parserIntent);
 
     try {
       // כלל: חיפוש מקומי תמיד רץ (baseline) — לעולם לא מדלגים
@@ -155,9 +201,9 @@ class HybridSearchController extends ChangeNotifier {
       _isDriveSearching = runDriveParallel;
       notifyListeners();
 
-      final localFuture = _databaseService.localSmartSearch(parserIntent);
+      final localFuture = _databaseService.localSmartSearch(effectiveIntent);
       final driveFuture = runDriveParallel
-          ? _driveService.searchFiles(intent: parserIntent)
+          ? _driveService.searchFiles(intent: effectiveIntent)
           : Future<List<FileMetadata>>.value(<FileMetadata>[]);
 
       var localResults = await localFuture;
@@ -169,7 +215,7 @@ class HybridSearchController extends ChangeNotifier {
       if (runDriveAfterEmpty && localResults.isEmpty) {
         _isDriveSearching = true;
         notifyListeners();
-        driveResults = await _driveService.searchFiles(intent: parserIntent);
+        driveResults = await _driveService.searchFiles(intent: effectiveIntent);
       }
       _isDriveSearching = false;
       _driveResults = driveResults;
@@ -186,20 +232,21 @@ class HybridSearchController extends ChangeNotifier {
         _isAISearching = false;
 
         if (semanticIntent != null && semanticIntent.hasContent) {
-          var local2 = await _databaseService.localSmartSearch(semanticIntent);
+          final mergedSemantic = _mergeUiFilters(semanticIntent);
+          var local2 = await _databaseService.localSmartSearch(mergedSemantic);
           final drive2 = (shouldSearchDrive && _activeTab != 1)
-              ? await _driveService.searchFiles(intent: semanticIntent)
+              ? await _driveService.searchFiles(intent: mergedSemantic)
               : <FileMetadata>[];
           local2 = local2.where((file) => file.isCloud || File(file.path).existsSync()).toList();
           final merged = [...local2, ...drive2];
           final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
-          var combined = RelevanceEngine.rankAndSort(cleaned, semanticIntent);
+          var combined = RelevanceEngine.rankAndSort(cleaned, mergedSemantic);
           combined = _applyDynamicGapFilter(combined);
           _localResults = local2;
           _driveResults = drive2;
           _results = combined;
           _splitPrimarySecondary();
-          _lastIntent = _parserIntentToApi(semanticIntent);
+          _lastIntent = _parserIntentToApi(mergedSemantic);
           _isSmartSearchActive = combined.isNotEmpty;
           onResults?.call(combined, isFromAI: true);
           notifyListeners();
@@ -207,12 +254,12 @@ class HybridSearchController extends ChangeNotifier {
         }
       }
 
-      // מיזוג, סינון/דה־דופ, מיון — מקומי + Drive; אחר כך rankAndSort
+      // מיזוג, סינון/דה־דופ, מיון — מקומי + Drive; אחר כך rankAndSort + קליפינג (כולל Drive)
       final merged = [...localResults, ...driveResults];
       final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
       var ranked = cleaned.isEmpty
           ? <FileMetadata>[]
-          : RelevanceEngine.rankAndSort(cleaned, parserIntent);
+          : RelevanceEngine.rankAndSort(cleaned, effectiveIntent);
       _results = _applyDynamicGapFilter(ranked);
       _splitPrimarySecondary();
       _isSmartSearchActive = _results.isNotEmpty;
@@ -238,32 +285,32 @@ class HybridSearchController extends ChangeNotifier {
     await executeSearch(query);
   }
 
-  /// חיפוש Drive בלבד — לשימוש: מעבר לטאב Drive או לחיצה על "חפש ב-Drive"; ממזג עם _localResults הקיימים
+  /// חיפוש Drive בלבד — לשימוש: מעבר לטאב Drive או לחיצה על "חפש ב-Drive"; ממזג עם _localResults הקיימים; מכבד פילטרי UI
   Future<void> executeDriveSearchOnly(String query) async {
     _currentQuery = query;
     final isPro = _isPremium();
     final hasNet = _hasNetwork();
+    final parserIntent = await parser.SmartSearchParser.parseAsync(query);
+    final effectiveIntent = _mergeUiFilters(parserIntent);
     if (!isPro || !_driveService.isConnected || !hasNet) {
       _driveResults = [];
       _results = List<FileMetadata>.from(_localResults);
       if (_results.isNotEmpty) {
-        final parserIntent = await parser.SmartSearchParser.parseAsync(query);
-        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, parserIntent));
+        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, effectiveIntent));
       }
       _splitPrimarySecondary();
       onResults?.call(_results, isFromAI: false);
       notifyListeners();
       return;
     }
-    final parserIntent = await parser.SmartSearchParser.parseAsync(query);
     _isDriveSearching = true;
     notifyListeners();
     try {
-      final driveResults = await _driveService.searchFiles(intent: parserIntent);
+      final driveResults = await _driveService.searchFiles(intent: effectiveIntent);
       _driveResults = driveResults;
       final merged = [..._localResults, ...driveResults];
       final cleaned = SearchResultCleanup.deduplicateAndFilter(merged);
-      var ranked = RelevanceEngine.rankAndSort(cleaned, parserIntent);
+      var ranked = RelevanceEngine.rankAndSort(cleaned, effectiveIntent);
       _results = _applyDynamicGapFilter(ranked);
       _splitPrimarySecondary();
       _isSmartSearchActive = _results.isNotEmpty;
@@ -273,7 +320,7 @@ class HybridSearchController extends ChangeNotifier {
       _driveResults = [];
       _results = List<FileMetadata>.from(_localResults);
       if (_results.isNotEmpty) {
-        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, parserIntent));
+        _results = _applyDynamicGapFilter(RelevanceEngine.rankAndSort(_results, effectiveIntent));
       }
       _splitPrimarySecondary();
       onResults?.call(_results, isFromAI: false);

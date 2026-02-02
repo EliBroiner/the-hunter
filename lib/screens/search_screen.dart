@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
@@ -120,7 +121,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     _hybridController.setActiveTab(index);
     if (index == 2) {
       final q = _searchController.text.trim();
-      if (q.length >= 2) _hybridController.executeSearch(q);
+      if (q.length >= 2) {
+        _applyUiFiltersToController();
+        _hybridController.executeSearch(q);
+      }
     }
     if (mounted) setState(() {});
   }
@@ -272,10 +276,26 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
-  /// חיפוש היברידי — debounce 800ms, אחר כך waterfall (מקומי → AI)
+  /// מעדכן פילטרי UI בקונטרולר (תאריכים, סוג קובץ) — לפני כל חיפוש
+  void _applyUiFiltersToController() {
+    List<String>? fileTypes;
+    if (_selectedFilter == LocalFilter.images) {
+      fileTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
+    } else if (_selectedFilter == LocalFilter.pdfs) {
+      fileTypes = ['pdf'];
+    }
+    _hybridController.setUiFilters(
+      dateFrom: _selectedStartDate,
+      dateTo: _selectedEndDate,
+      fileTypes: fileTypes,
+    );
+  }
+
+  /// חיפוש היברידי — debounce 800ms, אחר כך waterfall (מקומי → AI); מכבד פילטרי UI
   void _onSearchChanged(String query) {
     _currentQuery = query;
     setState(() => _hybridResultsOverride = null);
+    _applyUiFiltersToController();
     _hybridController.onQueryChanged(query);
     _updateSearchStream(); // watchSearch עד שההיבריד מחזיר תוצאות
   }
@@ -411,11 +431,13 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     return results;
   }
 
-  /// משנה פילטר
+  /// משנה פילטר — מעדכן UI ומריץ חיפוש מחדש עם הפילטר החדש
   void _onFilterChanged(LocalFilter filter) {
     HapticFeedback.selectionClick();
     setState(() => _selectedFilter = filter);
     _currentQuery = _searchController.text;
+    _applyUiFiltersToController();
+    _hybridController.runSearchNow();
     _updateSearchStream();
   }
   
@@ -571,9 +593,95 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
-  /// פותח קובץ
+  /// פותח קובץ — קבצי ענן: הורדה לקובץ זמני ופתיחה
   Future<void> _openFile(FileMetadata file) async {
-    // בדיקה אם הקובץ קיים
+    // קובץ ענן (Drive): הורדה ואז פתיחה
+    if (file.isCloud || file.path.isEmpty || file.path == 'Google Drive') {
+      final cloudId = file.cloudId;
+      if (cloudId == null || cloudId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not download file'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                const Text('Downloading...'),
+              ],
+            ),
+            duration: const Duration(minutes: 1),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF1E1E3F),
+          ),
+        );
+      }
+      try {
+        final bytes = await _googleDriveService.downloadFile(cloudId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        if (bytes == null || bytes.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not download file'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        final tempDir = await getTemporaryDirectory();
+        final safeName = file.name.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
+        final tempPath = '${tempDir.path}/$safeName';
+        final tempFile = File(tempPath);
+        await tempFile.writeAsBytes(bytes);
+        final result = await OpenFilex.open(tempPath);
+        if (result.type == ResultType.done) {
+          RecentFilesService.instance.addRecentFile(
+            path: tempPath,
+            name: file.name,
+            extension: file.extension,
+          );
+          WidgetService.instance.updateRecentFile(file.name, tempPath, file.extension);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(tr('open_error').replaceFirst('\${result.message}', result.message)),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not download file'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+      return;
+    }
+
+    // קובץ מקומי: בדיקה אם קיים
     final fileExists = await File(file.path).exists();
     if (!fileExists) {
       if (mounted) {
@@ -1049,6 +1157,216 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
+  /// מציג גיליון ניתוח דירוג — ציון ופירוט רלוונטיות
+  void _showRankingAnalysisSheet(FileMetadata file) {
+    final score = file.debugScore;
+    final breakdown = file.debugScoreBreakdown ?? '';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(20),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade600,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'ניתוח ציון רלוונטיות',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (score != null) ...[
+                Center(
+                  child: Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF0F0F23),
+                      border: Border.all(color: Colors.amber, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        score.round().toString(),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ..._parseBreakdownToRows(breakdown),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F0F23),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'פורמולה',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: breakdown));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text('הועתק ללוח'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.copy, size: 16, color: Colors.amber),
+                            label: const Text('העתק', style: TextStyle(color: Colors.amber, fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        breakdown.isEmpty ? '—' : breakdown,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'אין נתוני דירוג — הקובץ לא דורג בחיפוש זה.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                  ),
+                ),
+              ],
+              SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// מפרק מחרוזת פירוט (Fn(31) + Content(133)...) לרשימת שורות לתצוגה
+  List<Widget> _parseBreakdownToRows(String breakdown) {
+    if (breakdown.isEmpty) return [];
+    final parts = breakdown.split(RegExp(r'\s*\+\s*'));
+    final rows = <Widget>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty) continue;
+      String label;
+      String value;
+      final fnMatch = RegExp(r'^Fn\(([\d.]+)\)$').firstMatch(trimmed);
+      final locMatch = RegExp(r'^Loc\(([\d.]+)\)$').firstMatch(trimmed);
+      final contentMatch = RegExp(r'^Content\(([\d.]+)\)$').firstMatch(trimmed);
+      final adjMatch = RegExp(r'^Adj\((\d+)\)$').firstMatch(trimmed);
+      final multiMatch = RegExp(r'^MultiWord(.+)$').firstMatch(trimmed);
+      final exactMatch = RegExp(r'^Exact\+(\d+)$').firstMatch(trimmed);
+      final hebrewMatch = RegExp(r'^Hebrew\+([\d.]+)$').firstMatch(trimmed);
+      final crypticMatch = RegExp(r'^Cryptic\(([-\d.]+)\)$').firstMatch(trimmed);
+      final aiMatch = RegExp(r'^AI\(([\d.]+)\)$').firstMatch(trimmed);
+      final driveMatch = RegExp(r'^Drive\+([\d.]+)$').firstMatch(trimmed);
+      if (fnMatch != null) {
+        label = 'התאמת שם קובץ';
+        value = fnMatch.group(1)!;
+      } else if (locMatch != null) {
+        label = 'התאמת מיקום';
+        value = locMatch.group(1)!;
+      } else if (contentMatch != null) {
+        label = 'התאמת תוכן';
+        value = contentMatch.group(1)!;
+      } else if (adjMatch != null) {
+        label = 'סמיכות מונחים';
+        value = adjMatch.group(1)!;
+      } else if (multiMatch != null) {
+        label = 'ריבוי מילים';
+        value = multiMatch.group(1)!;
+      } else if (exactMatch != null) {
+        label = 'בונוס ביטוי מדויק';
+        value = exactMatch.group(1)!;
+      } else if (hebrewMatch != null) {
+        label = 'בונוס שם עברי';
+        value = hebrewMatch.group(1)!;
+      } else if (crypticMatch != null) {
+        label = 'קנס שם מערכת';
+        value = crypticMatch.group(1)!;
+      } else if (aiMatch != null) {
+        label = 'מטאדאטה AI';
+        value = aiMatch.group(1)!;
+      } else if (driveMatch != null) {
+        label = 'בונוס Drive';
+        value = driveMatch.group(1)!;
+      } else {
+        label = trimmed;
+        value = '';
+      }
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
+              if (value.isNotEmpty)
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.amber,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    return rows;
+  }
+
   /// מציג תפריט פעולות לקובץ
   void _showFileActionsSheet(FileMetadata file) {
     final theme = Theme.of(context);
@@ -1160,6 +1478,17 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               onTap: () {
                 Navigator.of(context).pop();
                 _showFileDetails(file);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildActionTile(
+              icon: Icons.analytics_outlined,
+              title: 'ניתוח דירוג',
+              subtitle: 'ציון רלוונטיות ופירוט',
+              color: Colors.amber,
+              onTap: () {
+                Navigator.of(context).pop();
+                _showRankingAnalysisSheet(file);
               },
             ),
             const SizedBox(height: 8),
@@ -2021,6 +2350,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           _selectedEndDate = null; // עד לפני מ — מנקים עד
         }
       });
+      _applyUiFiltersToController();
+      _hybridController.runSearchNow();
       _updateSearchStream();
     }
   }
@@ -2040,6 +2371,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
     if (picked != null) {
       setState(() => _selectedEndDate = picked);
+      _applyUiFiltersToController();
+      _hybridController.runSearchNow();
       _updateSearchStream();
     }
   }
@@ -2068,6 +2401,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       _selectedStartDate = null;
       _selectedEndDate = null;
     });
+    _applyUiFiltersToController();
+    _hybridController.runSearchNow();
     _updateSearchStream();
   }
   
@@ -2974,9 +3309,89 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               children: [
                 if (isDriveTab)
-                  ...driveOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                  if (driveOnly.isEmpty)
+                    if (_hybridController.isDriveSearching)
+                      ...[
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  tr('searching_cloud'),
+                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ]
+                    else
+                      ...[
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Text(
+                              tr('no_results'),
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                            ),
+                          ),
+                        ),
+                      ]
+                  else
+                    ...driveOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
                 if (isLocalTab)
-                  ...localOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
+                  if (localOnly.isEmpty)
+                    if (_hybridController.isLocalSearching)
+                      ...[
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  tr('ai_scanning_deeper'),
+                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ]
+                    else
+                      ...[
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Text(
+                              tr('no_results'),
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                            ),
+                          ),
+                        ),
+                      ]
+                  else
+                    ...localOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
                 if (isAllTab) ...[
                   ...primary.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
                   if (secondary.isNotEmpty)

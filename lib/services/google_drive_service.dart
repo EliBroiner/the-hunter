@@ -249,6 +249,29 @@ class GoogleDriveService {
     return conditions.toList();
   }
 
+  /// הורדת תוכן קובץ מ-Drive לפי מזהה — מחזיר בייטים או null בכישלון
+  Future<List<int>?> downloadFile(String fileId) async {
+    if (_driveApi == null) {
+      final connected = await connect();
+      if (!connected) return null;
+    }
+    final user = _googleSignIn.currentUser;
+    if (user == null) return null;
+    try {
+      final authHeaders = await user.authHeaders;
+      final uri = Uri.parse('https://www.googleapis.com/drive/v3/files/$fileId').replace(queryParameters: {'alt': 'media'});
+      final response = await http.get(uri, headers: authHeaders);
+      if (response.statusCode != 200) {
+        appLog('Drive: download failed for $fileId status=${response.statusCode}');
+        return null;
+      }
+      return response.bodyBytes;
+    } catch (e) {
+      appLog('Drive: download error for $fileId - $e');
+      return null;
+    }
+  }
+
   /// המרת MIME type לסיומת קובץ
   String _getExtensionFromMimeType(String? mimeType, String? name) {
     if (name != null && name.contains('.')) {

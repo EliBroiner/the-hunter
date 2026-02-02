@@ -241,13 +241,15 @@ class RelevanceEngine {
     return (score, breakdown);
   }
 
+  /// נרמול למונח: trim + lowercase — ללא הסרת ספרות (תמיכה ב־"185", "2024", "106")
   static String _norm(String s) => s.trim().toLowerCase();
 
   /// פורמט ציון לדיבוג — מספר שלם או עשרוני אחד
   static String _fmtScore(double d) =>
       d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(1);
 
-  /// נרמול לטקסט מ־PDF: הסרת ניקוד, רווחים מרובים, תווים לא־אלפאנומריים ("ק ב ל ה" → "קבלה")
+  /// נרמול לטקסט מ־PDF: הסרת ניקוד, רווחים מרובים, תווים לא־אלפאנומריים ("ק ב ל ה" → "קבלה").
+  /// Regex: [^a-z0-9\u0590-\u05FF] — ספרות 0–9 נשמרות (חיפוש מספרים נתמך).
   static String _normalize(String input) {
     var s = input.trim().toLowerCase();
     // הסרת ניקוד עברי (U+0591–U+05BD, U+05BF–U+05C2, U+05C4–U+05C7)

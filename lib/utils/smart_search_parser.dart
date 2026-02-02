@@ -368,6 +368,7 @@ class SmartSearchParser {
     );
   }
 
+  /// נרמול לשאילתה: הסרת פיסוק, שמירת \w (כולל ספרות), עברית ומקף — "185 results" נשאר
   static String _normalizeText(String text) {
     final withoutPunctuation =
         text.replaceAll(RegExp(r'[^\w\s\u0590-\u05FF\-]+', unicode: true), ' ');
