@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
 import '../models/search_synonym.dart';
 import '../models/search_intent.dart' as api;
+import '../utils/file_type_helper.dart';
 import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
 import 'relevance_engine.dart';
@@ -285,7 +286,7 @@ class DatabaseService {
         results = results.where((f) => imageExts.contains(f.extension.toLowerCase())).toList();
         break;
       case SearchFilter.pdfs:
-        results = results.where((f) => f.extension.toLowerCase() == 'pdf').toList();
+        results = results.where((f) => FileTypeHelper.isPDF(f)).toList();
         break;
       case SearchFilter.recent:
         final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
@@ -398,7 +399,7 @@ class DatabaseService {
         results = results.where((f) => imageExts.contains(f.extension.toLowerCase())).toList();
         break;
       case SearchFilter.pdfs:
-        results = results.where((f) => f.extension.toLowerCase() == 'pdf').toList();
+        results = results.where((f) => FileTypeHelper.isPDF(f)).toList();
         break;
       case SearchFilter.recent:
         final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));

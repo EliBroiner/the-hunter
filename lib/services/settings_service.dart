@@ -20,7 +20,7 @@ class SettingsService {
   
   // Notifiers לשינויים
   final ValueNotifier<bool> isPremiumNotifier = ValueNotifier(false);
-  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.dark);
+  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
   final ValueNotifier<Locale> localeNotifier = ValueNotifier(const Locale('he', 'IL'));
   
   /// מאתחל את השירות
@@ -28,8 +28,8 @@ class SettingsService {
     _prefs = await SharedPreferences.getInstance();
     isPremiumNotifier.value = _prefs?.getBool(_keyIsPremium) ?? false;
     
-    // טעינת מצב התצוגה
-    final themeModeIndex = _prefs?.getInt(_keyThemeMode) ?? 2; // ברירת מחדל: dark
+    // טעינת מצב התצוגה — ברירת מחדל: מערכת (עוקב אחרי OS)
+    final themeModeIndex = _prefs?.getInt(_keyThemeMode) ?? ThemeMode.system.index;
     themeModeNotifier.value = ThemeMode.values[themeModeIndex];
 
     // טעינת שפה

@@ -175,10 +175,11 @@ class FileScannerService {
   /// גודל מינימלי לקובץ (15KB) - מסנן אייקונים קטנים ונכסים
   static const int _minFileSizeBytes = 15 * 1024;
   
-  /// נתיבי cache/junk לסינון
+  /// נתיבי cache/junk לסינון (כולל .thumb)
   static const List<String> _junkPathPatterns = [
     '/cache/',
     '/.thumbnails/',
+    '/.thumb/',
     '/log/',
     '/Cache/',
     '/Thumbnails/',
@@ -203,19 +204,23 @@ class FileScannerService {
             final filePath = entity.path;
             final extension = _extractExtension(fileName);
             
-            // 1. סינון קבצים נסתרים (מתחילים בנקודה)
-            if (fileName.startsWith('.')) {
+            // 1. סינון קבצים נסתרים (מתחילים בנקודה) וקבצי ג'אנק (thumbnail_, .thumb)
+            if (fileName.startsWith('.') || _isJunkFileName(fileName)) {
               skippedHidden++;
               continue;
             }
-            
-            // 2. סינון נתיבי cache/junk
+            // 2. סינון תיקיות נסתרות (נתיב מכיל תיקייה שמתחילה ב־.)
+            if (_pathContainsHiddenFolder(filePath)) {
+              skippedHidden++;
+              continue;
+            }
+            // 3. סינון נתיבי cache/junk
             if (_isJunkPath(filePath)) {
               skippedCache++;
               continue;
             }
             
-            // 3. סינון לפי סיומת - רק קבצים נתמכים
+            // 4. סינון לפי סיומת - רק קבצים נתמכים
             if (!_isSupportedExtension(extension)) {
               skipped++;
               continue;
@@ -223,7 +228,7 @@ class FileScannerService {
             
             final stat = await entity.stat();
             
-            // 4. סינון קבצים קטנים מדי (פחות מ-15KB)
+            // 5. סינון קבצים קטנים מדי (פחות מ-15KB)
             if (stat.size < _minFileSizeBytes) {
               skippedSmall++;
               continue;
@@ -253,6 +258,21 @@ class FileScannerService {
     return files;
   }
   
+  /// קבצים שמתחילים ב־thumbnail_ או .thumb — מתעלמים
+  bool _isJunkFileName(String fileName) {
+    final lower = fileName.toLowerCase();
+    return lower.startsWith('thumbnail_') || lower.startsWith('.thumb');
+  }
+
+  /// נתיב שנמצא בתוך תיקייה נסתרת (מתחילה ב־.)
+  bool _pathContainsHiddenFolder(String path) {
+    final sep = path.contains('\\') ? '\\' : '/';
+    for (final segment in path.split(sep)) {
+      if (segment.isNotEmpty && segment.startsWith('.')) return true;
+    }
+    return false;
+  }
+
   /// בודק אם הנתיב הוא נתיב cache/junk
   bool _isJunkPath(String path) {
     final lowerPath = path.toLowerCase();

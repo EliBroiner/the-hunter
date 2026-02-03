@@ -90,12 +90,13 @@ class HybridSearchController extends ChangeNotifier {
     _uiFileTypes = fileTypes;
   }
 
-  /// מחזיר intent ממוזג: parser + פילטרי UI (תאריכים, סוג קובץ)
+  /// מחזיר intent ממוזג: parser + פילטרי UI (תאריכים, סוג קובץ); "הכל" = רשימה ריקה
   parser.SearchIntent _mergeUiFilters(parser.SearchIntent parserIntent) {
     final dateFrom = _uiDateFrom ?? parserIntent.dateFrom;
     final dateTo = _uiDateTo ?? parserIntent.dateTo;
     final useDateRange = (_uiDateFrom != null || _uiDateTo != null) || parserIntent.useDateRangeFilter;
-    final fileTypes = (_uiFileTypes != null && _uiFileTypes!.isNotEmpty)
+    // כשהמשתמש בחר "הכל" מעבירים רשימה ריקה — לא להעתיק fileTypes מהפרסר
+    final fileTypes = _uiFileTypes != null
         ? _uiFileTypes!
         : parserIntent.fileTypes;
     if (dateFrom == parserIntent.dateFrom &&
@@ -169,11 +170,16 @@ class HybridSearchController extends ChangeNotifier {
   /// מריץ חיפוש: מקומי תמיד (baseline); Drive לפי טאב — All: רק אם מקומי ריק, Local: לא, Drive: במקביל
   Future<void> executeSearch(String query) async {
     _currentQuery = query;
+    _results = [];
+    _primaryResults = [];
+    _secondaryResults = [];
+    _localResults = [];
+    _driveResults = [];
     _isAISearching = false;
     _isSmartSearchActive = false;
     _lastIntent = null;
     visibleLocalCount = 10;
-    notifyListeners();
+    notifyListeners(); // ניקוי מיידי — מונע "dirty flash" של תוצאות ישנות
 
     final isPro = _isPremium();
     final hasNet = _hasNetwork();

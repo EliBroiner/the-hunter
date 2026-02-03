@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
+import '../utils/file_type_helper.dart';
 import '../models/search_intent.dart';
 import '../services/database_service.dart';
 import '../utils/smart_search_parser.dart' as parser_util;
@@ -276,13 +277,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
-  /// מעדכן פילטרי UI בקונטרולר (תאריכים, סוג קובץ) — לפני כל חיפוש
+  /// מעדכן פילטרי UI בקונטרולר (תאריכים, סוג קובץ) — לפני כל חיפוש; "הכל" = רשימה ריקה (כל הסוגים)
   void _applyUiFiltersToController() {
     List<String>? fileTypes;
     if (_selectedFilter == LocalFilter.images) {
       fileTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
     } else if (_selectedFilter == LocalFilter.pdfs) {
       fileTypes = ['pdf'];
+    } else {
+      fileTypes = []; // All — מפורש ריק כדי שלא יועתקו fileTypes מהפרסר
     }
     _hybridController.setUiFilters(
       dateFrom: _selectedStartDate,
@@ -645,8 +648,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           return;
         }
         final tempDir = await getTemporaryDirectory();
-        final safeName = file.name.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
-        final tempPath = '${tempDir.path}/$safeName';
+        // שמירה מפורשת על סיומת — לזיהוי סוג קובץ ופתיחה נכונה
+        final ext = FileTypeHelper.effectiveExtensionFromName(file.name);
+        final effectiveExt = ext.isNotEmpty ? ext : file.extension.toLowerCase();
+        final baseName = file.name.contains('.')
+            ? file.name.substring(0, file.name.lastIndexOf('.'))
+            : file.name;
+        final safeBase = baseName.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
+        final tempFileName = effectiveExt.isNotEmpty ? '$safeBase.$effectiveExt' : safeBase;
+        final tempPath = '${tempDir.path}/$tempFileName';
         final tempFile = File(tempPath);
         await tempFile.writeAsBytes(bytes);
         final result = await OpenFilex.open(tempPath);
@@ -884,112 +894,106 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// מציג פרטי קובץ
   void _showFileDetails(FileMetadata file) {
     final theme = Theme.of(context);
-    
+    final sheetBg = theme.canvasColor;
+    final cardBg = theme.colorScheme.surfaceContainerHighest;
+    final dividerColor = theme.dividerColor;
+    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
+    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
         top: false,
         bottom: true,
         child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E1E3F),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
+          decoration: BoxDecoration(
+            color: sheetBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-            // ידית למשיכה
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade600,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            
-            // כותרת
-            Row(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.info_outline, color: theme.colorScheme.primary, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        tr('file_details_title'),
+                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: textColor),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cardBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    Icons.info_outline,
-                    color: theme.colorScheme.primary,
-                    size: 24,
+                  child: Column(
+                    children: [
+                      _buildAnalysisSmartBadge(file),
+                      Divider(height: 20, color: dividerColor),
+                      _buildDetailRow(theme, tr('detail_name'), file.name, Icons.insert_drive_file),
+                      Divider(height: 20, color: dividerColor),
+                      _buildDetailRow(theme, tr('detail_type'), file.extension.toUpperCase(), Icons.category),
+                      Divider(height: 20, color: dividerColor),
+                      _buildDetailRow(theme, tr('detail_size'), file.readableSize, Icons.data_usage),
+                      Divider(height: 20, color: dividerColor),
+                      _buildDetailRow(theme, tr('detail_date'), _formatDate(file.lastModified), Icons.calendar_today),
+                      Divider(height: 20, color: dividerColor),
+                      _buildDetailRow(theme, tr('detail_path'), file.path, Icons.folder_open, isPath: true),
+                      if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
+                        Divider(height: 20, color: dividerColor),
+                        _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
+                      ],
+                      Divider(height: 20, color: dividerColor),
+                      _buildAIDetailSection(file, theme, textColor, secondaryColor),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    tr('file_details_title'),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
+                    child: Text(tr('close')),
                   ),
                 ),
+                const SizedBox(height: 20),
               ],
             ),
-            const SizedBox(height: 20),
-            
-            // פרטים
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F0F23),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  _buildAnalysisSmartBadge(file),
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow(tr('detail_name'), file.name, Icons.insert_drive_file),
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow(tr('detail_type'), file.extension.toUpperCase(), Icons.category),
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow(tr('detail_size'), file.readableSize, Icons.data_usage),
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow(tr('detail_date'), _formatDate(file.lastModified), Icons.calendar_today),
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildDetailRow(tr('detail_path'), file.path, Icons.folder_open, isPath: true),
-                  if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
-                    const Divider(height: 20, color: Colors.white12),
-                    _buildExtractedTextExpansion(file),
-                  ],
-                  const Divider(height: 20, color: Colors.white12),
-                  _buildAIDetailSection(file),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            
-            // כפתור סגירה
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(tr('close')),
-              ),
-            ),
-            SizedBox(height: 20),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1035,7 +1039,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   }
 
   /// ExpansionTile לטקסט מחולץ — תצוגה מקוצרת, הרחבה, והעתקה
-  Widget _buildExtractedTextExpansion(FileMetadata file) {
+  Widget _buildExtractedTextExpansion(FileMetadata file, ThemeData theme, Color textColor, Color secondaryColor) {
     final text = file.extractedText ?? '';
     final previewLines = text.split('\n').take(3).join('\n');
     return ExpansionTile(
@@ -1047,11 +1051,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         children: [
           Row(
             children: [
-              Icon(Icons.text_snippet, size: 18, color: Colors.grey.shade500),
+              Icon(Icons.text_snippet, size: 18, color: secondaryColor),
               const SizedBox(width: 8),
               Text(
                 '📄 ${tr('detail_extracted_text')} (OCR)',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textColor),
               ),
             ],
           ),
@@ -1059,7 +1063,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             const SizedBox(height: 6),
             Text(
               previewLines,
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              style: TextStyle(color: secondaryColor, fontSize: 12),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
               textDirection: _isHebrew(previewLines) ? TextDirection.rtl : TextDirection.ltr,
@@ -1070,7 +1074,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       children: [
         SelectableText(
           text,
-          style: const TextStyle(fontSize: 13),
+          style: TextStyle(fontSize: 13, color: textColor),
           textDirection: _isHebrew(text) ? TextDirection.rtl : TextDirection.ltr,
         ),
         const SizedBox(height: 8),
@@ -1080,11 +1084,16 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             onPressed: () {
               Clipboard.setData(ClipboardData(text: text));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Copied'), duration: Duration(seconds: 2)),
+                SnackBar(
+                  content: const Text('Copied'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: theme.canvasColor,
+                ),
               );
             },
-            icon: const Icon(Icons.copy, size: 18),
-            label: const Text('Copy'),
+            icon: Icon(Icons.copy, size: 18, color: theme.colorScheme.primary),
+            label: Text('Copy', style: TextStyle(color: theme.colorScheme.primary)),
           ),
         ),
       ],
@@ -1093,7 +1102,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   }
 
   /// בונה סקציית AI — קטגוריה + תגיות כ־Chips
-  Widget _buildAIDetailSection(FileMetadata file) {
+  Widget _buildAIDetailSection(FileMetadata file, ThemeData theme, Color textColor, Color secondaryColor) {
     const aiColor = Color(0xFF26A69A);
     const aiIcon = Icons.psychology;
     return Container(
@@ -1105,19 +1114,19 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDetailRow(tr('detail_ai_category'), file.category ?? '—', aiIcon, accentColor: aiColor),
+          _buildDetailRow(theme, tr('detail_ai_category'), file.category ?? '—', aiIcon, accentColor: aiColor),
           if (file.tags != null && file.tags!.isNotEmpty) ...[
-            const Divider(height: 16, color: Colors.white12),
+            Divider(height: 16, color: theme.dividerColor),
             Text(
               tr('detail_ai_tags'),
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              style: TextStyle(color: secondaryColor, fontSize: 13),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: file.tags!.map((tag) => Chip(
-                label: Text(tag, style: const TextStyle(fontSize: 12)),
+                label: Text(tag, style: TextStyle(fontSize: 12, color: textColor)),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 visualDensity: VisualDensity.compact,
@@ -1129,9 +1138,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
-  /// בונה שורת פרט
-  Widget _buildDetailRow(String label, String value, IconData icon, {bool isPath = false, Color? accentColor}) {
-    final iconColor = accentColor ?? Colors.grey.shade500;
+  /// בונה שורת פרט — צבעים מתוך theme; נתיב: maxLines 2 + ellipsis
+  Widget _buildDetailRow(ThemeData theme, String label, String value, IconData icon, {bool isPath = false, Color? accentColor}) {
+    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
+    final iconColor = accentColor ?? secondaryColor;
+    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
     return Row(
       crossAxisAlignment: isPath ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
@@ -1139,17 +1150,14 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         const SizedBox(width: 12),
         SizedBox(
           width: 80,
-          child: Text(
-            label,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-          ),
+          child: Text(label, style: TextStyle(color: secondaryColor, fontSize: 13)),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13, color: textColor),
             textDirection: _isHebrew(value) ? TextDirection.rtl : TextDirection.ltr,
-            maxLines: isPath ? 3 : 1,
+            maxLines: isPath ? 2 : 1,
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -1161,128 +1169,125 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   void _showRankingAnalysisSheet(FileMetadata file) {
     final score = file.debugScore;
     final breakdown = file.debugScoreBreakdown ?? '';
+    final theme = Theme.of(context);
+    final sheetBg = theme.canvasColor;
+    final cardBg = theme.colorScheme.surfaceContainerHighest;
+    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
+    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade600,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'ניתוח ציון רלוונטיות',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (score != null) ...[
-                Center(
-                  child: Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF0F0F23),
-                      border: Border.all(color: Colors.amber, width: 2),
-                    ),
-                    child: Center(
-                      child: Text(
-                        score.round().toString(),
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amber,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ..._parseBreakdownToRows(breakdown),
-                const SizedBox(height: 12),
+      builder: (context) => SafeArea(
+        top: false,
+        bottom: true,
+        child: Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+          decoration: BoxDecoration(
+            color: sheetBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F0F23),
-                    borderRadius: BorderRadius.circular(12),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'פורמולה',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: breakdown));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text('הועתק ללוח'),
-                                  behavior: SnackBarBehavior.floating,
-                                  duration: const Duration(seconds: 1),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.copy, size: 16, color: Colors.amber),
-                            label: const Text('העתק', style: TextStyle(color: Colors.amber, fontSize: 12)),
-                          ),
-                        ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'ניתוח ציון רלוונטיות',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (score != null) ...[
+                  Center(
+                    child: Container(
+                      width: 88,
+                      height: 88,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: cardBg,
+                        border: Border.all(color: Colors.amber, width: 2),
                       ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        breakdown.isEmpty ? '—' : breakdown,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: Colors.grey.shade400,
+                      child: Center(
+                        child: Text(
+                          score.round().toString(),
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber,
+                          ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ] else ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text(
-                    'אין נתוני דירוג — הקובץ לא דורג בחיפוש זה.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                  const SizedBox(height: 20),
+                  ..._parseBreakdownToRows(breakdown, textColor, secondaryColor),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('פורמולה', style: TextStyle(fontSize: 12, color: secondaryColor)),
+                            TextButton.icon(
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: breakdown));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('הועתק ללוח'),
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 1),
+                                    backgroundColor: theme.canvasColor,
+                                  ),
+                                );
+                              },
+                              icon: Icon(Icons.copy, size: 16, color: theme.colorScheme.primary),
+                              label: Text('העתק', style: TextStyle(color: theme.colorScheme.primary, fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          breakdown.isEmpty ? '—' : breakdown,
+                          style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: secondaryColor),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ] else ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      'אין נתוני דירוג — הקובץ לא דורג בחיפוש זה.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: secondaryColor, fontSize: 14),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
               ],
-              SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
-            ],
+            ),
           ),
         ),
       ),
@@ -1290,8 +1295,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   }
 
   /// מפרק מחרוזת פירוט (Fn(31) + Content(133)...) לרשימת שורות לתצוגה
-  List<Widget> _parseBreakdownToRows(String breakdown) {
+  List<Widget> _parseBreakdownToRows(String breakdown, [Color? labelColor, Color? valueColor]) {
     if (breakdown.isEmpty) return [];
+    final labelC = labelColor ?? Colors.grey;
+    final valueC = valueColor ?? Colors.amber;
     final parts = breakdown.split(RegExp(r'\s*\+\s*'));
     final rows = <Widget>[];
     for (final part in parts) {
@@ -1305,7 +1312,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       final adjMatch = RegExp(r'^Adj\((\d+)\)$').firstMatch(trimmed);
       final multiMatch = RegExp(r'^MultiWord(.+)$').firstMatch(trimmed);
       final exactMatch = RegExp(r'^Exact\+(\d+)$').firstMatch(trimmed);
-      final hebrewMatch = RegExp(r'^Hebrew\+([\d.]+)$').firstMatch(trimmed);
       final crypticMatch = RegExp(r'^Cryptic\(([-\d.]+)\)$').firstMatch(trimmed);
       final aiMatch = RegExp(r'^AI\(([\d.]+)\)$').firstMatch(trimmed);
       final driveMatch = RegExp(r'^Drive\+([\d.]+)$').firstMatch(trimmed);
@@ -1327,9 +1333,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       } else if (exactMatch != null) {
         label = 'בונוס ביטוי מדויק';
         value = exactMatch.group(1)!;
-      } else if (hebrewMatch != null) {
-        label = 'בונוס שם עברי';
-        value = hebrewMatch.group(1)!;
       } else if (crypticMatch != null) {
         label = 'קנס שם מערכת';
         value = crypticMatch.group(1)!;
@@ -1349,16 +1352,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(label, style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
+              Text(label, style: TextStyle(color: labelC, fontSize: 13)),
               if (value.isNotEmpty)
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.amber,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
+                Text(value, style: TextStyle(color: valueC, fontWeight: FontWeight.w600, fontSize: 13)),
             ],
           ),
         ),
@@ -1370,73 +1366,72 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// מציג תפריט פעולות לקובץ
   void _showFileActionsSheet(FileMetadata file) {
     final theme = Theme.of(context);
-    
+    final sheetBg = theme.canvasColor;
+    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
+    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E3F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-            // ידית למשיכה
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade600,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            
-            // שם הקובץ
-            Row(
+      builder: (context) => SafeArea(
+        top: false,
+        bottom: true,
+        child: Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+          decoration: BoxDecoration(
+            color: sheetBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: _getFileColor(file.extension).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        file.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                        overflow: TextOverflow.ellipsis,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _getFileColor(file.extension).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        file.readableSize,
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      child: Center(
+                        child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            file.name,
+                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: textColor),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            file.readableSize,
+                            style: TextStyle(color: secondaryColor, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            
-            // פעולות
-            _buildActionTile(
+                const SizedBox(height: 20),
+                _buildActionTile(
               icon: Icons.open_in_new,
               title: tr('action_open'),
               subtitle: tr('action_open_subtitle'),
@@ -1502,15 +1497,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 _showDeleteConfirmation(file);
               },
             ),
-            
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
-          ],
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
         ),
-      ),
       ),
     );
   }
-  
+
   /// בונה פריט פעולה מועדפים
   Widget _buildFavoriteActionTile(FileMetadata file) {
     final isPremium = _settingsService.isPremium;
@@ -1544,7 +1539,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   Text(isFavorite ? tr('favorite_removed') : tr('favorite_added')),
                 ],
               ),
-              backgroundColor: const Color(0xFF1E1E3F),
+              backgroundColor: Theme.of(context).canvasColor,
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -1553,7 +1548,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.amber.withValues(alpha: 0.3))
@@ -1584,7 +1579,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           isFavorite ? tr('action_remove_favorite') : tr('action_add_favorite'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? Theme.of(context).textTheme.bodyLarge?.color : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1654,7 +1649,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
@@ -1681,7 +1676,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           tr('action_tags_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? Theme.of(context).textTheme.bodyLarge?.color : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -1741,28 +1736,32 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final allTags = tagsService.tags;
-          
-          return Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ידית
-                Container(
-                  width: 40, height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade600,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
+      builder: (context) => SafeArea(
+        top: false,
+        bottom: true,
+        child: StatefulBuilder(
+          builder: (context, setModalState) {
+            final allTags = tagsService.tags;
+            final theme = Theme.of(context);
+            return Container(
+              decoration: BoxDecoration(
+                color: theme.canvasColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                 
                 // כותרת
                 Row(
@@ -1833,16 +1832,17 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                     );
                   }).toList(),
                 ),
-                
-                SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
-              ],
-            ),
-          );
-        },
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
-  
+
   /// מציג דיאלוג יצירת תגית חדשה
   void _showCreateTagDialog(StateSetter setModalState) {
     final nameController = TextEditingController();
@@ -1945,7 +1945,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.purple.withValues(alpha: 0.3))
@@ -1972,7 +1972,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           tr('action_secure_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? Theme.of(context).textTheme.bodyLarge?.color : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -2097,7 +2097,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: !isPremium 
                 ? Border.all(color: Colors.blue.withValues(alpha: 0.3))
@@ -2124,7 +2124,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           tr('action_cloud_title'),
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: isPremium ? null : Colors.grey,
+                            color: isPremium ? Theme.of(context).textTheme.bodyLarge?.color : Colors.grey,
                           ),
                         ),
                         if (!isPremium) ...[
@@ -2242,6 +2242,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     required Color color,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final tileBg = theme.colorScheme.surfaceContainerHighest;
+    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
+    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2250,7 +2254,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F0F23),
+            color: tileBg,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -2270,16 +2274,16 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: textColor),
                     ),
                     Text(
                       subtitle,
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      style: TextStyle(color: secondaryColor, fontSize: 12),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_left, color: Colors.grey.shade600),
+              Icon(Icons.chevron_left, color: secondaryColor),
             ],
           ),
         ),
@@ -2852,9 +2856,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   List<FileMetadata> _filteredCloudResults() {
     var list = _cloudResults;
     if (_selectedFilter == LocalFilter.images) {
-      list = list.where((f) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(f.extension)).toList();
+      list = list.where((f) => FileTypeHelper.isImage(f)).toList();
     } else if (_selectedFilter == LocalFilter.pdfs) {
-      list = list.where((f) => f.extension == 'pdf').toList();
+      list = list.where((f) => FileTypeHelper.isPDF(f)).toList();
     }
     return list;
   }

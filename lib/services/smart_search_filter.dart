@@ -1,5 +1,6 @@
 import '../models/file_metadata.dart';
 import '../models/search_intent.dart';
+import '../utils/file_type_helper.dart';
 import 'log_service.dart';
 
 /// פילטר חכם - מסנן קבצים לפי SearchIntent מה-AI
@@ -34,13 +35,14 @@ class SmartSearchFilter {
     return results;
   }
 
-  /// סינון לפי סוגי קבצים
+  /// סינון לפי סוגי קבצים — PDF דרך FileTypeHelper (case-insensitive, סיומת כפולה)
   static List<FileMetadata> _filterByFileTypes(List<FileMetadata> files, List<String> fileTypes) {
     final normalizedTypes = fileTypes.map((t) => t.toLowerCase()).toSet();
-    
     return files.where((file) {
-      final ext = file.extension.toLowerCase();
-      return normalizedTypes.contains(ext);
+      if (normalizedTypes.contains('pdf') && FileTypeHelper.isPDF(file)) return true;
+      final ext = FileTypeHelper.effectiveExtensionFromName(file.name);
+      final extField = file.extension.toLowerCase();
+      return normalizedTypes.contains(ext) || normalizedTypes.contains(extField);
     }).toList();
   }
 

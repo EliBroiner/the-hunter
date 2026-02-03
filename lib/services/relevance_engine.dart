@@ -6,10 +6,10 @@ import '../utils/smart_search_parser.dart';
 class RelevanceEngine {
   RelevanceEngine._();
 
-  static const int _ptsFilename = 100;
+  static const int _ptsFilename = 200;
   static const int _ptsLocation = 80;
   /// תוכן: Query Coverage Ratio — ציון מקסימלי מחולק לפי כמות מילות השאילתה; התאמות חלקיות מקבלות ציון נמוך
-  static const double _maxContentScore = 200.0;
+  static const double _maxContentScore = 120.0;
   static const double _synonymFactor = 0.7;
   static const int _exactPhraseBonus = 150;
   static const int _aiMetadataBonus = 80;
@@ -21,10 +21,8 @@ class RelevanceEngine {
   static const double _multiWordSeverePenalty = 0.2;
   static const double _multiWordFullBonus = 1.2;
   static const double _multiWordFullBonusAdd = 50.0;
-  /// בונוס לשם קובץ עברי נקי; קנס לשם מערכת/קריפטי
-  static const double _hebrewNameBonus = 45.0;
+  /// קנס לשם מערכת/קריפטי — ציון נייטרלי לשפה
   static const double _crypticNamePenalty = -35.0;
-  static final RegExp _hebrewChars = RegExp(r'[\u0590-\u05FF]');
   static final RegExp _guidLikeName = RegExp(r'^[a-fA-F0-9\-]{20,}$');
   static final RegExp _pdfDotNumbers = RegExp(r'^pdf\.\d+', caseSensitive: false);
 
@@ -150,8 +148,6 @@ class RelevanceEngine {
       score += _crypticNamePenalty;
     } else if (_pdfDotNumbers.hasMatch(fnLower)) {
       score += _crypticNamePenalty;
-    } else if (_hebrewChars.hasMatch(file.name) && baseName.length >= 2) {
-      score += _hebrewNameBonus;
     }
 
     // Exact phrase bonus — התאמה מדויקת (לאחר נרמול רווחים/שורות)
@@ -222,8 +218,6 @@ class RelevanceEngine {
       parts.add('Cryptic($_crypticNamePenalty)');
     } else if (_pdfDotNumbers.hasMatch(fnLower)) {
       parts.add('Cryptic($_crypticNamePenalty)');
-    } else if (_hebrewChars.hasMatch(file.name) && baseName.length >= 2) {
-      parts.add('Hebrew+$_hebrewNameBonus');
     }
     if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
       var aiMatch = false;
