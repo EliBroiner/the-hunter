@@ -1071,6 +1071,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           ],
         ],
       ),
+      initiallyExpanded: false,
       children: [
         SelectableText(
           text,
@@ -1097,7 +1098,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           ),
         ),
       ],
-      initiallyExpanded: false,
     );
   }
 
@@ -2410,19 +2410,20 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     _updateSearchStream();
   }
   
-  /// מציג הודעת שדרוג לפרימיום
+  /// מציג הודעת שדרוג לפרימיום — צבעים דינמיים לפי ערכת הנושא
   void _showPremiumUpgradeMessage(String feature) {
+    final theme = Theme.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E3F),
+        backgroundColor: theme.canvasColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                gradient: const LinearGradient(
                   colors: [Colors.amber, Colors.orange],
                 ),
                 borderRadius: BorderRadius.circular(8),
@@ -2430,12 +2431,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               child: const Icon(Icons.star, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 12),
-            Text(tr('upgrade_premium')),
+            Text(
+              tr('upgrade_premium'),
+              style: TextStyle(color: theme.colorScheme.onSurface),
+            ),
           ],
         ),
         content: Text(
           tr('premium_feature_dialog_content').replaceFirst('\${feature}', feature),
-          style: const TextStyle(color: Colors.white70),
+          style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
         ),
         actions: [
           TextButton(
@@ -2770,6 +2774,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 ),
               ),
               const Spacer(),
+              // מועדפים — כוכב בכותרת (פעיל = צבע זהב)
+              _buildHeaderFavoritesButton(theme),
               // כפתור הגדרות
               IconButton(
                 icon: Icon(
@@ -2900,18 +2906,12 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
-    final theme = Theme.of(context);
-    final isPremium = _settingsService.isPremium;
-    final favoritesCount = _favoritesService.count;
-    
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
         children: [
           _buildModernFilterChip(tr('filter_chip_all'), LocalFilter.all, Icons.apps),
-          const SizedBox(width: 10),
-          _buildFavoritesChip(isPremium, favoritesCount),
           const SizedBox(width: 10),
           _buildModernFilterChip(tr('filter_chip_images'), LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
@@ -2920,102 +2920,46 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       ),
     );
   }
-  
-  /// בונה צ'יפ מועדפים
-  Widget _buildFavoritesChip(bool isPremium, int count) {
-    final theme = Theme.of(context);
-    final isSelected = _selectedFilter == LocalFilter.favorites;
-    
-    return GestureDetector(
-      onTap: () {
-        if (!isPremium) {
-          _showPremiumUpgradeMessage(tr('filter_favorites'));
+
+  /// כפתור מועדפים בכותרת — PRO: כוכב (זהב כשפעיל); לא־PRO: מנעול + לחיצה פותחת Buy PRO
+  Widget _buildHeaderFavoritesButton(ThemeData theme) {
+    final isPremium = _settingsService.isPremium;
+    final favoritesCount = _favoritesService.count;
+    final isActive = _selectedFilter == LocalFilter.favorites;
+
+    Widget button;
+    if (!isPremium) {
+      button = IconButton(
+        icon: Icon(Icons.lock_outline, color: theme.colorScheme.primary),
+        onPressed: () => Navigator.pushNamed(context, '/subscription'),
+        tooltip: tr('filter_favorites'),
+      );
+      return button;
+    }
+
+    button = IconButton(
+      icon: Icon(
+        isActive ? Icons.star : Icons.star_border,
+        color: isActive ? Colors.amber : theme.colorScheme.primary,
+      ),
+      onPressed: () {
+        if (isActive) {
+          _onFilterChanged(LocalFilter.all);
         } else {
           _onFilterChanged(LocalFilter.favorites);
         }
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: isSelected 
-              ? const LinearGradient(
-                  colors: [Colors.amber, Colors.orange],
-                )
-              : null,
-          color: isSelected ? null : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: isSelected 
-              ? null 
-              : Border.all(
-                  color: isPremium 
-                      ? Colors.amber.withValues(alpha: 0.5)
-                      : Colors.grey.withValues(alpha: 0.3),
-                ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.star,
-              size: 16,
-              color: isSelected 
-                  ? Colors.white 
-                  : (isPremium ? Colors.amber : Colors.grey),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              tr('filter_favorites'),
-              style: TextStyle(
-                color: isSelected 
-                    ? Colors.white 
-                    : (isPremium ? theme.colorScheme.onSurface : Colors.grey),
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                fontSize: 13,
-              ),
-            ),
-            if (count > 0 && isPremium) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isSelected 
-                      ? Colors.white.withValues(alpha: 0.3)
-                      : Colors.amber.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  count.toString(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? Colors.white : Colors.amber,
-                  ),
-                ),
-              ),
-            ],
-            if (!isPremium) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: Colors.amber,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'PRO',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+      tooltip: tr('filter_favorites'),
     );
+
+    if (favoritesCount > 0) {
+      return Badge(
+        isLabelVisible: true,
+        label: Text('$favoritesCount'),
+        child: button,
+      );
+    }
+    return button;
   }
 
   /// בונה צ'יפ סינון בודד - מודרני
@@ -3923,34 +3867,47 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   }
   
   Widget _buildEmptyFavoritesState(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.amber.withValues(alpha: 0.2), Colors.orange.withValues(alpha: 0.2)],
+            FittedBox(
+              fit: BoxFit.contain,
+              child: Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.amber.withValues(alpha: isDark ? 0.25 : 0.15),
+                      Colors.orange.withValues(alpha: isDark ? 0.25 : 0.15),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
                 ),
-                shape: BoxShape.circle,
+                child: Icon(
+                  Icons.star_outline_rounded,
+                  size: 56,
+                  color: Colors.amber.shade700,
+                ),
               ),
-              child: const Icon(Icons.star_outline_rounded, size: 56, color: Colors.amber),
             ),
             const SizedBox(height: 28),
-            const Text(
+            Text(
               'אין מועדפים עדיין',
-              style: TextStyle(
-                fontSize: 20,
+              style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 12),
             Text(
               'לחץ ארוך על קובץ והוסף למועדפים\nלגישה מהירה',
-              style: TextStyle(color: Colors.grey.shade500),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),

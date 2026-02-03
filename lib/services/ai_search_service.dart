@@ -89,7 +89,7 @@ class AiSearchService {
     if (explicitYear != null &&
         explicitYear.trim().isNotEmpty &&
         !terms.any((t) => t.trim() == explicitYear!.trim())) {
-      terms.add(explicitYear!);
+      terms.add(explicitYear);
     }
 
     return SearchIntent(

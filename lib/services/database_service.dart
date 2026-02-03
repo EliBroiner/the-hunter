@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/file_metadata.dart';
 import '../models/search_synonym.dart';
 import '../models/search_intent.dart' as api;
+import '../utils/extracted_text_quality.dart';
 import '../utils/file_type_helper.dart';
 import '../utils/smart_search_parser.dart';
 import 'log_service.dart';
@@ -663,6 +664,27 @@ class DatabaseService {
     }
     appLog('DB: resetOcrForImages onlyEmpty=$onlyEmptyText -> ${toReset.length} images');
     return toReset.length;
+  }
+
+  /// ניקוי חד־פעמי: קבצים עם extractedText ג'יבריש — מנקה תגיות/קטגוריה מ-AI ומסמן לאינדוקס מחדש (Visual OCR)
+  int cleanupHallucinatedAiTags() {
+    final all = isar.fileMetadatas.where().findAll();
+    final withText = all.where((f) =>
+        f.extractedText != null && f.extractedText!.isNotEmpty).toList();
+    final gibberish = withText.where((f) =>
+        !isExtractedTextAcceptableForAi(f.extractedText!)).toList();
+
+    for (final f in gibberish) {
+      f.category = null;
+      f.tags = null;
+      f.isAiAnalyzed = false;
+      f.aiStatus = null;
+      f.isIndexed = false;
+      f.extractedText = null;
+      updateFile(f);
+    }
+    appLog('DB: cleanupHallucinatedAiTags -> ${gibberish.length} files cleared for re-index');
+    return gibberish.length;
   }
 
   /// מעדכן קובץ במסד

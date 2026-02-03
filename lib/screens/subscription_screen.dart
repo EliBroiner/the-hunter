@@ -492,11 +492,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bgColor = theme.canvasColor;
+    final onBgVariant = theme.colorScheme.onSurfaceVariant;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F23),
+      backgroundColor: bgColor,
       body: SafeArea(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: _goldPrimary))
+            ? Center(child: CircularProgressIndicator(color: _goldPrimary))
             : SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -507,7 +510,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         children: [
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close, color: Colors.white54),
+                            icon: Icon(Icons.close, color: onBgVariant),
                           ),
                           const Spacer(),
                           if (_isMockMode)
@@ -542,15 +545,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       const SizedBox(height: 24),
 
                       // כותרת (עם backdoor)
-                      _buildTitle(),
+                      _buildTitle(context),
                       const SizedBox(height: 32),
 
                       // רשימת יתרונות
-                      _buildBenefitsList(),
+                      _buildBenefitsList(context),
                       const SizedBox(height: 32),
 
                       // כרטיסי מחיר
-                      _buildPricingCards(),
+                      _buildPricingCards(context),
                       const SizedBox(height: 32),
 
                       // כפתור הרשמה
@@ -558,14 +561,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       const SizedBox(height: 16),
 
                       // שחזור רכישות
-                      _buildRestorePurchases(),
+                      _buildRestorePurchases(context),
                       const SizedBox(height: 8),
                       // ניהול / ביטול מנוי (פותח את Play Store)
-                      _buildManageSubscription(),
+                      _buildManageSubscription(context),
                       const SizedBox(height: 24),
 
                       // הערות קטנות
-                      _buildDisclaimer(),
+                      _buildDisclaimer(context),
                     ],
                   ),
                 ),
@@ -602,8 +605,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  /// כותרת ותיאור - עם backdoor על triple tap
-  Widget _buildTitle() {
+  /// כותרת ותיאור - עם backdoor על triple tap (צבעים דינמיים)
+  Widget _buildTitle(BuildContext context) {
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    final onVariant = theme.colorScheme.onSurfaceVariant;
     return GestureDetector(
       onTap: _onTitleTap,
       child: Column(
@@ -614,10 +620,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ).createShader(bounds),
             child: Text(
               tr('subscription_title'),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
+                color: onSurface,
                 letterSpacing: 1.5,
               ),
             ),
@@ -625,18 +631,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           const SizedBox(height: 8),
           Text(
             tr('subscription_subtitle'),
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade400,
-            ),
+            style: TextStyle(fontSize: 16, color: onVariant),
           ),
         ],
       ),
     );
   }
 
-  /// רשימת יתרונות
-  Widget _buildBenefitsList() {
+  /// רשימת יתרונות — צבעים דינמיים לפי ערכת הנושא
+  Widget _buildBenefitsList(BuildContext context) {
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surfaceContainerHighest;
+    final onSurface = theme.colorScheme.onSurface;
+    final onVariant = theme.colorScheme.onSurfaceVariant;
     final benefits = [
       (tr('benefit_smart_search'), tr('benefit_smart_search_desc')),
       (tr('benefit_voice_search'), tr('benefit_voice_search_desc')),
@@ -648,7 +655,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E3F),
+        color: surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: _goldPrimary.withValues(alpha: 0.2),
@@ -679,17 +686,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     children: [
                       Text(
                         benefit.$1,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
+                          color: onSurface,
                         ),
                       ),
                       Text(
                         benefit.$2,
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: onVariant, fontSize: 12),
                       ),
                     ],
                   ),
@@ -703,10 +708,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   /// כרטיסי מחירים
-  Widget _buildPricingCards() {
+  Widget _buildPricingCards(BuildContext context) {
+    final theme = Theme.of(context);
     if (_packages.isEmpty) {
-      return const Center(
-        child: Text('No packages available', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          'No packages available',
+          style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+        ),
       );
     }
 
@@ -716,15 +725,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         return Expanded(
           child: Padding(
             padding: EdgeInsets.only(left: isFirst ? 0 : 6, right: isFirst ? 6 : 0),
-            child: _buildPricingCard(pkg),
+            child: _buildPricingCard(context, pkg),
           ),
         );
       }).toList(),
     );
   }
 
-  /// כרטיס מחיר בודד
-  Widget _buildPricingCard(PricingPackage package) {
+  /// כרטיס מחיר בודד — צבעים דינמיים
+  Widget _buildPricingCard(BuildContext context, PricingPackage package) {
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surfaceContainerHighest;
+    final onSurface = theme.colorScheme.onSurface;
+    final onVariant = theme.colorScheme.onSurfaceVariant;
     final isSelected = _selectedPackage?.id == package.id;
 
     return GestureDetector(
@@ -735,10 +748,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         decoration: BoxDecoration(
           color: isSelected 
               ? _goldPrimary.withValues(alpha: 0.1) 
-              : const Color(0xFF1E1E3F),
+              : surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? _goldPrimary : Colors.grey.shade800,
+            color: isSelected ? _goldPrimary : onVariant.withValues(alpha: 0.3),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
@@ -783,15 +796,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: isSelected ? _goldPrimary : Colors.white,
+                    color: isSelected ? _goldPrimary : onSurface,
                   ),
                 ),
                 Text(
                   package.titleHe,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade500,
-                  ),
+                  style: TextStyle(fontSize: 12, color: onVariant),
                 ),
                 const SizedBox(height: 12),
 
@@ -801,15 +811,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: isSelected ? _goldPrimary : Colors.white,
+                    color: isSelected ? _goldPrimary : onSurface,
                   ),
                 ),
                 Text(
                   package.period,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade500,
-                  ),
+                  style: TextStyle(fontSize: 12, color: onVariant),
                 ),
               ],
             ),
@@ -893,13 +900,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   /// שחזור רכישות
-  Widget _buildRestorePurchases() {
+  Widget _buildRestorePurchases(BuildContext context) {
+    final theme = Theme.of(context);
     return TextButton(
       onPressed: _isPurchasing ? null : _onRestorePurchases,
       child: Text(
         tr('restore_purchases'),
         style: TextStyle(
-          color: Colors.grey.shade500,
+          color: theme.colorScheme.onSurfaceVariant,
           fontSize: 14,
           decoration: TextDecoration.underline,
         ),
@@ -908,14 +916,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   /// ניהול / ביטול מנוי – פותח את דף המנויים ב-Play Store
-  Widget _buildManageSubscription() {
+  Widget _buildManageSubscription(BuildContext context) {
+    final theme = Theme.of(context);
     return TextButton.icon(
       onPressed: _isPurchasing ? null : _openManageSubscription,
-      icon: Icon(Icons.settings, size: 16, color: Colors.grey.shade500),
+      icon: Icon(Icons.settings, size: 16, color: theme.colorScheme.onSurfaceVariant),
       label: Text(
         tr('manage_subscription'),
         style: TextStyle(
-          color: Colors.grey.shade500,
+          color: theme.colorScheme.onSurfaceVariant,
           fontSize: 14,
           decoration: TextDecoration.underline,
         ),
@@ -932,14 +941,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   /// הערות משפטיות
-  Widget _buildDisclaimer() {
+  Widget _buildDisclaimer(BuildContext context) {
+    final theme = Theme.of(context);
     return Text(
       _isMockMode
           ? tr('dev_mode_desc')
           : tr('subscription_disclaimer'),
       textAlign: TextAlign.center,
       style: TextStyle(
-        color: _isMockMode ? Colors.orange.shade300 : Colors.grey.shade600,
+        color: _isMockMode ? Colors.orange.shade300 : theme.colorScheme.onSurfaceVariant,
         fontSize: 11,
         height: 1.4,
       ),

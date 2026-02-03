@@ -37,8 +37,9 @@ dependencies:
   # Share Plus - שיתוף קבצים
   share_plus: ^12.0.1
   
-  # PDF Text Extraction - חילוץ טקסט מ-PDF
+  # PDF: חילוץ טקסט (מסמכים לא-עבריים) + רינדור דף ראשון ל-OCR (עברית)
   syncfusion_flutter_pdf: ^32.1.24
+  pdfx: ^2.9.2
   
   # Firebase - אימות משתמשים, גיבוי, Crashlytics
   firebase_core: ^4.4.0

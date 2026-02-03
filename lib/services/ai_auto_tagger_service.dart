@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
+import '../utils/extracted_text_quality.dart';
 import 'auth_service.dart';
 import 'database_service.dart';
 import 'dev_logger.dart';
@@ -83,7 +84,8 @@ class AiAutoTaggerService {
       }
     }
 
-    // Step B: Server Queue
+    // Step B: Server Queue — לא שולחים ל-AI טקסט עם >30% ג'יבריש
+    if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = '';
     if (text.isEmpty) text = file.name; // fallback
     _queue.add(file);
     if (_queue.length >= _batchSize) {
@@ -132,6 +134,8 @@ class AiAutoTaggerService {
       for (final file in batch) {
         String text = file.extractedText ?? '';
         if (text.isEmpty) text = await _extractTextAsync(file);
+        if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = ''; // מונע הזיות מ־ג'יבריש
+        if (text.isEmpty) text = file.name;
         final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
         documents.add({'id': file.path, 'text': truncated});
       }

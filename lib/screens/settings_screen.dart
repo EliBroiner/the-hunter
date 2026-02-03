@@ -1,9 +1,10 @@
-import 
-'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'dart:async';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
+import '../services/database_service.dart';
 import '../services/dev_logger.dart';
 import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
@@ -30,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isReindexing = false;
   int _reindexCurrent = 0;
   int _reindexTotal = 0;
+  bool _isCleanupRunning = false;
   /// Developer Mode — נסתר כברירת מחדל; נפתח ב־7 לחיצות על גרסה
   bool _isDevMode = false;
 
@@ -174,6 +176,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : const Icon(Icons.chevron_right, color: Colors.grey),
                   onTap: _isReindexing ? () {} : _showReindexDialog,
                 ),
+                _buildSettingsTile(
+                  context,
+                  icon: Icons.cleaning_services,
+                  title: tr('cleanup_ai_tags_title'),
+                  subtitle: tr('cleanup_ai_tags_subtitle'),
+                  trailing: _isCleanupRunning
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: _isCleanupRunning ? () {} : _runCleanupAiTags,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -306,6 +322,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isReindexing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// ניקוי חד־פעמי: מנקה תגיות/קטגוריה AI מקבצים עם extractedText ג'יבריש ומאפס לאינדוקס מחדש
+  Future<void> _runCleanupAiTags() async {
+    if (!mounted) return;
+    setState(() => _isCleanupRunning = true);
+    try {
+      final count = DatabaseService.instance.cleanupHallucinatedAiTags();
+      if (mounted) {
+        setState(() => _isCleanupRunning = false);
+        final msg = tr('cleanup_ai_tags_done').replaceAll('{count}', '$count');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+        );
+      }
+      // מפעיל עיבוד קבצים ממתינים (אינדוקס מחדש עם Visual OCR)
+      if (count > 0) {
+        unawaited(FileScannerService.instance.processPendingFiles());
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCleanupRunning = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('שגיאה: $e'),
@@ -782,21 +829,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
   
-  /// בונה כרטיס מידע על הגיבוי
+  /// בונה כרטיס מידע על הגיבוי — Light: surfaceContainerHighest; Dark: גרדיאנט כהה/סגול
   Widget _buildBackupInfoCard(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final decoration = isDark
+        ? BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.blue.shade900.withValues(alpha: 0.3),
+                Colors.purple.shade900.withValues(alpha: 0.3),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+          )
+        : BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+          );
+    final titleColor = isDark ? Colors.white70 : theme.colorScheme.onSurface;
+    final chipColor = isDark ? Colors.white70 : theme.colorScheme.onSurfaceVariant;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.blue.shade900.withValues(alpha: 0.3),
-            Colors.purple.shade900.withValues(alpha: 0.3),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-      ),
+      decoration: decoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -806,9 +863,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 8),
               Text(
                 tr('last_backup_title'),
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
+                  color: titleColor,
                 ),
               ),
             ],
@@ -816,40 +874,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildInfoChip(Icons.calendar_today, _backupInfo!.formattedDate),
+              _buildInfoChip(theme, Icons.calendar_today, _backupInfo!.formattedDate, chipColor),
               const SizedBox(width: 8),
-              _buildInfoChip(Icons.folder, '${_backupInfo!.filesCount} קבצים'),
+              _buildInfoChip(theme, Icons.folder, '${_backupInfo!.filesCount} קבצים', chipColor),
             ],
           ),
           const SizedBox(height: 8),
           Row(
             children: [
-              _buildInfoChip(Icons.storage, _backupInfo!.formattedSize),
+              _buildInfoChip(theme, Icons.storage, _backupInfo!.formattedSize, chipColor),
               const SizedBox(width: 8),
               if (_backupInfo!.filesWithText > 0)
-                _buildInfoChip(Icons.text_fields, '${_backupInfo!.filesWithText} עם טקסט'),
+                _buildInfoChip(theme, Icons.text_fields, '${_backupInfo!.filesWithText} עם טקסט', chipColor),
             ],
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildInfoChip(IconData icon, String text) {
+
+  Widget _buildInfoChip(ThemeData theme, IconData icon, String text, Color chipColor) {
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
+        color: isDark ? Colors.white.withValues(alpha: 0.1) : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: Colors.white70),
+          Icon(icon, size: 12, color: chipColor),
           const SizedBox(width: 4),
           Text(
             text,
-            style: const TextStyle(fontSize: 11, color: Colors.white70),
+            style: TextStyle(fontSize: 11, color: chipColor),
           ),
         ],
       ),

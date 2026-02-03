@@ -362,21 +362,27 @@ class HybridSearchController extends ChangeNotifier {
       }
     }
     var clipped = list.sublist(0, keepCount);
-    for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
+    for (final f in clipped) {
+      clippedSet.add(f.path + (f.cloudId ?? ''));
+    }
 
     // סף מוחלט: אם יש התאמות חזקות (150+) — מסירים תוצאות מתחת ל־50
     final hasStrongMatch = clipped.any((f) => (f.debugScore ?? 0) >= _strongMatchThreshold);
     if (hasStrongMatch) {
       clipped = clipped.where((f) => (f.debugScore ?? 0) >= _minScoreThreshold).toList();
       clippedSet.clear();
-      for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
+      for (final f in clipped) {
+        clippedSet.add(f.path + (f.cloudId ?? ''));
+      }
     }
 
     // סינון רעש: אם התוצאה הראשונה > 80 — מסירים תוצאות עם ציון < 10
     if (clipped.isNotEmpty && (clipped.first.debugScore ?? 0) > _topScoreNoiseGate) {
       clipped = clipped.where((f) => (f.debugScore ?? 0) >= _noiseFilterThreshold).toList();
       clippedSet.clear();
-      for (final f in clipped) clippedSet.add(f.path + (f.cloudId ?? ''));
+      for (final f in clipped) {
+        clippedSet.add(f.path + (f.cloudId ?? ''));
+      }
     }
 
     // שימור Drive: תוצאות ענן שנפלו אבל ציון >= 20 — מחזירים עד 15 כדי שלא ייעלמו

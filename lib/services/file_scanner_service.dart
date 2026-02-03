@@ -5,6 +5,7 @@ import 'ai_auto_tagger_service.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
 import 'knowledge_base_service.dart';
+import '../utils/extracted_text_quality.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
@@ -809,7 +810,7 @@ class FileScannerService {
             file.tags = localCategory.tags;
             file.isAiAnalyzed = true;
             file.aiStatus = 'local_match';
-          } else if (extractedText.length > 5) {
+          } else if (extractedText.length > 5 && isExtractedTextAcceptableForAi(extractedText)) {
             AiAutoTaggerService.instance.addToQueue(file);
           }
           
@@ -895,7 +896,7 @@ class FileScannerService {
             file.tags = localCategory.tags;
             file.isAiAnalyzed = true;
             file.aiStatus = 'local_match';
-          } else if (extractedText.length > 5) {
+          } else if (extractedText.length > 5 && isExtractedTextAcceptableForAi(extractedText)) {
             AiAutoTaggerService.instance.addToQueue(file);
           }
           
