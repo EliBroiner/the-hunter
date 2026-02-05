@@ -1,17 +1,13 @@
 import 'package:flutter/foundation.dart';
+import '../configs/ranking_config.dart';
 import '../models/file_metadata.dart';
 import '../utils/smart_search_parser.dart';
 
-/// מנוע רלוונטיות — מיון אחיד לתוצאות מקומיות, Drive ו-AI
+/// מנוע רלוונטיות — מיון אחיד לתוצאות מקומיות, Drive ו-AI; משקלים נלקחים מ־RankingConfig
 class RelevanceEngine {
   RelevanceEngine._();
 
-  static const int _ptsFilename = 200;
-  static const int _ptsLocation = 80;
-  /// תוכן: Query Coverage Ratio — ציון מקסימלי מחולק לפי כמות מילות השאילתה; התאמות חלקיות מקבלות ציון נמוך
-  static const double _maxContentScore = 120.0;
   static const double _synonymFactor = 0.7;
-  static const int _exactPhraseBonus = 150;
   static const int _aiMetadataBonus = 80;
   /// בונוס ל-Drive: אין תוכן מחולץ — התאמות בשם קובץ שוקלות יותר כדי לאזן מול מקומי
   static const double _driveMetadataBonus = 55.0;
@@ -19,7 +15,6 @@ class RelevanceEngine {
   static const double _adjacentPairBonus = 25.0;
   static const int _adjacentPairCap = 4;
   static const double _multiWordSeverePenalty = 0.2;
-  static const double _multiWordFullBonus = 1.2;
   static const double _multiWordFullBonusAdd = 50.0;
   /// קנס לשם מערכת/קריפטי — ציון נייטרלי לשפה
   static const double _crypticNamePenalty = -35.0;
@@ -82,10 +77,17 @@ class RelevanceEngine {
     return foundPairs.length;
   }
 
-  /// מחשב ציון + פירוט: filename, location, תוכן (Query Coverage Ratio — כמות מילות שאילתה שמופיעות בתוכן)
+  /// מחשב ציון + פירוט: filename, location, תוכן; משקלים מ־RankingConfig
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
       String extRaw, String exactPhrase) {
+    final config = RankingConfig.instance;
+    final ptsFilename = config.filenameWeight;
+    final ptsLocation = config.pathWeight;
+    final maxContentScore = config.contentWeight;
+    final exactPhraseBonus = config.exactPhraseBonus;
+    final multiWordFullBonus = config.fullMatchMultiplier;
+
     final rawSet = rawTerms.map((t) => _norm(t)).toSet();
     final termsFound = <String>{};
     final contentTermsFound = <String>{};
@@ -105,12 +107,12 @@ class RelevanceEngine {
       if (_termMatches(fnLower, term)) {
         termsFound.add(t);
         final factor = densityFactor(t, fnLower.length);
-        namePts += _ptsFilename * pts * factor;
+        namePts += ptsFilename * pts * factor;
       }
       if (_termMatches(locLower, term)) {
         termsFound.add(t);
         final factor = densityFactor(t, locLower.length);
-        locPts += _ptsLocation * pts * factor;
+        locPts += ptsLocation * pts * factor;
       }
       // תוכן: סופרים רק מונחי שאילתה (raw) שמופיעים — ציון לפי Query Coverage Ratio
       final inContent = extRaw.isNotEmpty && (_wholeWordInContent(extRaw, term) || extLower.contains(t));
@@ -129,7 +131,7 @@ class RelevanceEngine {
     }
 
     final queryWordCount = rawTerms.isEmpty ? 0 : rawTerms.length;
-    final weightPerWord = queryWordCount > 0 ? _maxContentScore / queryWordCount : 0.0;
+    final weightPerWord = queryWordCount > 0 ? maxContentScore / queryWordCount : 0.0;
     final contentScore = contentTermsFound.length * weightPerWord;
     score = namePts + locPts + contentScore;
 
@@ -156,7 +158,7 @@ class RelevanceEngine {
       final fnNorm = _normalize(fnLower);
       final extNorm = _normalize(extLower);
       if (fnNorm.contains(phraseNorm) || extNorm.contains(phraseNorm)) {
-        score += _exactPhraseBonus;
+        score += exactPhraseBonus;
       }
     }
 
@@ -169,7 +171,7 @@ class RelevanceEngine {
       if (matchRatio < 0.5) {
         score *= _multiWordSeverePenalty;
       } else if (matchRatio >= 1.0) {
-        score = (score * _multiWordFullBonus) + _multiWordFullBonusAdd;
+        score = (score * multiWordFullBonus) + _multiWordFullBonusAdd;
       }
     }
 
@@ -211,7 +213,7 @@ class RelevanceEngine {
       final fnNorm = _normalize(fnLower);
       final extNorm = _normalize(extLower);
       if (fnNorm.contains(phraseNorm) || extNorm.contains(phraseNorm)) {
-        parts.add('Exact+$_exactPhraseBonus');
+        parts.add('Exact+$exactPhraseBonus');
       }
     }
     if (baseName.length >= 20 && _guidLikeName.hasMatch(baseName)) {

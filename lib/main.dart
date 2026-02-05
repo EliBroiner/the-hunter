@@ -31,6 +31,7 @@ import 'services/file_watcher_service.dart';
 import 'services/log_service.dart';
 import 'services/settings_service.dart';
 import 'services/user_activity_service.dart';
+import 'configs/ranking_config.dart';
 import 'services/localization_service.dart';
 import 'utils/smart_search_parser.dart';
 
@@ -59,6 +60,7 @@ void main() async {
   SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
   AiAutoTaggerService.instance.initialize(); // Backfill קבצים ישנים (3s delay)
   await SettingsService.instance.init();
+  await RankingConfig.ensureLoaded();
   await FavoritesService.instance.init();
   await RecentFilesService.instance.init();
   await TagsService.instance.init();

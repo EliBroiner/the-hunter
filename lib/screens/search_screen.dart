@@ -22,6 +22,8 @@ import '../services/secure_folder_service.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/widget_service.dart';
 import '../services/google_drive_service.dart';
+import '../services/ai_auto_tagger_service.dart';
+import '../services/text_extraction_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
 
@@ -1165,6 +1167,75 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
+  /// ניתוח מחדש: איפוס דגלים, חילוץ טקסט, שליחה ל-AI — עם SnackBar התקדמות
+  Future<void> _reanalyzeFile(FileMetadata file) async {
+    _databaseService.resetFileForReanalysis(file);
+    String stepLabel = 'Step 1: Extracting text...';
+    void showStepSnackBar() {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(stepLabel, style: const TextStyle(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(),
+            ],
+          ),
+          duration: const Duration(days: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    showStepSnackBar();
+    try {
+      final text = await TextExtractionService.instance.extractText(
+        file.path,
+        onProgress: (step) {
+          if (step.contains('Rendering')) {
+            stepLabel = 'Step 1: Rendering PDF...';
+          } else if (step.contains('OCR')) {
+            stepLabel = 'Step 2: Running OCR...';
+          } else {
+            stepLabel = 'Step 1: $step';
+          }
+          showStepSnackBar();
+        },
+      );
+      file.extractedText = text.isEmpty ? null : text;
+      file.isIndexed = true;
+      _databaseService.saveFile(file);
+      if (!mounted) return;
+      stepLabel = 'Step 3: AI Analysis...';
+      showStepSnackBar();
+      await AiAutoTaggerService.instance.addToQueue(file);
+      await AiAutoTaggerService.instance.flushNow();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('ניתוח מחדש הושלם'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
+        ),
+      );
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('שגיאה: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   /// מציג גיליון ניתוח דירוג — ציון ופירוט רלוונטיות
   void _showRankingAnalysisSheet(FileMetadata file) {
     final score = file.debugScore;
@@ -1484,6 +1555,17 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               onTap: () {
                 Navigator.of(context).pop();
                 _showRankingAnalysisSheet(file);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildActionTile(
+              icon: Icons.refresh,
+              title: 'ניתוח מחדש',
+              subtitle: 'חילוץ טקסט + AI מחדש',
+              color: Colors.deepPurple,
+              onTap: () {
+                Navigator.of(context).pop();
+                _reanalyzeFile(file);
               },
             ),
             const SizedBox(height: 8),

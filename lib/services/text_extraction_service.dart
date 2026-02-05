@@ -14,14 +14,16 @@ class TextExtractionService {
   static TextExtractionService get instance => _instance;
   TextExtractionService._();
 
-  /// חילוץ טקסט מקובץ לפי הסיומת
-  Future<String> extractText(String filePath) async {
+  /// חילוץ טקסט מקובץ לפי הסיומת; onProgress — עדכון שלב (למשל "Rendering PDF...", "Running OCR...")
+  Future<String> extractText(String filePath, {void Function(String step)? onProgress}) async {
     try {
+      onProgress?.call('Extracting text...');
       String result = await Isolate.run(() => _extractTextInIsolate(filePath));
       final ext = filePath.split('.').last.toLowerCase();
       // PDF: אם החילוץ הישיר מחזיר ג'יבריש — חילוץ ויזואלי (דף ראשון → OCR)
       if (ext == 'pdf' && result.isNotEmpty && !isExtractedTextAcceptableForAi(result)) {
-        final ocrText = await _extractPdfViaOcr(filePath);
+        onProgress?.call('Rendering PDF...');
+        final ocrText = await _extractPdfViaOcr(filePath, onProgress: () => onProgress?.call('Running OCR...'));
         if (ocrText.isNotEmpty) result = ocrText;
       }
       final maxLen = ext == 'pdf' ? maxTextLengthForPdf : maxTextLengthForTextFiles;
@@ -33,7 +35,7 @@ class TextExtractionService {
   }
 
   /// רינדור דף ראשון של PDF לתמונה והרצת ML Kit OCR (למסמכי עברית)
-  Future<String> _extractPdfViaOcr(String filePath) async {
+  Future<String> _extractPdfViaOcr(String filePath, {void Function()? onProgress}) async {
     pdfx.PdfDocument? document;
     try {
       document = await pdfx.PdfDocument.openFile(filePath);
@@ -49,6 +51,7 @@ class TextExtractionService {
       final tempFile = File('${tempDir.path}/pdf_ocr_${DateTime.now().millisecondsSinceEpoch}.png');
       await tempFile.writeAsBytes(image.bytes);
       try {
+        onProgress?.call();
         final text = await OCRService.instance.extractText(tempFile.path);
         return text;
       } finally {

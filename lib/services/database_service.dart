@@ -165,6 +165,17 @@ class DatabaseService {
     }
   }
 
+  /// מאפס קובץ לניתוח מחדש: אינדוקס + AI — משמש ל־Re-analyze
+  void resetFileForReanalysis(FileMetadata file) {
+    file.isIndexed = false;
+    file.isAiAnalyzed = false;
+    file.extractedText = null;
+    file.tags = null;
+    file.category = null;
+    file.aiStatus = null;
+    saveFile(file);
+  }
+
   /// מחזיר קבצים שלא נותחו ב-AI — ל-Backfill (extractedText קיים, aiStatus != quotaLimit)
   List<FileMetadata> getUnanalyzedFilesForAiBackfill() {
     final all = isar.fileMetadatas.where().findAll();

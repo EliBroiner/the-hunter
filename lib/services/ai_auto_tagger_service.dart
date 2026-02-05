@@ -219,6 +219,12 @@ class AiAutoTaggerService {
     }
   }
 
+  /// שולח את התור מיד ומחכה לסיום — לשימוש ב־Re-analyze
+  Future<void> flushNow() async {
+    _flushTimer?.cancel();
+    if (_queue.isNotEmpty) await _flushQueue();
+  }
+
   /// מנקה ומפנה את התור — שולח את כל הקבצים הנותרים
   Future<void> dispose() async {
     _disposed = true;
