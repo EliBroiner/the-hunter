@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using TheHunterApi.Data;
+using TheHunterApi.Middleware;
 using TheHunterApi.Services;
 
 // לוגר גלובלי — קונסול + קובץ יומי בתיקיית logs
@@ -25,7 +26,7 @@ if (string.IsNullOrEmpty(geminiApiKey))
 }
 
 // הגדרת Services
-builder.Services.AddControllers();
+builder.Services.AddControllersWithViews();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -58,9 +59,14 @@ builder.Services.AddHttpClient("GeminiApi", client =>
 // רישום GeminiConfig כ-Singleton
 builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
 
-// רישום GeminiService ו-QuotaService
+// רישום GeminiService, QuotaService ו-LearningService
 builder.Services.AddScoped<GeminiService>();
 builder.Services.AddScoped<QuotaService>();
+builder.Services.AddScoped<ILearningService, LearningService>();
+builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
+
+// פילטר אבטחה ל-Admin Dashboard
+builder.Services.AddScoped<TheHunterApi.Filters.AdminKeyAuthorizationFilter>();
 
 // SQLite - מכסת AI
 var dbPath = Path.Combine(
@@ -74,11 +80,11 @@ builder.Services.AddDbContextFactory<AppDbContext>(opts =>
 
 var app = builder.Build();
 
-// יצירת DB אם לא קיים
+// יצירת DB והרצת migrations (כולל LearnedTerms)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
-    await db.Database.EnsureCreatedAsync();
+    await db.Database.MigrateAsync();
 }
 
 // Root endpoint
@@ -98,8 +104,12 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseCors();
+app.UseMiddleware<FirebaseAppCheckMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+
+// הוספת נתיב views
+app.UseStaticFiles();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));

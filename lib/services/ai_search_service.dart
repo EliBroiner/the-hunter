@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/search_intent.dart' as api;
 import '../utils/smart_search_parser.dart';
+import 'app_check_http_helper.dart';
 import 'log_service.dart';
 
 /// שירות חיפוש AI — ממיר שאילתות מעורפלות למונחים קונקרטיים באמצעות Gemini.
@@ -28,12 +29,13 @@ class AiSearchService {
 
     try {
       appLog('AiSearch: getSemanticIntent "$userQuery"');
+      final headers = await AppCheckHttpHelper.getBackendHeaders(existing: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      });
       final response = await http.post(
         Uri.parse('$_baseUrl$_intentEndpoint'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({'query': userQuery}),
       ).timeout(_timeout);
 
@@ -106,8 +108,10 @@ class AiSearchService {
   /// בדיקה אם השירות זמין
   Future<bool> isAvailable() async {
     try {
+      final headers = await AppCheckHttpHelper.getBackendHeaders();
       final response = await http.get(
         Uri.parse('$_baseUrl/health'),
+        headers: headers,
       ).timeout(const Duration(seconds: 5));
       return response.statusCode == 200;
     } catch (e) {

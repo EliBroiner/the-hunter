@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/search_intent.dart';
+import 'app_check_http_helper.dart';
 import 'log_service.dart';
 
 /// שירות חיפוש חכם - מתקשר לבקאנד AI
@@ -26,13 +27,13 @@ class SmartSearchService {
 
     try {
       appLog('SmartSearch: Sending query to API: "$query"');
-      
+      final headers = await AppCheckHttpHelper.getBackendHeaders(existing: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      });
       final response = await http.post(
         Uri.parse('$_baseUrl$_intentEndpoint'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({'query': query}),
       ).timeout(_timeout);
 
@@ -56,8 +57,10 @@ class SmartSearchService {
   /// בודק אם השירות זמין
   Future<bool> isAvailable() async {
     try {
+      final headers = await AppCheckHttpHelper.getBackendHeaders();
       final response = await http.get(
         Uri.parse('$_baseUrl/health'),
+        headers: headers,
       ).timeout(const Duration(seconds: 5));
       
       return response.statusCode == 200;

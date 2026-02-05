@@ -46,7 +46,7 @@ public class AnalyzeController : ControllerBase
                 return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 50 scans/month" });
             }
 
-            var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents);
+            var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId);
             await _quotaService.IncrementUsageAsync(userId, count);
 
             _logger.LogInformation("✅ [Server] Successfully processed batch. Returning 200 OK.");

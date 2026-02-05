@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -40,6 +41,13 @@ void main() async {
   
   // אתחול Firebase
   await Firebase.initializeApp();
+
+  // App Check — אימות מקור הבקשות: Play Integrity (Android), App Attest (iOS)
+  // זרימת טוקן: activate מפעיל attestation → getToken() מחזיר JWT → הבקאנד מוודא את הטוקן
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: AndroidProvider.playIntegrity,
+    appleProvider: AppleProvider.appAttest,
+  );
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;

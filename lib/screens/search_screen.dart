@@ -23,6 +23,8 @@ import '../services/cloud_storage_service.dart';
 import '../services/widget_service.dart';
 import '../services/google_drive_service.dart';
 import '../services/ai_auto_tagger_service.dart';
+import '../services/file_processing_service.dart';
+import '../services/knowledge_base_service.dart';
 import '../services/text_extraction_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
@@ -1173,12 +1175,13 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  /// ניתוח מחדש: איפוס דגלים, חילוץ טקסט, שליחה ל-AI. אם reportProgress לא null — מעדכן בעברית (גיליון); אחרת SnackBar
+  /// ניתוח מחדש: איפוס Isar, סנכרון מילון, חילוץ טקסט, FileProcessingService (מילון + AI עם App Check)
+  /// reportProgress — מעדכן גיליון פרטים; אחרת SnackBar
   Future<void> _reanalyzeFile(FileMetadata file, {void Function(String)? reportProgress}) async {
+    // איפוס: isAiAnalyzed=false, isIndexed=false, tags/category/aiStatus=null
     _databaseService.resetFileForReanalysis(file);
-    String stepLabel = 'שלב 1: מחלץ טקסט...';
+
     void report(String msg) {
-      stepLabel = msg;
       if (reportProgress != null) {
         reportProgress(msg);
       } else if (mounted) {
@@ -1200,28 +1203,34 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         );
       }
     }
-    report(stepLabel);
+
     try {
+      report('מתחבר לשרת...');
+      await KnowledgeBaseService.instance.syncDictionaryWithServer();
+      if (!mounted) return;
+
+      report('מעדכן מילון...');
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+
+      report('מנתח נתונים...');
       final text = await TextExtractionService.instance.extractText(
         file.path,
         onProgress: (step) {
-          if (step.contains('Rendering')) {
-            stepLabel = 'שלב 1: מרנדר PDF...';
-          } else if (step.contains('OCR')) {
-            stepLabel = 'שלב 2: מריץ OCR...';
-          } else {
-            stepLabel = 'שלב 1: $step';
-          }
-          report(stepLabel);
+          if (step.contains('Rendering')) report('מנתח נתונים... (מרנדר PDF)');
+          else if (step.contains('OCR')) report('מנתח נתונים... (OCR)');
+          else report('מנתח נתונים...');
         },
       );
       file.extractedText = text.isEmpty ? null : text;
       file.isIndexed = true;
       _databaseService.saveFile(file);
       if (!mounted) return;
-      stepLabel = 'שלב 3: ניתוח AI...';
-      report(stepLabel);
-      await AiAutoTaggerService.instance.addToQueue(file);
+
+      await FileProcessingService.instance.processFile(
+        file,
+        isPro: _settingsService.isPremium,
+      );
       await AiAutoTaggerService.instance.flushNow();
       if (!mounted) return;
       if (reportProgress == null) {

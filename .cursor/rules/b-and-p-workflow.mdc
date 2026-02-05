@@ -1,5 +1,5 @@
 ---
-description: "B" = build only; "P" = commit & push only; "B P" or "בניה" = build then commit & push
+description: "B" = Flutter build; "B S" = .NET backend build; "P" = commit & push; "B P" or "בניה" = build then commit & push
 alwaysApply: true
 ---
 
@@ -7,6 +7,13 @@ alwaysApply: true
 
 When the user writes **"B"** (alone):
 - Run **`flutter build apk`** from the project root. Do not commit or push.
+
+---
+
+# B S — .NET Backend Build
+
+When the user writes **"B S"** (or "BS"):
+- Run **`dotnet build`** from the backend project (e.g. `backend/TheHunterApi` or the solution root). Do not commit or push.
 
 ---
 

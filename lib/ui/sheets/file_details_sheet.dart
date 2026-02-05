@@ -36,7 +36,7 @@ class _FileDetailsSheetState extends State<FileDetailsSheet> {
     if (_isReanalyzing) return;
     setState(() {
       _isReanalyzing = true;
-      _progressMessage = 'שלב 1: מחלץ טקסט...';
+      _progressMessage = 'מתחבר לשרת...';
     });
     try {
       await widget.onReanalyze((msg) {

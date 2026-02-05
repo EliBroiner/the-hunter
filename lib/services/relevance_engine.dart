@@ -77,7 +77,8 @@ class RelevanceEngine {
     return foundPairs.length;
   }
 
-  /// מחשב ציון + פירוט: filename, location, תוכן; משקלים מ־RankingConfig
+  /// מחשב ציון + פירוט: filename, location, תוכן
+  /// משקלים דינמיים: RankingConfig מתעדכן מ-syncDictionaryWithServer (rankingConfig מהשרת)
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
       String extRaw, String exactPhrase) {

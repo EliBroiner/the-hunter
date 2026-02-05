@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import '../models/date_phrase_config.dart';
 import '../models/search_synonym.dart';
+import '../configs/ranking_config.dart';
+import 'app_check_http_helper.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 
@@ -30,35 +33,44 @@ class KnowledgeBaseService {
   Map<String, List<String>> _fileTypeKeywords = {};
   bool _initialized = false;
 
+  static const String _baseUrl =
+      'https://the-hunter-105628026575.me-west1.run.app';
+  static const String _dictionaryUpdatesPath = '/api/dictionary/updates';
+  static const Duration _syncTimeout = Duration(seconds: 10);
+
   /// datePhrases ו-fileTypeKeywords — לחשיפה ל-SmartSearchParser
   List<DatePhraseConfig> get datePhrases => List.unmodifiable(_datePhrases);
   Map<String, List<String>> get fileTypeKeywords =>
       Map.unmodifiable(_fileTypeKeywords);
 
-  /// מאתחל: טוען smart_search_config.json — synonyms ל-Isar + cache, dates + fileTypes בזיכרון
+  /// מאתחל: Dynamic Sync — קודם טוען מ-Isar (persistence offline), אחר כך assets, ואז סינכרון עם השרת
+  /// סדר הפעולות: 1) טעינת synonyms שמורים מ-Isar  2) smart_search_config.json  3) syncDictionaryWithServer
   Future<void> initialize() async {
     if (_initialized) return;
 
     try {
-      final json = await rootBundle.loadString('assets/smart_search_config.json');
+      // שלב 1: טעינה מ-Isar — מונחים שסונכרנו מהשרת בעבר, זמינים גם offline בהפעלה הבאה
+      await _loadSynonymsFromIsarToCache();
+
+      // שלב 2: טעינת smart_search_config.json — synonyms, datePhrases, fileTypeKeywords
+      final json =
+          await rootBundle.loadString('assets/smart_search_config.json');
       final map = jsonDecode(json) as Map<String, dynamic>;
 
-      // Synonyms — טעינה ל-Isar ול-cache
       final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
       final synonyms = <String, List<String>>{};
       for (final e in synonymsRaw.entries) {
         synonyms[e.key.toString()] =
             (e.value as List<dynamic>).map((x) => x.toString()).toList();
       }
-      await _loadSynonymsToIsarAndCache(synonyms);
+      await _mergeSynonymsToIsarAndCache(synonyms);
 
-      // DatePhrases — לזיכרון
+      // DatePhrases ו-FileTypeKeywords — לזיכרון
       final datePhrasesRaw = map['datePhrases'] as List<dynamic>? ?? [];
       _datePhrases = datePhrasesRaw
           .map((e) => DatePhraseConfig.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // FileTypeKeywords — לזיכרון
       final fileTypeRaw = map['fileTypeKeywords'] as Map<String, dynamic>? ?? {};
       _fileTypeKeywords = <String, List<String>>{};
       for (final e in fileTypeRaw.entries) {
@@ -66,12 +78,76 @@ class KnowledgeBaseService {
             (e.value as List<dynamic>).map((x) => x.toString()).toList();
       }
 
+      // שלב 3: סינכרון דינמי — מונחים חדשים מהשרת מתווספים ל-cache ול-Isar
+      await syncDictionaryWithServer();
+
       _initialized = true;
-      appLog('KnowledgeBase: loaded from smart_search_config.json');
+      appLog(
+          'KnowledgeBase: loaded (Isar + assets + server), cache size: ${_synonymCache.length}');
     } catch (e) {
       appLog('KnowledgeBase: initialize failed - $e, using fallbacks');
       _initFallbacks();
       _initialized = true;
+    }
+  }
+
+  /// סינכרון מילון עם השרת — קורא GET api/dictionary/updates וממזג מונחים חדשים ל-cache ול-Isar
+  /// Dynamic Sync: מונחים שהורדו נשמרים ב-Isar ונטענים בהפעלה הבאה גם ללא אינטרנט
+  Future<void> syncDictionaryWithServer() async {
+    try {
+      final uri = Uri.parse('$_baseUrl$_dictionaryUpdatesPath');
+      final headers = await AppCheckHttpHelper.getBackendHeaders();
+      final response = await http.get(uri, headers: headers).timeout(_syncTimeout);
+
+      if (response.statusCode != 200) {
+        appLog('KnowledgeBase: syncDictionary failed ${response.statusCode}');
+        return;
+      }
+
+      final map = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (map == null) return;
+
+      // מיזוג synonyms — אותו מבנה כמו assets
+      final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
+      final synonyms = <String, List<String>>{};
+      for (final e in synonymsRaw.entries) {
+        synonyms[e.key.toString()] =
+            (e.value as List<dynamic>).map((x) => x.toString()).toList();
+      }
+      if (synonyms.isNotEmpty) {
+        await _mergeSynonymsToIsarAndCache(synonyms);
+        appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
+      }
+
+      // עדכון דינמי של משקלי דירוג — השרת שולח rankingConfig, RankingConfig מודיע ל־RelevanceEngine
+      final rankingConfig = map['rankingConfig'] as Map<String, dynamic>?;
+      if (rankingConfig != null) {
+        RankingConfig.instance.applyFromServer(rankingConfig);
+        appLog('KnowledgeBase: syncDictionary applied rankingConfig from server');
+      }
+    } catch (e) {
+      appLog('KnowledgeBase: syncDictionaryWithServer error - $e');
+    }
+  }
+
+  /// טוען synonyms מ-Isar ל-cache — מאפשר שימוש במונחים שסונכרנו בעבר גם offline
+  Future<void> _loadSynonymsFromIsarToCache() async {
+    try {
+      final isar = DatabaseService.instance.isar;
+      final q = isar.searchSynonyms.buildQuery<SearchSynonym>();
+      final all = q.findAll();
+      q.close();
+      for (final s in all) {
+        if (s.term.isEmpty || s.expansions.isEmpty) continue;
+        final terms = s.expansions;
+        _synonymCache[_keyFor(s.term)] = terms;
+        _synonymCache[s.term] = terms;
+      }
+      if (all.isNotEmpty) {
+        appLog('KnowledgeBase: loaded ${all.length} synonyms from Isar (offline persistence)');
+      }
+    } catch (e) {
+      appLog('KnowledgeBase: _loadSynonymsFromIsarToCache failed - $e');
     }
   }
 
@@ -93,8 +169,10 @@ class KnowledgeBaseService {
     };
   }
 
-  /// טוען synonyms ל-Isar ול-cache — עבור כל (category, terms) שומר חיפוש לפי כל term
-  Future<void> _loadSynonymsToIsarAndCache(Map<String, List<String>> synonyms) async {
+  /// ממזג synonyms ל-Isar ול-cache — עבור כל (category, terms) שומר חיפוש לפי כל term.
+  /// Isar unique index on term — putAll מבצע upsert (מחליף קיימים, מוסיף חדשים)
+  Future<void> _mergeSynonymsToIsarAndCache(
+      Map<String, List<String>> synonyms) async {
     final list = <SearchSynonym>[];
     for (final entry in synonyms.entries) {
       final category = entry.key;
@@ -110,12 +188,10 @@ class KnowledgeBaseService {
     if (list.isEmpty) return;
 
     final isar = DatabaseService.instance.isar;
-    if (isar.searchSynonyms.count() == 0) {
-      isar.write((isar) {
-        isar.searchSynonyms.putAll(list);
-      });
-      appLog('KnowledgeBase: loaded ${list.length} synonym entries into Isar');
-    }
+    isar.write((isar) {
+      isar.searchSynonyms.putAll(list);
+    });
+    appLog('KnowledgeBase: merged ${list.length} synonym entries into Isar');
   }
 
   String _keyFor(String term) =>

@@ -22,7 +22,7 @@ public class QuotaService
     public async Task<bool> CanUserScanAsync(string userId, int requestedAmount)
     {
         var yearMonth = DateTime.UtcNow.ToString("yyyy-MM");
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = _dbFactory.CreateDbContext();
         var usage = await db.UserAiUsages
             .Where(x => x.UserId == userId && x.YearMonth == yearMonth)
             .Select(x => x.ScanCount)
@@ -36,7 +36,7 @@ public class QuotaService
     public async Task IncrementUsageAsync(string userId, int amount)
     {
         var yearMonth = DateTime.UtcNow.ToString("yyyy-MM");
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = _dbFactory.CreateDbContext();
         var row = await db.UserAiUsages
             .FirstOrDefaultAsync(x => x.UserId == userId && x.YearMonth == yearMonth);
 

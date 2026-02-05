@@ -41,11 +41,12 @@ dependencies:
   syncfusion_flutter_pdf: ^32.1.24
   pdfx: ^2.9.2
   
-  # Firebase - אימות משתמשים, גיבוי, Crashlytics
+  # Firebase - אימות משתמשים, גיבוי, Crashlytics, App Check
   firebase_core: ^4.4.0
   firebase_auth: ^6.1.4
   firebase_storage: ^13.0.6
   firebase_crashlytics: ^5.0.7
+  firebase_app_check: ^0.4.1+4
   
   # Google Sign In - התחברות עם Google (v7 דורש מיגרציה - נשאר ב-6)
   google_sign_in: ^6.2.2

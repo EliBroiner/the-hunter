@@ -108,14 +108,21 @@ public class GeminiService
         Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
         """;
 
+    private readonly ILearningService _learningService;
+    private readonly ISearchActivityService _searchActivityService;
+
     public GeminiService(
         IHttpClientFactory httpClientFactory,
         GeminiConfig geminiConfig,
-        ILogger<GeminiService> logger)
+        ILogger<GeminiService> logger,
+        ILearningService learningService,
+        ISearchActivityService searchActivityService)
     {
         _httpClientFactory = httpClientFactory;
         _geminiConfig = geminiConfig;
         _logger = logger;
+        _learningService = learningService;
+        _searchActivityService = searchActivityService;
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -166,7 +173,13 @@ public class GeminiService
                 return GeminiResult<SearchIntent>.Failure($"Gemini API error: {response.StatusCode}");
             }
 
-            return ParseGeminiResponse(responseBody);
+            var result = ParseGeminiResponse(responseBody);
+            if (result.IsSuccess && result.Data != null)
+            {
+                await LearnFromSearchTermsAsync(result.Data.Terms);
+                await _searchActivityService.RecordSearchTermsAsync(result.Data.Terms);
+            }
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -183,7 +196,8 @@ public class GeminiService
     /// <summary>
     /// מנתח אצווה של מסמכים ב-Gemini 1.5 Flash במקביל - חסכוני ומהיר
     /// </summary>
-    public async Task<List<DocumentAnalysisResponse>> AnalyzeDocumentsBatchAsync(List<DocumentPayload> documents)
+    /// <param name="userId">מזהה משתמש ללולאת למידה (מכסת הצעות יומית)</param>
+    public async Task<List<DocumentAnalysisResponse>> AnalyzeDocumentsBatchAsync(List<DocumentPayload> documents, string? userId = null)
     {
         if (documents.Count == 0) return new List<DocumentAnalysisResponse>();
         if (!IsConfigured)
@@ -192,12 +206,12 @@ public class GeminiService
             return documents.Select(d => new DocumentAnalysisResponse { DocumentId = d.Id, Result = new DocumentAnalysisResult() }).ToList();
         }
 
-        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d));
+        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId));
         var results = await Task.WhenAll(tasks);
         return results.ToList();
     }
 
-    private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(DocumentPayload doc)
+    private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(DocumentPayload doc, string? userId = null)
     {
         try
         {
@@ -240,6 +254,7 @@ public class GeminiService
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
             var cleanJson = SanitizeJsonResponse(rawText);
             var result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            await LearnFromDocumentResultAsync(result, userId);
             return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = result };
         }
         catch (Exception ex)
@@ -358,6 +373,40 @@ public class GeminiService
         {
             _logger.LogError(ex, "❌ UNEXPECTED_ERROR | Type: {Type} | Message: {Message}", ex.GetType().Name, ex.Message);
             return GeminiResult<SearchIntent>.Failure($"Unexpected error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// לומד מונחים משאילתות חיפוש - כל term עם קטגוריה "search" (ללא userId)
+    /// </summary>
+    private async Task LearnFromSearchTermsAsync(List<string> terms)
+    {
+        try
+        {
+            foreach (var term in terms.Where(t => !string.IsNullOrWhiteSpace(t)))
+                await _learningService.ProcessAiResultAsync(term, "search", userId: null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "לולאת למידה: כשלון בעדכון מונחים מחיפוש");
+        }
+    }
+
+    /// <summary>
+    /// לומד מניתוח מסמך - קטגוריה וכל תגית עם קטגוריית המסמך
+    /// </summary>
+    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(result.Category))
+                await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
+            foreach (var tag in result.Tags.Where(t => !string.IsNullOrWhiteSpace(t)))
+                await _learningService.ProcessAiResultAsync(tag, result.Category, userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "לולאת למידה: כשלון בעדכון מונחים מניתוח מסמך");
         }
     }
 

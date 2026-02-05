@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TheHunterApi.Data;
 
@@ -10,9 +11,11 @@ using TheHunterApi.Data;
 namespace TheHunterApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260205091754_AddRankingSettings")]
+    partial class AddRankingSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -132,30 +135,6 @@ namespace TheHunterApi.Migrations
                             Key = "exactPhraseBonus",
                             Value = 150.0
                         });
-                });
-
-            modelBuilder.Entity("TheHunterApi.Models.SearchActivity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Count")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("LastSearch")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Term")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Term")
-                        .IsUnique();
-
-                    b.ToTable("SearchActivities");
                 });
 #pragma warning restore 612, 618
         }

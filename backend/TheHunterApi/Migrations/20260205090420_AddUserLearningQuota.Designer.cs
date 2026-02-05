@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TheHunterApi.Data;
 
@@ -10,9 +11,11 @@ using TheHunterApi.Data;
 namespace TheHunterApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260205090420_AddUserLearningQuota")]
+    partial class AddUserLearningQuota
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -92,70 +95,6 @@ namespace TheHunterApi.Migrations
                         .IsUnique();
 
                     b.ToTable("LearnedTerms");
-                });
-
-            modelBuilder.Entity("TheHunterApi.Models.RankingSetting", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("Value")
-                        .HasColumnType("REAL");
-
-                    b.HasKey("Key");
-
-                    b.ToTable("RankingSettings");
-
-                    b.HasData(
-                        new
-                        {
-                            Key = "filenameWeight",
-                            Value = 200.0
-                        },
-                        new
-                        {
-                            Key = "contentWeight",
-                            Value = 120.0
-                        },
-                        new
-                        {
-                            Key = "pathWeight",
-                            Value = 80.0
-                        },
-                        new
-                        {
-                            Key = "fullMatchMultiplier",
-                            Value = 1.2
-                        },
-                        new
-                        {
-                            Key = "exactPhraseBonus",
-                            Value = 150.0
-                        });
-                });
-
-            modelBuilder.Entity("TheHunterApi.Models.SearchActivity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Count")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("LastSearch")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Term")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Term")
-                        .IsUnique();
-
-                    b.ToTable("SearchActivities");
                 });
 #pragma warning restore 612, 618
         }

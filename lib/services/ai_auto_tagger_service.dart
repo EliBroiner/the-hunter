@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
 import '../utils/extracted_text_quality.dart';
+import 'app_check_http_helper.dart';
 import 'auth_service.dart';
 import 'database_service.dart';
 import 'dev_logger.dart';
@@ -149,10 +150,12 @@ class AiAutoTaggerService {
       final sendMsg = '🚀 sending batch of ${batch.length} files to $_baseUrl';
       debugPrint(sendMsg);
       DevLogger.instance.log(sendMsg);
+      final headers =
+          await AppCheckHttpHelper.getBackendHeaders(existing: {'Content-Type': 'application/json'});
       final response = await http
           .post(
             Uri.parse(_baseUrl),
-            headers: {'Content-Type': 'application/json'},
+            headers: headers,
             body: body,
           )
           .timeout(const Duration(seconds: 60));
