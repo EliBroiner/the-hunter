@@ -61,17 +61,18 @@ class AiAutoTaggerService {
     }
   }
 
-  /// מוסיף קובץ לתור — בודק קודם התאמה מקומית
-  Future<void> addToQueue(FileMetadata file) async {
+  /// מוסיף קובץ לתור — בודק קודם התאמה מקומית (אלא אם skipLocalHeuristic)
+  Future<void> addToQueue(FileMetadata file, {bool skipLocalHeuristic = false}) async {
     if (_disposed) return;
     if (file.isAiAnalyzed && file.aiStatus != 'error') return;
 
-    // Step A: Local Heuristic
     String text = file.extractedText ?? '';
     if (text.isEmpty) {
       text = await _extractTextAsync(file);
     }
-    if (text.isNotEmpty) {
+
+    // שלב מילון — דילוג אם הקריאה מ-FileProcessingService (כבר נבדק)
+    if (!skipLocalHeuristic && text.isNotEmpty) {
       final match = await _knowledgeBase.findMatchingCategory(text);
       if (match != null) {
         file.tags = match.tags;
@@ -84,7 +85,7 @@ class AiAutoTaggerService {
       }
     }
 
-    // Step B: Server Queue — לא שולחים ל-AI טקסט עם >30% ג'יבריש
+    // תור לשרת — לא שולחים ל-AI טקסט עם >30% ג'יבריש
     if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = '';
     if (text.isEmpty) text = file.name; // fallback
     _queue.add(file);

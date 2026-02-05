@@ -1,6 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// אורך טקסט מינימלי (תווים) — מתחת לזה נחשב "לא קריא"
+const int minTextLength = 30;
+/// סף יחס ג'יבריש (0.0–1.0) — מעליו הטקסט נחשב לא תקין לניתוח
+const double qualityThreshold = 0.3;
+/// מינימום התאמות מילון כדי לסמן dictionaryMatched
+const int minDictionaryMatches = 1;
+
 /// ברירות מחדל למשקלי הדירוג
 const double kDefaultFilenameWeight = 200;
 const double kDefaultContentWeight = 120;

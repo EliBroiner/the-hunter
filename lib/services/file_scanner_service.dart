@@ -4,7 +4,9 @@ import '../models/file_metadata.dart';
 import 'ai_auto_tagger_service.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
+import 'file_processing_service.dart';
 import 'knowledge_base_service.dart';
+import 'settings_service.dart';
 import '../utils/extracted_text_quality.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
@@ -803,46 +805,31 @@ class FileScannerService {
             }
           }
           
-          // Filter First: נסיון התאמה מקומית (חינם) — רק אם נכשל שולחים לענן
-          final localCategory = await KnowledgeBaseService.instance.findMatchingCategory(extractedText);
-          if (localCategory != null) {
-            file.category = localCategory.category;
-            file.tags = localCategory.tags;
-            file.isAiAnalyzed = true;
-            file.aiStatus = 'local_match';
-          } else if (extractedText.length > 5 && isExtractedTextAcceptableForAi(extractedText)) {
-            AiAutoTaggerService.instance.addToQueue(file);
-          }
-          
+          // צינור עיבוד: ולידציה → מילון → AI (רק PRO)
+          await FileProcessingService.instance.processFile(
+            file,
+            isPro: SettingsService.instance.isPremium,
+          );
           _databaseService.updateFile(file);
           appLog('✅ Done processing: ${file.path}');
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
           
-          // בדיקת גיבוי ביניים
           _checkAndTriggerBackup(filesProcessed);
           
         } catch (e) {
           appLog('❌ CRASH on file: ${file.path} - Error: $e');
-          // סימון הקובץ כמעובד כדי שהלולאה לא תיתקע — לא לנסות שוב
           file.isIndexed = true;
           file.extractedText = '';
           file.aiStatus = 'error';
           _databaseService.updateFile(file);
           filesProcessed++;
-          
-          // בדיקת גיבוי ביניים גם במקרה כישלון (הקובץ סומן כמעובד)
           _checkAndTriggerBackup(filesProcessed);
         }
 
         batchCount++;
-        
-        // השהיה קצרה בין קבצים כדי לתת ל-UI לנשום
-        // הגדלתי את ההשהיה כדי למנוע ANR במכשירים חלשים
         await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
-        
-        // השהיה ארוכה יותר בין אצוות
         if (batchCount >= batchSize) {
           batchCount = 0;
           await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
@@ -889,45 +876,31 @@ class FileScannerService {
             }
           }
           
-          // Filter First: נסיון התאמה מקומית (חינם) — רק אם נכשל שולחים לענן
-          final localCategory = await KnowledgeBaseService.instance.findMatchingCategory(extractedText);
-          if (localCategory != null) {
-            file.category = localCategory.category;
-            file.tags = localCategory.tags;
-            file.isAiAnalyzed = true;
-            file.aiStatus = 'local_match';
-          } else if (extractedText.length > 5 && isExtractedTextAcceptableForAi(extractedText)) {
-            AiAutoTaggerService.instance.addToQueue(file);
-          }
-          
+          // צינור עיבוד: ולידציה → מילון → AI (רק PRO)
+          await FileProcessingService.instance.processFile(
+            file,
+            isPro: SettingsService.instance.isPremium,
+          );
           _databaseService.updateFile(file);
           appLog('✅ Done processing: ${file.path}');
 
           filesProcessed++;
           if (extractedText.isNotEmpty) filesWithText++;
           
-          // בדיקת גיבוי ביניים
           _checkAndTriggerBackup(filesProcessed);
           
         } catch (e) {
           appLog('❌ CRASH on file: ${file.path} - Error: $e');
-          // סימון הקובץ כמעובד כדי שהלולאה לא תיתקע — לא לנסות שוב
           file.isIndexed = true;
           file.extractedText = '';
           file.aiStatus = 'error';
           _databaseService.updateFile(file);
           filesProcessed++;
-          
-          // בדיקת גיבוי ביניים
           _checkAndTriggerBackup(filesProcessed);
         }
 
         batchCount++;
-        
-        // השהיה קצרה בין קבצים כדי לתת ל-UI לנשום
-        // הגדלתי את ההשהיה כדי למנוע ANR במכשירים חלשים
         await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
-        
         if (batchCount >= batchSize) {
           batchCount = 0;
           await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));

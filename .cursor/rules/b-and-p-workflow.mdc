@@ -1,5 +1,5 @@
 ---
-description: "B" = Flutter build only; "B AND P" or "בניה" = build APK then commit and push
+description: "B" = build only; "P" = commit & push only; "B P" or "בניה" = build then commit & push
 alwaysApply: true
 ---
 
@@ -10,9 +10,17 @@ When the user writes **"B"** (alone):
 
 ---
 
-# B AND P — Build APK then Commit & Push
+# P — Commit & Push
 
-When the user writes **"B AND P"** (or "B and P", "B&P") or **"בניה"** (Hebrew):
+When the user writes **"P"** (alone):
+- Run **`git add -A`**, then **`git commit -m "<descriptive message>"`** (summarize recent changes if obvious), then **`git push`**.
+- Do not run a build. Do not ask for confirmation.
+
+---
+
+# B P — Build APK then Commit & Push
+
+When the user writes **"B P"** (or "B AND P", "B and P", "B&P") or **"בניה"** (Hebrew):
 
 1. **Build APK:** Run `flutter build apk` (from project root).
 2. **If build succeeds (exit 0):** Run:
@@ -21,4 +29,4 @@ When the user writes **"B AND P"** (or "B and P", "B&P") or **"בניה"** (Hebr
    - `git push`
 3. **If build fails:** Do not commit or push; report the error.
 
-Do not ask for confirmation between build and commit/push when the user explicitly requested "B AND P".
+Do not ask for confirmation between build and commit/push when the user explicitly requested "B P" (or בניה).

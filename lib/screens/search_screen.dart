@@ -26,6 +26,7 @@ import '../services/ai_auto_tagger_service.dart';
 import '../services/text_extraction_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
+import '../ui/sheets/file_details_sheet.dart';
 
 /// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
 enum LocalFilter {
@@ -977,6 +978,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                FileDetailsSheet(
+                  file: file,
+                  onReanalyze: (report) => _reanalyzeFile(file, reportProgress: report),
+                ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -1167,72 +1173,80 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  /// ניתוח מחדש: איפוס דגלים, חילוץ טקסט, שליחה ל-AI — עם SnackBar התקדמות
-  Future<void> _reanalyzeFile(FileMetadata file) async {
+  /// ניתוח מחדש: איפוס דגלים, חילוץ טקסט, שליחה ל-AI. אם reportProgress לא null — מעדכן בעברית (גיליון); אחרת SnackBar
+  Future<void> _reanalyzeFile(FileMetadata file, {void Function(String)? reportProgress}) async {
     _databaseService.resetFileForReanalysis(file);
-    String stepLabel = 'Step 1: Extracting text...';
-    void showStepSnackBar() {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(stepLabel, style: const TextStyle(fontWeight: FontWeight.w500)),
-              const SizedBox(height: 8),
-              const LinearProgressIndicator(),
-            ],
+    String stepLabel = 'שלב 1: מחלץ טקסט...';
+    void report(String msg) {
+      stepLabel = msg;
+      if (reportProgress != null) {
+        reportProgress(msg);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(msg, style: const TextStyle(fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                const LinearProgressIndicator(),
+              ],
+            ),
+            duration: const Duration(days: 1),
+            behavior: SnackBarBehavior.floating,
           ),
-          duration: const Duration(days: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+        );
+      }
     }
-    showStepSnackBar();
+    report(stepLabel);
     try {
       final text = await TextExtractionService.instance.extractText(
         file.path,
         onProgress: (step) {
           if (step.contains('Rendering')) {
-            stepLabel = 'Step 1: Rendering PDF...';
+            stepLabel = 'שלב 1: מרנדר PDF...';
           } else if (step.contains('OCR')) {
-            stepLabel = 'Step 2: Running OCR...';
+            stepLabel = 'שלב 2: מריץ OCR...';
           } else {
-            stepLabel = 'Step 1: $step';
+            stepLabel = 'שלב 1: $step';
           }
-          showStepSnackBar();
+          report(stepLabel);
         },
       );
       file.extractedText = text.isEmpty ? null : text;
       file.isIndexed = true;
       _databaseService.saveFile(file);
       if (!mounted) return;
-      stepLabel = 'Step 3: AI Analysis...';
-      showStepSnackBar();
+      stepLabel = 'שלב 3: ניתוח AI...';
+      report(stepLabel);
       await AiAutoTaggerService.instance.addToQueue(file);
       await AiAutoTaggerService.instance.flushNow();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('ניתוח מחדש הושלם'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (reportProgress == null) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ניתוח מחדש הושלם'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
       setState(() {});
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('שגיאה: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (reportProgress == null) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 

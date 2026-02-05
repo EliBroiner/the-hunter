@@ -14,15 +14,20 @@ bool _isValidChar(int codePoint) {
   return false;
 }
 
-/// מחזיר true אם היחס תווים זבל <= 30% (מותר לשלוח ל-AI)
-bool isExtractedTextAcceptableForAi(String text) {
-  if (text.isEmpty) return false;
+/// מחזיר יחס תווים "זבל" (0.0–1.0) — לשימוש ב־FileValidator עם qualityThreshold
+double getGarbageRatio(String text) {
+  if (text.isEmpty) return 1.0;
   final runes = text.runes.toList();
-  if (runes.isEmpty) return false;
+  if (runes.isEmpty) return 1.0;
   int garbage = 0;
   for (final r in runes) {
     if (!_isValidChar(r)) garbage++;
   }
-  final ratio = (garbage / runes.length) * 100;
-  return ratio <= garbageThresholdPercent;
+  return garbage / runes.length;
+}
+
+/// מחזיר true אם היחס תווים זבל <= 30% (מותר לשלוח ל-AI)
+bool isExtractedTextAcceptableForAi(String text) {
+  if (text.isEmpty) return false;
+  return getGarbageRatio(text) <= (garbageThresholdPercent / 100.0);
 }
