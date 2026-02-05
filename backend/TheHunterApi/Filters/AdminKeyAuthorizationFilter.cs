@@ -25,6 +25,15 @@ public class AdminKeyAuthorizationFilter : IAuthorizationFilter
         var key = context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault()
             ?? context.HttpContext.Request.Query["key"].FirstOrDefault();
 
+        // Debug זמני — בדיקת 401
+        var fromHeader = context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault();
+        var fromQuery = context.HttpContext.Request.Query["key"].FirstOrDefault();
+        var received = fromHeader ?? fromQuery ?? "(empty)";
+        var masked = expectedKey?.Length >= 2
+            ? expectedKey[..2] + new string('*', expectedKey.Length - 2)
+            : "***";
+        Console.WriteLine($"[AdminFilter] Received key: {(string.IsNullOrEmpty(received) ? "(empty)" : received.Length > 2 ? received[..2] + "***" : "***")} | Config key (masked): {masked} | From: {(fromHeader != null ? "header" : fromQuery != null ? "query" : "none")}");
+
         if (string.IsNullOrEmpty(key) || key != expectedKey)
         {
             context.Result = new UnauthorizedResult();

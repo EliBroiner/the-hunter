@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pdfx/pdfx.dart' as pdfx;
 import '../utils/extracted_text_quality.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 
-import 'dart:isolate';
+/// נקודת כניסה ל־Isolate — רק String (נתיב) עובר; אין closures/context
+Future<String> _extractTextIsolateEntry(String filePath) =>
+    TextExtractionService.extractTextInIsolate(filePath);
 
 /// שירות חילוץ טקסט מקבצי טקסט ו-PDF
 /// PDF: קודם חילוץ raw; אם התוצאה ג'יבריש (עברית מקולקלת) — רינדור דף ראשון + OCR
@@ -14,11 +17,11 @@ class TextExtractionService {
   static TextExtractionService get instance => _instance;
   TextExtractionService._();
 
-  /// חילוץ טקסט מקובץ לפי הסיומת; onProgress — עדכון שלב (למשל "Rendering PDF...", "Running OCR...")
+  /// חילוץ טקסט מקובץ — רק filePath (String) עובר ל־Isolate; onProgress רצה במארח בלבד
   Future<String> extractText(String filePath, {void Function(String step)? onProgress}) async {
     try {
       onProgress?.call('Extracting text...');
-      String result = await Isolate.run(() => _extractTextInIsolate(filePath));
+      String result = await compute(_extractTextIsolateEntry, filePath);
       final ext = filePath.split('.').last.toLowerCase();
       // PDF: אם החילוץ הישיר מחזיר ג'יבריש — חילוץ ויזואלי (דף ראשון → OCR)
       if (ext == 'pdf' && result.isNotEmpty && !isExtractedTextAcceptableForAi(result)) {
@@ -65,8 +68,8 @@ class TextExtractionService {
     }
   }
 
-  /// פונקציה סטטית שרצה בתוך ה-Isolate (PDF מחזיר טקסט גולמי — הגבלה וגיבוי OCR במארח)
-  static Future<String> _extractTextInIsolate(String filePath) async {
+  /// פונקציה סטטית שרצה בתוך ה-Isolate — רק filePath; ללא callbacks
+  static Future<String> extractTextInIsolate(String filePath) async {
     final extension = filePath.split('.').last.toLowerCase();
     try {
       switch (extension) {

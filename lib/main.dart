@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -42,11 +43,10 @@ void main() async {
   // אתחול Firebase
   await Firebase.initializeApp();
 
-  // App Check — אימות מקור הבקשות: Play Integrity (Android), App Attest (iOS)
-  // זרימת טוקן: activate מפעיל attestation → getToken() מחזיר JWT → הבקאנד מוודא את הטוקן
+  // App Check — אימות מקור הבקשות. מצב Debug מאפשר עבודה עם טוקן זמני באמולטור או APK פיתוח
   await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.playIntegrity,
-    appleProvider: AppleProvider.appAttest,
+    providerAndroid: kDebugMode ? const AndroidDebugProvider() : const AndroidPlayIntegrityProvider(),
+    providerApple: kDebugMode ? const AppleDebugProvider() : const AppleAppAttestProvider(),
   );
 
   // Crashlytics — דיווח קריסות ל־Firebase Console

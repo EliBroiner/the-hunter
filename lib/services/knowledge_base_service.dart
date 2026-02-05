@@ -92,7 +92,7 @@ class KnowledgeBaseService {
   }
 
   /// סינכרון מילון עם השרת — קורא GET api/dictionary/updates וממזג מונחים חדשים ל-cache ול-Isar
-  /// Dynamic Sync: מונחים שהורדו נשמרים ב-Isar ונטענים בהפעלה הבאה גם ללא אינטרנט
+  /// התשובה עשויה להיות Map או List — בדיקה דפנסיבית למניעת type 'List<dynamic>' is not a subtype of 'Map<String, dynamic>?'
   Future<void> syncDictionaryWithServer() async {
     try {
       final uri = Uri.parse('$_baseUrl$_dictionaryUpdatesPath');
@@ -104,30 +104,67 @@ class KnowledgeBaseService {
         return;
       }
 
-      final map = jsonDecode(response.body) as Map<String, dynamic>?;
-      if (map == null) return;
+      final data = jsonDecode(response.body);
 
-      // מיזוג synonyms — אותו מבנה כמו assets
-      final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
+      // זרימה: תשובה List = רשימת synonyms; תשובה Map = synonyms + rankingConfig
+      if (data is List) {
+        // השרת החזיר רשימה — מטפלים כ-synonyms (למשל [{term, category}, ...])
+        final synonyms = _parseSynonymsFromList(data);
+        if (synonyms.isNotEmpty) {
+          await _mergeSynonymsToIsarAndCache(synonyms);
+          appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from List response');
+        }
+        return;
+      }
+
+      if (data is! Map<String, dynamic>) {
+        appLog('KnowledgeBase: syncDictionary — Unexpected format: ${data.runtimeType}');
+        return;
+      }
+
+      final map = data as Map<String, dynamic>;
+
+      // מיזוג synonyms — חילוץ בטוח עם as Map<String, dynamic>? למניעת cast error
+      final synonymsRaw = map['synonyms'];
       final synonyms = <String, List<String>>{};
-      for (final e in synonymsRaw.entries) {
-        synonyms[e.key.toString()] =
-            (e.value as List<dynamic>).map((x) => x.toString()).toList();
+      if (synonymsRaw is Map<String, dynamic>) {
+        for (final e in synonymsRaw.entries) {
+          final vals = e.value;
+          synonyms[e.key] = vals is List
+              ? vals.map((x) => x.toString()).toList()
+              : [vals.toString()];
+        }
+      } else if (synonymsRaw is List) {
+        synonyms.addAll(_parseSynonymsFromList(synonymsRaw));
       }
       if (synonyms.isNotEmpty) {
         await _mergeSynonymsToIsarAndCache(synonyms);
         appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
       }
 
-      // עדכון דינמי של משקלי דירוג — השרת שולח rankingConfig, RankingConfig מודיע ל־RelevanceEngine
-      final rankingConfig = map['rankingConfig'] as Map<String, dynamic>?;
-      if (rankingConfig != null) {
-        RankingConfig.instance.applyFromServer(rankingConfig);
+      // עדכון rankingConfig — בדיקת טיפוס לפני cast (מניעת List/Map cast error)
+      final rankingRaw = map['rankingConfig'];
+      final rankingData = rankingRaw is Map<String, dynamic> ? rankingRaw : null;
+      if (rankingData != null) {
+        RankingConfig.instance.applyFromServer(rankingData);
         appLog('KnowledgeBase: syncDictionary applied rankingConfig from server');
       }
     } catch (e) {
       appLog('KnowledgeBase: syncDictionaryWithServer error - $e');
     }
+  }
+
+  /// ממיר רשימה של פריטים ל-map synonyms — תומך ב-{term, category} או {category, terms}
+  Map<String, List<String>> _parseSynonymsFromList(List list) {
+    final synonyms = <String, List<String>>{};
+    for (final item in list) {
+      if (item is! Map<String, dynamic>) continue;
+      final cat = item['category']?.toString() ?? '';
+      final term = item['term']?.toString() ?? '';
+      if (cat.isEmpty || term.isEmpty) continue;
+      synonyms.putIfAbsent(cat, () => []).add(term);
+    }
+    return synonyms;
   }
 
   /// טוען synonyms מ-Isar ל-cache — מאפשר שימוש במונחים שסונכרנו בעבר גם offline

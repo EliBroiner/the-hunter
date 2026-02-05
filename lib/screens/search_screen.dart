@@ -983,7 +983,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 const SizedBox(height: 16),
                 FileDetailsSheet(
                   file: file,
-                  onReanalyze: (report) => _reanalyzeFile(file, reportProgress: report),
+                  onReanalyze: (report, isCanceled) => _reanalyzeFile(file, reportProgress: report, isCanceled: isCanceled),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(
@@ -1175,10 +1175,16 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  /// ניתוח מחדש: איפוס Isar, סנכרון מילון, חילוץ טקסט, FileProcessingService (מילון + AI עם App Check)
-  /// reportProgress — מעדכן גיליון פרטים; אחרת SnackBar
-  Future<void> _reanalyzeFile(FileMetadata file, {void Function(String)? reportProgress}) async {
-    // איפוס: isAiAnalyzed=false, isIndexed=false, tags/category/aiStatus=null
+  /// ניתוח מחדש: רק filePath (String) עובר לשירותים — אין context/State/Widget
+  /// Timeout 30s; isCanceled — דגל ביטול; שגיאה → זורק ל־FileDetailsSheet (אייקון + נסה שוב)
+  Future<void> _reanalyzeFile(
+    FileMetadata file, {
+    void Function(String)? reportProgress,
+    bool Function()? isCanceled,
+  }) async {
+    final filePath = file.path;
+    final isPro = _settingsService.isPremium;
+
     _databaseService.resetFileForReanalysis(file);
 
     void report(String msg) {
@@ -1204,35 +1210,41 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       }
     }
 
+    bool canceled() => isCanceled?.call() ?? false;
+
     try {
       report('מתחבר לשרת...');
-      await KnowledgeBaseService.instance.syncDictionaryWithServer();
-      if (!mounted) return;
+      await KnowledgeBaseService.instance.syncDictionaryWithServer().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('sync'),
+      );
+      if (!mounted || canceled()) return;
 
       report('מעדכן מילון...');
       await Future.delayed(const Duration(milliseconds: 200));
-      if (!mounted) return;
+      if (!mounted || canceled()) return;
 
       report('מנתח נתונים...');
-      final text = await TextExtractionService.instance.extractText(
-        file.path,
-        onProgress: (step) {
-          if (step.contains('Rendering')) report('מנתח נתונים... (מרנדר PDF)');
-          else if (step.contains('OCR')) report('מנתח נתונים... (OCR)');
-          else report('מנתח נתונים...');
-        },
+      final text = await TextExtractionService.instance.extractText(filePath).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('extract'),
       );
+      if (canceled()) return;
       file.extractedText = text.isEmpty ? null : text;
       file.isIndexed = true;
       _databaseService.saveFile(file);
-      if (!mounted) return;
+      if (!mounted || canceled()) return;
 
-      await FileProcessingService.instance.processFile(
-        file,
-        isPro: _settingsService.isPremium,
+      await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('process'),
       );
-      await AiAutoTaggerService.instance.flushNow();
-      if (!mounted) return;
+      if (canceled()) return;
+      await AiAutoTaggerService.instance.flushNow().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('flush'),
+      );
+      if (!mounted || canceled()) return;
       if (reportProgress == null) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1245,17 +1257,19 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       }
       setState(() {});
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || canceled()) return;
+      final msg = 'הניתוח נכשל: $e';
       if (reportProgress == null) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('שגיאה: $e'),
+            content: Text(msg),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
+      rethrow;
     }
   }
 

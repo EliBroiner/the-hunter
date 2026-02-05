@@ -21,6 +21,16 @@ class FileProcessingService {
   final _knowledgeBase = KnowledgeBaseService.instance;
   final _aiTagger = AiAutoTaggerService.instance;
 
+  /// מריץ צינור עיבוד לפי נתיב — רק primitives (מניעת Illegal argument in isolate message)
+  Future<void> processFileByPath(String filePath, {required bool isPro}) async {
+    final file = _db.getFileByPath(filePath);
+    if (file == null) {
+      appLog('FileProcessing: קובץ לא נמצא — $filePath');
+      return;
+    }
+    await processFile(file, isPro: isPro);
+  }
+
   /// מריץ את צינור העיבוד על קובץ בודד (לאחר חילוץ טקסט).
   /// 1) ולידציה — אם unreadable: עדכון Isar ועצירה.
   /// 2) מילון — אם יש התאמה (>= minDictionaryMatches): שמירת תגיות, dictionaryMatched, עצירה.
