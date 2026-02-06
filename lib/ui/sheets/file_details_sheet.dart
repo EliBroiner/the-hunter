@@ -7,6 +7,7 @@ String fileAnalysisStatusLabel(FileMetadata file) {
   if (file.aiStatus == 'local_match') return 'זוהה במילון';
   if (file.isAiAnalyzed && file.aiStatus == null) return 'נותח ב-AI';
   if (file.aiStatus == 'quotaLimit') return 'ניתוח לא זמין (מכסה)';
+  if (file.aiStatus == 'pending_retry') return 'ממתין לניתוח חוזר';
   if (file.aiStatus == 'error') return 'שגיאה בניתוח';
   return 'ממתין לניתוח';
 }

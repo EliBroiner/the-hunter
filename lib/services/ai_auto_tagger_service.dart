@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
@@ -27,6 +28,8 @@ class AiAutoTaggerService {
   static const int _batchSize = 10;
   static const Duration _flushInterval = Duration(seconds: 5);
   static const int _maxTextLength = 1000;
+  static const int _maxRetries = 3;
+  static const Duration _retryDelay = Duration(seconds: 2);
 
   final _knowledgeBase = KnowledgeBaseService.instance;
   final List<FileMetadata> _queue = [];
@@ -65,7 +68,7 @@ class AiAutoTaggerService {
   /// מוסיף קובץ לתור — בודק קודם התאמה מקומית (אלא אם skipLocalHeuristic)
   Future<void> addToQueue(FileMetadata file, {bool skipLocalHeuristic = false}) async {
     if (_disposed) return;
-    if (file.isAiAnalyzed && file.aiStatus != 'error') return;
+    if (file.isAiAnalyzed && file.aiStatus != 'error' && file.aiStatus != 'pending_retry') return;
 
     String text = file.extractedText ?? '';
     if (text.isEmpty) {
@@ -152,17 +155,47 @@ class AiAutoTaggerService {
       DevLogger.instance.log(sendMsg);
       final headers =
           await AppCheckHttpHelper.getBackendHeaders(existing: {'Content-Type': 'application/json'});
-      final response = await http
-          .post(
-            Uri.parse(_baseUrl),
-            headers: headers,
-            body: body,
-          )
-          .timeout(const Duration(seconds: 60));
+
+      // ניסיונות חוזרים על שגיאות רשת (SocketException, Failed host lookup)
+      http.Response? response;
+      for (var attempt = 0; attempt < _maxRetries; attempt++) {
+        try {
+          response = await http
+              .post(
+                Uri.parse(_baseUrl),
+                headers: headers,
+                body: body,
+              )
+              .timeout(const Duration(seconds: 60));
+          break;
+        } on SocketException catch (e) {
+          appLog('AiAutoTagger: SocketException attempt ${attempt + 1}/$_maxRetries - $e');
+          if (attempt < _maxRetries - 1) {
+            await Future.delayed(_retryDelay);
+          } else {
+            rethrow;
+          }
+        } on HttpException catch (e) {
+          appLog('AiAutoTagger: HttpException attempt ${attempt + 1}/$_maxRetries - $e');
+          if (attempt < _maxRetries - 1) {
+            await Future.delayed(_retryDelay);
+          } else {
+            rethrow;
+          }
+        } catch (e) {
+          if (_isNetworkError(e) && attempt < _maxRetries - 1) {
+            appLog('AiAutoTagger: Network error attempt ${attempt + 1}/$_maxRetries - $e');
+            await Future.delayed(_retryDelay);
+          } else {
+            rethrow;
+          }
+        }
+      }
+      if (response == null) throw Exception('No response after $_maxRetries attempts');
 
       debugPrint('📡 [Client] Response Status: ${response.statusCode}');
       debugPrint('📄 [Client] Response Body: ${response.body}');
-      DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
+      DevLogger.instance.log('📡 [Client] Response Status: ${response!.statusCode}');
       DevLogger.instance.log('📄 [Client] Response Body: ${response.body}');
       if (response.statusCode == 200) {
         DevLogger.instance.log('✅ Status: ${response.statusCode}');
@@ -185,17 +218,18 @@ class AiAutoTaggerService {
           _updateInIsar(file);
         }
       } else if (response.statusCode == 403) {
-        appLog('AiAutoTagger: Quota exceeded (403)');
+        appLog('AiAutoTagger: 403 — סימון pending_retry ל־AutoScan הבא');
         for (final file in batch) {
-          file.aiStatus = 'quotaLimit';
+          file.aiStatus = 'pending_retry';
           _updateInIsar(file);
+          if (!_disposed) _queue.add(file);
         }
       } else {
-        appLog('AiAutoTagger: API error ${response.statusCode}: ${response.body}');
+        appLog('AiAutoTagger: API error ${response.statusCode} — pending_retry');
         for (final file in batch) {
-          file.aiStatus = 'error';
+          file.aiStatus = 'pending_retry';
           _updateInIsar(file);
-          if (!_disposed) _queue.add(file); // retry later
+          if (!_disposed) _queue.add(file);
         }
       }
     } catch (e) {
@@ -204,13 +238,21 @@ class AiAutoTaggerService {
       DevLogger.instance.log(errMsg);
       appLog('AiAutoTagger: Network error - $e');
       for (final file in batch) {
-        file.aiStatus = 'error';
+        file.aiStatus = 'pending_retry';
         _updateInIsar(file);
         if (!_disposed) _queue.add(file);
       }
     } finally {
       _isUploading = false;
     }
+  }
+
+  static bool _isNetworkError(Object e) {
+    final s = e.toString().toLowerCase();
+    return s.contains('socket') ||
+        s.contains('failed host lookup') ||
+        s.contains('connection') ||
+        s.contains('timeout');
   }
 
   void _updateInIsar(FileMetadata file) {

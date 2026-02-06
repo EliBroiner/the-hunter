@@ -43,7 +43,7 @@ public class AnalyzeController : ControllerBase
             if (!await _quotaService.CanUserScanAsync(userId, count))
             {
                 _logger.LogWarning("Quota exceeded for user {UserId}", userId);
-                return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 50 scans/month" });
+                return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 1000 scans/month" });
             }
 
             var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId);

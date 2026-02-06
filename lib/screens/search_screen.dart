@@ -1025,6 +1025,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       label = '⚠️ Analysis Skipped (Quota)';
       icon = Icons.warning_amber_rounded;
       color = const Color(0xFFFF9800); // Orange
+    } else if (file.aiStatus == 'pending_retry') {
+      label = '⏳ Pending Retry';
+      icon = Icons.sync;
+      color = Colors.grey;
     } else if (file.aiStatus == 'error') {
       label = '❌ Analysis Failed';
       icon = Icons.error_outline;
