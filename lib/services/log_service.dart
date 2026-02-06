@@ -7,9 +7,12 @@ import 'package:flutter/foundation.dart';
 class LogService {
   static final LogService _instance = LogService._();
   static LogService get instance => _instance;
-  
+
+  /// טוקן Debug של App Check — נשמר ב־main אחרי activate (רק ב־kDebugMode)
+  static String? debugToken;
+
   LogService._();
-  
+
   final List<String> _logs = [];
   final ValueNotifier<List<String>> logsNotifier = ValueNotifier([]);
   
@@ -33,7 +36,15 @@ class LogService {
     _logs.clear();
     logsNotifier.value = [];
   }
-  
+
+  /// ריקון רשימת הלוגים — לשימוש בתחילת main
+  Future<void> clearLogs() async {
+    clear();
+  }
+
+  /// מחזיר את כל הלוגים כמחרוזת אחת — לשיתוף/העתקה
+  String getRawLogs() => getAllLogs();
+
   /// מחזיר את כל הלוגים כטקסט
   String getAllLogs() {
     return _logs.join('\n');

@@ -1029,6 +1029,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       label = '⏳ Pending Retry';
       icon = Icons.sync;
       color = Colors.grey;
+    } else if (file.aiStatus == 'auth_failed_retry') {
+      label = '🔐 Auth Cooldown';
+      icon = Icons.lock_clock;
+      color = Colors.grey;
     } else if (file.aiStatus == 'error') {
       label = '❌ Analysis Failed';
       icon = Icons.error_outline;

@@ -39,7 +39,10 @@ import 'utils/smart_search_parser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // ניקוי לוגים מההרצה הקודמת
+  await LogService.instance.clearLogs();
+
   // אתחול Firebase
   await Firebase.initializeApp();
 
@@ -48,6 +51,16 @@ void main() async {
     providerAndroid: kDebugMode ? const AndroidDebugProvider() : const AndroidPlayIntegrityProvider(),
     providerApple: kDebugMode ? const AppleDebugProvider() : const AppleAppAttestProvider(),
   );
+
+  // שמירת טוקן Debug להצגה בהגדרות — רק במצב פיתוח
+  if (kDebugMode) {
+    try {
+      final token = await FirebaseAppCheck.instance.getToken();
+      LogService.debugToken = token;
+    } catch (_) {
+      LogService.debugToken = null;
+    }
+  }
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;

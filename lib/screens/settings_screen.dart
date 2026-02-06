@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
 import '../configs/ranking_config.dart';
 import '../services/auth_service.dart';
+import '../services/log_service.dart';
 import '../services/backup_service.dart';
 import '../services/database_service.dart';
 import '../services/dev_logger.dart';
@@ -224,8 +228,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               maintainAnimation: false,
               child: _buildDeveloperConsoleSection(context, theme),
             ),
+            if (kDebugMode) _buildDebugSection(context, theme),
             const SizedBox(height: 24),
-            
+
             // כפתור התנתקות
             _buildLogoutButton(context, theme),
               ],
@@ -1356,6 +1361,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// בונה כפתור התנתקות
+  /// כלי פיתוח — מוצג רק ב־kDebugMode
+  Widget _buildDebugSection(BuildContext context, ThemeData theme) {
+    final token = LogService.debugToken ?? '(לא זמין)';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.only(right: 16, bottom: 8),
+          child: Text(
+            'כלי פיתוח (Debug Only)',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Debug Token',
+                  style: theme.textTheme.labelMedium?.copyWith(color: theme.hintColor),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        token,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: token));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('הועתק ללוח'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                      child: const Text('העתק'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final logs = LogService.instance.getRawLogs();
+                    if (logs.isEmpty) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('אין לוגים'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    await Share.share(logs, subject: 'The Hunter Logs');
+                  },
+                  icon: const Icon(Icons.share, size: 18),
+                  label: const Text('שתף לוגים'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
   Widget _buildLogoutButton(BuildContext context, ThemeData theme) {
     return SizedBox(
       width: double.infinity,

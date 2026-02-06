@@ -30,6 +30,13 @@ class AiAutoTaggerService {
   static const int _maxTextLength = 1000;
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
+  static const Duration _authCooldown = Duration(minutes: 10);
+
+  /// אחרי 401 — עוצר קריאות AI ל־10 דקות (App Check quota reset)
+  static DateTime? _authFailedUntil;
+
+  static bool get _isInAuthCooldown =>
+      _authFailedUntil != null && DateTime.now().isBefore(_authFailedUntil!);
 
   final _knowledgeBase = KnowledgeBaseService.instance;
   final List<FileMetadata> _queue = [];
@@ -53,6 +60,7 @@ class AiAutoTaggerService {
   /// Backfill — מוסיף קבצים ישנים (extractedText קיים, ללא AI) לתור
   Future<void> processUnanalyzedFiles() async {
     if (_disposed) return;
+    if (_isInAuthCooldown) return;
     try {
       final legacy = DatabaseService.instance.getUnanalyzedFilesForAiBackfill();
       debugPrint('Found ${legacy.length} legacy files. Adding to AI queue...');
@@ -68,7 +76,8 @@ class AiAutoTaggerService {
   /// מוסיף קובץ לתור — בודק קודם התאמה מקומית (אלא אם skipLocalHeuristic)
   Future<void> addToQueue(FileMetadata file, {bool skipLocalHeuristic = false}) async {
     if (_disposed) return;
-    if (file.isAiAnalyzed && file.aiStatus != 'error' && file.aiStatus != 'pending_retry') return;
+    if (_isInAuthCooldown) return;
+    if (file.isAiAnalyzed && file.aiStatus != 'error' && file.aiStatus != 'pending_retry' && file.aiStatus != 'auth_failed_retry') return;
 
     String text = file.extractedText ?? '';
     if (text.isEmpty) {
@@ -123,6 +132,10 @@ class AiAutoTaggerService {
 
   Future<void> _flushQueue() async {
     if (_queue.isEmpty || _disposed) return;
+    if (_isInAuthCooldown) {
+      _startFlushTimer();
+      return;
+    }
 
     final batch = List<FileMetadata>.from(_queue);
     _queue.clear();
@@ -132,6 +145,11 @@ class AiAutoTaggerService {
 
   Future<void> _sendBatch(List<FileMetadata> batch) async {
     if (batch.isEmpty) return;
+    if (_isInAuthCooldown) {
+      for (final f in batch) _queue.add(f);
+      _startFlushTimer();
+      return;
+    }
 
     _isUploading = true;
     try {
@@ -216,6 +234,14 @@ class AiAutoTaggerService {
           file.isAiAnalyzed = true;
           file.aiStatus = null;
           _updateInIsar(file);
+        }
+      } else if (response.statusCode == 401) {
+        _authFailedUntil = DateTime.now().add(_authCooldown);
+        appLog('AiAutoTagger: 401 App Check — cooldown ${_authCooldown.inMinutes} min');
+        for (final file in batch) {
+          file.aiStatus = 'auth_failed_retry';
+          _updateInIsar(file);
+          if (!_disposed) _queue.add(file);
         }
       } else if (response.statusCode == 403) {
         appLog('AiAutoTagger: 403 — סימון pending_retry ל־AutoScan הבא');
