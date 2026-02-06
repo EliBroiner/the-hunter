@@ -62,6 +62,7 @@ builder.Services.AddSingleton(new GeminiConfig { ApiKey = geminiApiKey });
 // רישום GeminiService, QuotaService ו-LearningService
 builder.Services.AddScoped<GeminiService>();
 builder.Services.AddScoped<QuotaService>();
+builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
 
@@ -80,11 +81,29 @@ builder.Services.AddDbContextFactory<AppDbContext>(opts =>
 
 var app = builder.Build();
 
-// יצירת DB והרצת migrations (כולל LearnedTerms)
+// יצירת DB והרצת migrations
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
     await db.Database.MigrateAsync();
+
+    // Bootstrap: Admin ראשון לפי INITIAL_ADMIN_EMAIL (UserId ריק — יתקשר בהתחברות הראשונה)
+    var initialEmail = Environment.GetEnvironmentVariable("INITIAL_ADMIN_EMAIL")
+        ?? builder.Configuration["INITIAL_ADMIN_EMAIL"];
+    if (!string.IsNullOrWhiteSpace(initialEmail) && !await db.AppManagedUsers.AnyAsync())
+    {
+        var now = DateTime.UtcNow;
+        db.AppManagedUsers.Add(new AppManagedUser
+        {
+            Email = initialEmail.Trim(),
+            UserId = "",
+            Role = "Admin",
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+        await db.SaveChangesAsync();
+        Log.Information("Bootstrap: Admin ראשון נוצר עבור {Email}", initialEmail);
+    }
 }
 
 // Root endpoint

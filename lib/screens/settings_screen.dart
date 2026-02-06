@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../configs/ranking_config.dart';
 import '../services/auth_service.dart';
 import '../services/log_service.dart';
+import '../services/user_roles_service.dart';
 import '../services/backup_service.dart';
 import '../services/database_service.dart';
 import '../services/dev_logger.dart';
@@ -228,8 +229,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               maintainAnimation: false,
               child: _buildDeveloperConsoleSection(context, theme),
             ),
-            // Debug Token — ב־kDebugMode תמיד, או אחרי הפעלת Developer Mode (7 לחיצות)
-            if (kDebugMode || _isDevMode) _buildDebugSection(context, theme),
+            // Debug Token — רק למי שמופיע ברשימת DebugAccess/Admin בבקאנד
+            if (kDebugMode || _isDevMode)
+              FutureBuilder<bool>(
+                future: UserRolesService.instance.hasRole('DebugAccess'),
+                builder: (ctx, snapshot) {
+                  if (snapshot.data == true) return _buildDebugSection(context, theme);
+                  return const SizedBox.shrink();
+                },
+              ),
             const SizedBox(height: 24),
 
             // כפתור התנתקות

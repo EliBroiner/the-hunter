@@ -1,10 +1,7 @@
 import com.android.build.gradle.LibraryExtension
 import org.gradle.api.tasks.compile.JavaCompile
 
-plugins {
-    // Google Services - Firebase
-    id("com.google.gms.google-services") version "4.4.2" apply false
-}
+// Google Services — מוגדר ב-settings.gradle.kts (FlutterFire)
 
 // Force SDK 36 for all projects
 val sdkVersion = 36

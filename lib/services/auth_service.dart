@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'log_service.dart';
 import 'settings_service.dart';
+import 'user_roles_service.dart';
 
 /// תוצאת אימות
 class AuthResult {
@@ -86,7 +87,7 @@ class AuthService {
       
       // בדיקת סטטוס פרימיום מול RevenueCat
       await _checkPremiumStatus(userCredential.user?.uid);
-      
+      UserRolesService.instance.clearCache();
       appLog('AUTH: Google Sign-In successful: ${userCredential.user?.email}');
       return AuthResult.success(userCredential.user!);
     } on FirebaseAuthException catch (e) {
@@ -104,7 +105,7 @@ class AuthService {
       appLog('AUTH: Starting Anonymous Sign-In...');
       
       final userCredential = await _auth.signInAnonymously();
-      
+      UserRolesService.instance.clearCache();
       appLog('AUTH: Anonymous Sign-In successful: ${userCredential.user?.uid}');
       return AuthResult.success(userCredential.user!);
       
@@ -127,9 +128,8 @@ class AuthService {
         await _googleSignIn.signOut();
       }
       
-      // התנתקות מ-Firebase
       await _auth.signOut();
-      
+      UserRolesService.instance.clearCache();
       appLog('AUTH: Sign out successful');
     } catch (e) {
       appLog('AUTH ERROR: Sign out failed: $e');
@@ -161,7 +161,7 @@ class AuthService {
       
       // קישור החשבון האנונימי לחשבון Google
       final userCredential = await currentUser!.linkWithCredential(credential);
-      
+      UserRolesService.instance.clearCache();
       appLog('AUTH: Account upgrade successful: ${userCredential.user?.email}');
       return AuthResult.success(userCredential.user!);
       

@@ -1,44 +1,26 @@
 {
   "project_info": {
-    "project_number": "152360418969",
-    "project_id": "the-hunter-c60d5",
-    "storage_bucket": "the-hunter-c60d5.firebasestorage.app"
+    "project_number": "105628026575",
+    "project_id": "thehunter-485508",
+    "storage_bucket": "thehunter-485508.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:152360418969:android:d914a7230e97b86ab38208",
+        "mobilesdk_app_id": "1:105628026575:android:0c3876740b5f75971659ba",
         "android_client_info": {
           "package_name": "com.thehunter.the_hunter"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "152360418969-kc1j1vm8rraju5jp5dacaoeeoagv79fr.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.thehunter.the_hunter",
-            "certificate_hash": "6d6109bf649dcba9a76beaa8bf0d2f18d87dea06"
-          }
-        },
-        {
-          "client_id": "152360418969-e0aag9s2l21ft1j9o2elfsatm0dqbmsp.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBfFcuum-jLIiRxcitBnnuTw-67nux4liA"
+          "current_key": "AIzaSyAZuDEU73yseSTbOePL7JDZRZhpHSIFKPI"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "152360418969-e0aag9s2l21ft1j9o2elfsatm0dqbmsp.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

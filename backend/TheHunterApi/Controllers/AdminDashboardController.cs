@@ -18,7 +18,10 @@ public class AdminDashboardController : Controller
     private readonly ILogger<AdminDashboardController> _logger;
     private readonly IConfiguration _config;
 
-    public AdminDashboardController(IDbContextFactory<AppDbContext> dbFactory, ILogger<AdminDashboardController> logger, IConfiguration config)
+    public AdminDashboardController(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<AdminDashboardController> logger,
+        IConfiguration config)
     {
         _dbFactory = dbFactory;
         _logger = logger;
@@ -200,5 +203,89 @@ public class AdminDashboardController : Controller
         await db.SaveChangesAsync();
         _logger.LogInformation("מונח נמחק: {Term} Id={Id}", term.Term, id);
         return RedirectToAction(nameof(Index));
+    }
+
+    /// <summary>
+    /// עמוד ניהול משתמשים — Admin, DebugAccess, User
+    /// </summary>
+    [HttpGet]
+    [Route("users")]
+    public async Task<IActionResult> Users()
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var users = await db.AppManagedUsers.OrderBy(u => u.Email).ToListAsync();
+        return View(users);
+    }
+
+    [HttpPost]
+    [Route("users/add")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddUser([FromForm] string email, [FromForm] string role, [FromForm] string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            TempData["UsersMessage"] = "נא להזין מייל.";
+            TempData["UsersMessageSuccess"] = false;
+            return RedirectToAction(nameof(Users));
+        }
+
+        await using var db = _dbFactory.CreateDbContext();
+        var normalizedEmail = email.Trim();
+        if (await db.AppManagedUsers.AnyAsync(u => u.Email.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase)))
+        {
+            TempData["UsersMessage"] = "משתמש עם מייל זה כבר קיים.";
+            TempData["UsersMessageSuccess"] = false;
+            return RedirectToAction(nameof(Users));
+        }
+
+        var now = DateTime.UtcNow;
+        db.AppManagedUsers.Add(new AppManagedUser
+        {
+            Email = normalizedEmail,
+            UserId = string.IsNullOrWhiteSpace(userId) ? "" : userId.Trim(),
+            Role = role is "Admin" or "DebugAccess" ? role : "User",
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+        await db.SaveChangesAsync();
+        _logger.LogInformation("משתמש נוסף: {Email} תפקיד {Role}", normalizedEmail, role);
+        TempData["UsersMessage"] = "המשתמש נוסף בהצלחה.";
+        TempData["UsersMessageSuccess"] = true;
+        return RedirectToAction(nameof(Users));
+    }
+
+    [HttpPost]
+    [Route("users/update/{id:int}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateUser(int id, [FromForm] string role)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var user = await db.AppManagedUsers.FindAsync(id);
+        if (user == null) return NotFound();
+
+        user.Role = role is "Admin" or "DebugAccess" ? role : "User";
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        _logger.LogInformation("משתמש עודכן: {Email} תפקיד {Role}", user.Email, user.Role);
+        TempData["UsersMessage"] = "התפקיד עודכן.";
+        TempData["UsersMessageSuccess"] = true;
+        return RedirectToAction(nameof(Users));
+    }
+
+    [HttpPost]
+    [Route("users/delete/{id:int}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteUser(int id)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var user = await db.AppManagedUsers.FindAsync(id);
+        if (user == null) return NotFound();
+
+        db.AppManagedUsers.Remove(user);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("משתמש נמחק: {Email}", user.Email);
+        TempData["UsersMessage"] = "המשתמש נמחק.";
+        TempData["UsersMessageSuccess"] = true;
+        return RedirectToAction(nameof(Users));
     }
 }

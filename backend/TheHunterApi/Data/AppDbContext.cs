@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<UserLearningQuota> UserLearningQuotas => Set<UserLearningQuota>();
     public DbSet<RankingSetting> RankingSettings => Set<RankingSetting>();
     public DbSet<SearchActivity> SearchActivities => Set<SearchActivity>();
+    public DbSet<AppManagedUser> AppManagedUsers => Set<AppManagedUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -57,6 +58,14 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Term).IsUnique();
+        });
+
+        // ניהול משתמשים ותפקידים — Admin, DebugAccess, User
+        modelBuilder.Entity<AppManagedUser>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.HasIndex(x => x.Email);
         });
     }
 }

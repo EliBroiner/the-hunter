@@ -9,29 +9,17 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -45,10 +33,49 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBfFcuum-jLIiRxcitBnnuTw-67nux4liA',
-    appId: '1:152360418969:android:d914a7230e97b86ab38208',
-    messagingSenderId: '152360418969',
-    projectId: 'the-hunter-c60d5',
-    storageBucket: 'the-hunter-c60d5.firebasestorage.app',
+    apiKey: 'AIzaSyAZuDEU73yseSTbOePL7JDZRZhpHSIFKPI',
+    appId: '1:105628026575:android:0c3876740b5f75971659ba',
+    messagingSenderId: '105628026575',
+    projectId: 'thehunter-485508',
+    storageBucket: 'thehunter-485508.firebasestorage.app',
   );
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBU_qXnoq_5SATLrMIa1O_iCbouI8W7pWs',
+    appId: '1:105628026575:web:eb368f30c15634021659ba',
+    messagingSenderId: '105628026575',
+    projectId: 'thehunter-485508',
+    authDomain: 'thehunter-485508.firebaseapp.com',
+    storageBucket: 'thehunter-485508.firebasestorage.app',
+    measurementId: 'G-VEXTJTZXNG',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyC4hIJ1298Cj19Cd21MVRONSRHMxUFQ1TE',
+    appId: '1:105628026575:ios:e461800aff8c2fbe1659ba',
+    messagingSenderId: '105628026575',
+    projectId: 'thehunter-485508',
+    storageBucket: 'thehunter-485508.firebasestorage.app',
+    iosBundleId: 'com.thehunter.theHunter',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyC4hIJ1298Cj19Cd21MVRONSRHMxUFQ1TE',
+    appId: '1:105628026575:ios:e461800aff8c2fbe1659ba',
+    messagingSenderId: '105628026575',
+    projectId: 'thehunter-485508',
+    storageBucket: 'thehunter-485508.firebasestorage.app',
+    iosBundleId: 'com.thehunter.theHunter',
+  );
+
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyBU_qXnoq_5SATLrMIa1O_iCbouI8W7pWs',
+    appId: '1:105628026575:web:1bfcb6d0d93e03fe1659ba',
+    messagingSenderId: '105628026575',
+    projectId: 'thehunter-485508',
+    authDomain: 'thehunter-485508.firebaseapp.com',
+    storageBucket: 'thehunter-485508.firebasestorage.app',
+    measurementId: 'G-60WB825995',
+  );
+
 }

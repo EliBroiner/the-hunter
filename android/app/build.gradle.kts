@@ -5,6 +5,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     // Google Services - Firebase
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 // קריאת משתני סביבה לחתימה
