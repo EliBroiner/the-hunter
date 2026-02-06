@@ -228,7 +228,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               maintainAnimation: false,
               child: _buildDeveloperConsoleSection(context, theme),
             ),
-            if (kDebugMode) _buildDebugSection(context, theme),
+            // Debug Token — ב־kDebugMode תמיד, או אחרי הפעלת Developer Mode (7 לחיצות)
+            if (kDebugMode || _isDevMode) _buildDebugSection(context, theme),
             const SizedBox(height: 24),
 
             // כפתור התנתקות
