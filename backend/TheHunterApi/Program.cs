@@ -104,6 +104,7 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseCors();
+app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseMiddleware<FirebaseAppCheckMiddleware>();
 app.UseAuthorization();
 app.MapControllers();

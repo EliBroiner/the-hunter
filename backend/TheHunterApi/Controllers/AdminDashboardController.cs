@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TheHunterApi.Data;
 using TheHunterApi.Filters;
 using TheHunterApi.Models;
+using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
 
@@ -15,11 +16,13 @@ public class AdminDashboardController : Controller
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<AdminDashboardController> _logger;
+    private readonly IConfiguration _config;
 
-    public AdminDashboardController(IDbContextFactory<AppDbContext> dbFactory, ILogger<AdminDashboardController> logger)
+    public AdminDashboardController(IDbContextFactory<AppDbContext> dbFactory, ILogger<AdminDashboardController> logger, IConfiguration config)
     {
         _dbFactory = dbFactory;
         _logger = logger;
+        _config = config;
     }
 
     /// <summary>
@@ -30,8 +33,12 @@ public class AdminDashboardController : Controller
     [Route("index")]
     public async Task<IActionResult> Index()
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var items = await db.LearnedTerms
+        var dbOk = false;
+        try
+        {
+            await using var db = _dbFactory.CreateDbContext();
+            dbOk = await db.Database.CanConnectAsync();
+            var items = await db.LearnedTerms
             .Where(x => !x.IsApproved)
             .OrderByDescending(x => x.Frequency)
             .ThenByDescending(x => x.LastSeen)
@@ -44,12 +51,48 @@ public class AdminDashboardController : Controller
             .Take(50)
             .ToListAsync();
 
-        return View(new AdminDashboardViewModel
+            var geminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
+                || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]);
+            var firebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER"));
+
+            return View(new AdminDashboardViewModel
+            {
+                PendingTerms = items,
+                RankingWeights = rankingWeights,
+                SearchActivities = searchActivities,
+                DatabaseOk = dbOk,
+                GeminiOk = geminiOk,
+                FirebaseOk = firebaseOk,
+                RecentErrors = AdminErrorTracker.RecentErrors
+            });
+        }
+        catch (Exception ex)
         {
-            PendingTerms = items,
-            RankingWeights = rankingWeights,
-            SearchActivities = searchActivities
-        });
+            AdminErrorTracker.AddError(ex.Message);
+            return View(new AdminDashboardViewModel
+            {
+                PendingTerms = new List<LearnedTerm>(),
+                RankingWeights = new Dictionary<string, double>(),
+                SearchActivities = new List<SearchActivity>(),
+                DatabaseOk = false,
+                GeminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
+                    || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]),
+                FirebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER")),
+                RecentErrors = AdminErrorTracker.RecentErrors
+            });
+        }
+    }
+
+    /// <summary>
+    /// מנקה את רשימת שגיאות השרת ומחזיר ל-Index
+    /// </summary>
+    [HttpPost]
+    [Route("clear-errors")]
+    [ValidateAntiForgeryToken]
+    public IActionResult ClearErrors()
+    {
+        AdminErrorTracker.ClearErrors();
+        return RedirectToAction(nameof(Index));
     }
 
     /// <summary>
