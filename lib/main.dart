@@ -46,7 +46,8 @@ void main() async {
   // אתחול Firebase
   await Firebase.initializeApp();
 
-  // App Check — מאלץ Debug Provider כדי לקבל טוקן להדבקה ב-Firebase Console
+  // App Check — AndroidDebugProvider מייצר Debug Secret שמודפס ל־logcat
+  // חפש: "Enter this debug secret into the allow list in the Firebase Console:"
   await FirebaseAppCheck.instance.activate(
     providerAndroid: const AndroidDebugProvider(),
     providerApple: const AppleDebugProvider(),

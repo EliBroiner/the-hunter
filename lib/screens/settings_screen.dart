@@ -1396,6 +1396,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'App Check Token (debug: להדבקה ב-Firebase → Manage debug tokens; release: הוסף SHA-256 ל-Play Integrity)',
                   style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
                 ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'To get your Debug Secret, check your \'flutter run\' logs for a line starting with: '
+                    '\'Enter this debug secret into the allow list in the Firebase Console:\'',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.hintColor,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 FutureBuilder<String?>(
                   future: () async {
