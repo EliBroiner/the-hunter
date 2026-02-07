@@ -213,7 +213,7 @@ class AiAutoTaggerService {
 
       debugPrint('📡 [Client] Response Status: ${response.statusCode}');
       debugPrint('📄 [Client] Response Body: ${response.body}');
-      DevLogger.instance.log('📡 [Client] Response Status: ${response!.statusCode}');
+      DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📄 [Client] Response Body: ${response.body}');
       if (response.statusCode == 200) {
         DevLogger.instance.log('✅ Status: ${response.statusCode}');
@@ -237,6 +237,7 @@ class AiAutoTaggerService {
         }
       } else if (response.statusCode == 401) {
         _authFailedUntil = DateTime.now().add(_authCooldown);
+        appLog('❌ AI Analysis failed due to App Check. Please ensure Debug Token is registered in Firebase Console.');
         appLog('AiAutoTagger: 401 App Check — cooldown ${_authCooldown.inMinutes} min');
         for (final file in batch) {
           file.aiStatus = 'auth_failed_retry';
@@ -259,12 +260,18 @@ class AiAutoTaggerService {
         }
       }
     } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      final isAppCheckError = errStr.contains('app attestation') || errStr.contains('attestation failed');
+      if (isAppCheckError) {
+        _authFailedUntil = DateTime.now().add(_authCooldown);
+        appLog('❌ AI Analysis failed due to App Check. Please ensure Debug Token is registered in Firebase Console.');
+      }
       final errMsg = '💥 Error: $e';
       debugPrint(errMsg);
       DevLogger.instance.log(errMsg);
-      appLog('AiAutoTagger: Network error - $e');
+      appLog('AiAutoTagger: ${isAppCheckError ? "App Check error" : "Network error"} - $e');
       for (final file in batch) {
-        file.aiStatus = 'pending_retry';
+        file.aiStatus = isAppCheckError ? 'auth_failed_retry' : 'pending_retry';
         _updateInIsar(file);
         if (!_disposed) _queue.add(file);
       }

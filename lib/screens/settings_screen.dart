@@ -8,13 +8,14 @@ import 'package:share_plus/share_plus.dart';
 import '../configs/ranking_config.dart';
 import '../services/auth_service.dart';
 import '../services/log_service.dart';
-import '../services/user_roles_service.dart';
 import '../services/backup_service.dart';
 import '../services/database_service.dart';
 import '../services/dev_logger.dart';
 import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart' show Firebase;
 
 /// מסך הגדרות
 class SettingsScreen extends StatefulWidget {
@@ -229,15 +230,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               maintainAnimation: false,
               child: _buildDeveloperConsoleSection(context, theme),
             ),
-            // Debug Token — רק למי שמופיע ברשימת DebugAccess/Admin בבקאנד
-            if (kDebugMode || _isDevMode)
-              FutureBuilder<bool>(
-                future: UserRolesService.instance.hasRole('DebugAccess'),
-                builder: (ctx, snapshot) {
-                  if (snapshot.data == true) return _buildDebugSection(context, theme);
-                  return const SizedBox.shrink();
-                },
-              ),
+            // Debug Token — מוצג תמיד ב־dev mode (7 לחיצות) — לא דורש hasRole כי הבקאנד עלול להיכשל ב-App Check
+            if (kDebugMode || _isDevMode) _buildDebugSection(context, theme),
             const SizedBox(height: 24),
 
             // כפתור התנתקות
@@ -1372,7 +1366,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// בונה כפתור התנתקות
   /// כלי פיתוח — מוצג רק ב־kDebugMode
   Widget _buildDebugSection(BuildContext context, ThemeData theme) {
-    final token = LogService.debugToken ?? '(לא זמין)';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1380,7 +1373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Padding(
           padding: const EdgeInsets.only(right: 16, bottom: 8),
           child: Text(
-            'כלי פיתוח (Debug Only)',
+            'כלי פיתוח',
             style: theme.textTheme.titleSmall?.copyWith(
               color: theme.colorScheme.primary,
               fontWeight: FontWeight.bold,
@@ -1395,33 +1388,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Debug Token',
+                  'פרויקט: ${Firebase.app().options.projectId}',
                   style: theme.textTheme.labelMedium?.copyWith(color: theme.hintColor),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'App Check Token (debug: להדבקה ב-Firebase → Manage debug tokens; release: הוסף SHA-256 ל-Play Integrity)',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
+                ),
                 const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: SelectableText(
-                        token,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.tonal(
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: token));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('הועתק ללוח'),
-                            behavior: SnackBarBehavior.floating,
+                FutureBuilder<String?>(
+                  future: () async {
+                    try {
+                      return await FirebaseAppCheck.instance.getToken(true);
+                    } catch (e) {
+                      appLog('AppCheck (Settings): getToken failed - $e');
+                      return null;
+                    }
+                  }(),
+                  builder: (ctx, snapshot) {
+                    final String token;
+                    if (snapshot.hasError) {
+                      token = 'שגיאה: ${snapshot.error}';
+                    } else if (snapshot.data != null && snapshot.data!.isNotEmpty) {
+                      token = snapshot.data!;
+                    } else if (LogService.debugToken != null && LogService.debugToken!.isNotEmpty) {
+                      token = LogService.debugToken!;
+                    } else if (snapshot.connectionState == ConnectionState.done) {
+                      token = 'טרם הופק - וודא חיבור לאינטרנט';
+                    } else {
+                      token = '(טוען...)';
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: SelectableText(
+                            token,
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                           ),
-                        );
-                      },
-                      child: const Text('העתק'),
-                    ),
-                  ],
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonal(
+                          onPressed: token != '(טוען...)' &&
+                              !token.startsWith('שגיאה') &&
+                              !token.startsWith('טרם הופק')
+                              ? () {
+                                  Clipboard.setData(ClipboardData(text: token));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('הועתק ללוח'),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              : null,
+                          child: const Text('העתק'),
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(

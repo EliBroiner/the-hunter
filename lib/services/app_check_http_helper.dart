@@ -31,6 +31,7 @@ class AppCheckHttpHelper {
     } catch (e) {
       _lastTokenFailure = DateTime.now();
       appLog('AppCheck: getToken failed - $e (cooldown $_cooldownAfterFailure before retry)');
+      if (kDebugMode) debugPrint('AppCheck getToken error: $e');
     }
     return headers;
   }

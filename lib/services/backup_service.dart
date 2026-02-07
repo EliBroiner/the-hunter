@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
@@ -338,8 +339,14 @@ class BackupService {
           existingBackup = jsonDecode(jsonString) as Map<String, dynamic>;
           appLog('IncrementalBackup: Downloaded existing backup');
         }
+      } on FirebaseException catch (e) {
+        if (e.code == 'object-not-found' || e.code == 'storage/object-not-found') {
+          appLog('[Backup] No previous backup found, performing initial full upload.');
+        } else {
+          appLog('IncrementalBackup: Storage error ${e.code} - ${e.message}');
+        }
       } catch (e) {
-        appLog('IncrementalBackup: No existing backup, will create new');
+        appLog('[Backup] No previous backup found, performing initial full upload.');
       }
 
       onProgress?.call(0.3);
