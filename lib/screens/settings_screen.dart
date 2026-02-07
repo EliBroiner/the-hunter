@@ -14,7 +14,6 @@ import '../services/dev_logger.dart';
 import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart' show Firebase;
 
 /// מסך הגדרות
@@ -1393,74 +1392,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'App Check Token (debug: להדבקה ב-Firebase → Manage debug tokens; release: הוסף SHA-256 ל-Play Integrity)',
+                  'App Check: טוקן קבוע (רשום ב-Firebase Console)',
                   style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
-                ),
-                const SizedBox(height: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    'To get your Debug Secret, check your \'flutter run\' logs for a line starting with: '
-                    '\'Enter this debug secret into the allow list in the Firebase Console:\'',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.hintColor,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FutureBuilder<String?>(
-                  future: () async {
-                    try {
-                      return await FirebaseAppCheck.instance.getToken(true);
-                    } catch (e) {
-                      appLog('AppCheck (Settings): getToken failed - $e');
-                      return null;
-                    }
-                  }(),
-                  builder: (ctx, snapshot) {
-                    final String token;
-                    if (snapshot.hasError) {
-                      token = 'שגיאה: ${snapshot.error}';
-                    } else if (snapshot.data != null && snapshot.data!.isNotEmpty) {
-                      token = snapshot.data!;
-                    } else if (LogService.debugToken != null && LogService.debugToken!.isNotEmpty) {
-                      token = LogService.debugToken!;
-                    } else if (snapshot.connectionState == ConnectionState.done) {
-                      token = 'מפיק מפתח... וודא שהרצת \'flutter clean\'';
-                    } else {
-                      token = '(טוען...)';
-                    }
-                    final canCopy = token != '(טוען...)' &&
-                        !token.startsWith('שגיאה') &&
-                        !token.startsWith('מפיק מפתח');
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: SelectableText(
-                            token,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton.tonal(
-                          onPressed: canCopy
-                              ? () {
-                                  Clipboard.setData(ClipboardData(text: token));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('הועתק ללוח'),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                }
-                              : null,
-                          child: const Text('העתק'),
-                        ),
-                      ],
-                    );
-                  },
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
