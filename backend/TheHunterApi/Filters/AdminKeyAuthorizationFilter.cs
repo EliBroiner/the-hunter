@@ -17,22 +17,19 @@ public class AdminKeyAuthorizationFilter : IAuthorizationFilter
 
     public void OnAuthorization(AuthorizationFilterContext context)
     {
-        // קריאת מפתח מ-appsettings / env (ברירת מחדל לפיתוח)
         var expectedKey = _config["Admin:Key"]
             ?? Environment.GetEnvironmentVariable("ADMIN_KEY")
             ?? "dev-admin-123";
 
-        var key = context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault()
+        // סדר עדיפות: cookie (admin_session) → header → query
+        var key = context.HttpContext.Request.Cookies["admin_session"]
+            ?? context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault()
             ?? context.HttpContext.Request.Query["key"].FirstOrDefault();
 
-        // Debug זמני — בדיקת 401
-        var fromHeader = context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault();
-        var fromQuery = context.HttpContext.Request.Query["key"].FirstOrDefault();
-        var received = fromHeader ?? fromQuery ?? "(empty)";
-        var masked = expectedKey?.Length >= 2
-            ? expectedKey[..2] + new string('*', expectedKey.Length - 2)
-            : "***";
-        Console.WriteLine($"[AdminFilter] Received key: {(string.IsNullOrEmpty(received) ? "(empty)" : received.Length > 2 ? received[..2] + "***" : "***")} | Config key (masked): {masked} | From: {(fromHeader != null ? "header" : fromQuery != null ? "query" : "none")}");
+        var from = key != null
+            ? (context.HttpContext.Request.Cookies["admin_session"] != null ? "cookie" : context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault() != null ? "header" : "query")
+            : "none";
+        Console.WriteLine($"[AdminFilter] Auth from: {from} | Key present: {!string.IsNullOrEmpty(key)}");
 
         if (string.IsNullOrEmpty(key) || key != expectedKey)
         {

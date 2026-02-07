@@ -41,18 +41,22 @@ public class AdminDashboardController : Controller
         {
             await using var db = _dbFactory.CreateDbContext();
             dbOk = await db.Database.CanConnectAsync();
-            var items = await db.LearnedTerms
-            .Where(x => !x.IsApproved)
-            .OrderByDescending(x => x.Frequency)
-            .ThenByDescending(x => x.LastSeen)
-            .ToListAsync();
-        var rankingSettings = await db.RankingSettings.ToListAsync();
-        var rankingWeights = rankingSettings.ToDictionary(r => r.Key, r => r.Value);
+            _logger.LogInformation("[Admin Index] DB connected: {Ok}", dbOk);
 
-        var searchActivities = await db.SearchActivities
-            .OrderByDescending(x => x.Count)
-            .Take(50)
-            .ToListAsync();
+            var items = await db.LearnedTerms
+                .Where(x => !x.IsApproved)
+                .OrderByDescending(x => x.Frequency)
+                .ThenByDescending(x => x.LastSeen)
+                .ToListAsync();
+            var rankingSettings = await db.RankingSettings.ToListAsync();
+            var rankingWeights = rankingSettings.ToDictionary(r => r.Key, r => r.Value);
+            var searchActivities = await db.SearchActivities
+                .OrderByDescending(x => x.Count)
+                .Take(50)
+                .ToListAsync();
+
+            _logger.LogInformation("[Admin Index] PendingTerms: {Count}, RankingKeys: {RCount}, SearchActivities: {SCount}",
+                items.Count, rankingWeights.Count, searchActivities.Count);
 
             var geminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
                 || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]);
@@ -71,6 +75,7 @@ public class AdminDashboardController : Controller
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[Admin Index] Exception loading dashboard");
             AdminErrorTracker.AddError(ex.Message);
             return View(new AdminDashboardViewModel
             {
@@ -212,9 +217,20 @@ public class AdminDashboardController : Controller
     [Route("users")]
     public async Task<IActionResult> Users()
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var users = await db.AppManagedUsers.OrderBy(u => u.Email).ToListAsync();
-        return View(users);
+        try
+        {
+            await using var db = _dbFactory.CreateDbContext();
+            var canConnect = await db.Database.CanConnectAsync();
+            _logger.LogInformation("[Admin Users] DB connected: {Ok}", canConnect);
+            var users = await db.AppManagedUsers.OrderBy(u => u.Email).ToListAsync();
+            _logger.LogInformation("[Admin Users] AppManagedUsers count: {Count}", users.Count);
+            return View(users);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin Users] Exception loading users");
+            return View(new List<AppManagedUser>());
+        }
     }
 
     [HttpPost]

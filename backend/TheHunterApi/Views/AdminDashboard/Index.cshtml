@@ -67,7 +67,7 @@
     <div class="card-body">
         @if (Model.SearchActivities.Count == 0)
         {
-            <p class="text-muted mb-0">אין עדיין נתוני חיפוש.</p>
+            <p class="text-muted mb-0">לא נמצאו נתונים — בדוק חיבור למסד הנתונים או היכנס דרך /admin/login?key=מפתח_Admin</p>
         }
         else
         {
@@ -101,7 +101,7 @@
     <h2 class="h5 mb-3">מונחים ממתינים לאישור</h2>
     @if (Model.PendingTerms.Count == 0)
     {
-        <div class="alert alert-info">אין מונחים ממתינים לאישור.</div>
+        <div class="alert alert-info">לא נמצאו מונחים — בדוק חיבור למסד הנתונים או היכנס דרך /admin/login?key=מפתח_Admin</div>
     }
     else
     {
@@ -156,7 +156,7 @@
     <div class="card-body">
         @if (Model.RecentErrors.Count == 0)
         {
-            <p class="text-muted mb-0">אין שגיאות רשומות.</p>
+            <p class="text-muted mb-0">לא נמצאו לוגים — אין שגיאות רשומות. אם כל העמודים ריקים, בדוק מפתח Admin ומסד נתונים.</p>
         }
         else
         {

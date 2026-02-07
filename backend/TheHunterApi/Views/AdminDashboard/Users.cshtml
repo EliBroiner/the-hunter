@@ -53,7 +53,7 @@
     <div class="card-body">
         @if (Model.Count == 0)
         {
-            <p class="text-muted mb-0">אין משתמשים. הוסף משתמש למעלה או הגדר INITIAL_ADMIN_EMAIL להפעלה ראשונה.</p>
+            <p class="text-muted mb-0">לא נמצאו משתמשים — הוסף משתמש למעלה או הגדר INITIAL_ADMIN_EMAIL להפעלה ראשונה. אם נכנסת עם מפתח ב-URL, היכנס דרך /admin/login?key=מפתח_Admin כדי שהעגינה תשלח עם כל בקשה.</p>
         }
         else
         {
