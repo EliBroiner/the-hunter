@@ -65,6 +65,7 @@ class AuthService {
   Future<AuthResult> signInWithGoogle() async {
     try {
       appLog('AUTH: Starting Google Sign-In...');
+      print('Attempting Sign-In with Server Client ID: ${serverClientIdForGoogleSignIn ?? "(null - using default)"}');
       
       // פתיחת חלון התחברות Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
@@ -146,6 +147,7 @@ class AuthService {
       }
       
       appLog('AUTH: Upgrading anonymous account to Google...');
+      print('Attempting Sign-In with Server Client ID: ${serverClientIdForGoogleSignIn ?? "(null - using default)"}');
       
       // התחברות ל-Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
