@@ -54,6 +54,7 @@ void main() async {
     ),
     providerApple: const AppleDebugProvider(),
   );
+<<<<<<< HEAD
   print('🛡️ App Check activated with FIXED debug token (9273D0C3-6F08-4825-9416-49FCD8ABA9B6).');
 
   // Force refresh — משיכת JWT טרי מיד אחרי activate
@@ -66,6 +67,15 @@ void main() async {
     }
   } catch (e) {
     print('❌ App Check getToken failed: $e — API calls may get 401');
+=======
+  print('🛡️ App Check activated with FIXED debug token.');
+
+  // Force refresh — משיכת JWT טרי מיד אחרי activate
+  try {
+    await FirebaseAppCheck.instance.getToken(true);
+  } catch (e) {
+    print('❌ App Check getToken: $e');
+>>>>>>> a2bfe954720cb9a43cddfdd5c86b3c518d3c47ea
   }
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
