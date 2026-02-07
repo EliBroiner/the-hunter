@@ -1,0 +1,23 @@
+{
+  "project_info": {
+    "project_number": "YOUR_PROJECT_NUMBER",
+    "project_id": "your-project-id",
+    "storage_bucket": "your-project-id.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:XXXXXXXX:android:XXXXXXXX",
+        "android_client_info": {
+          "package_name": "com.thehunter.the_hunter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY_FROM_FIREBASE_CONSOLE"
+        }
+      ]
+    }
+  ]
+}

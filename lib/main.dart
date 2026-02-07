@@ -113,7 +113,9 @@ class AutoScanManager with WidgetsBindingObserver {
   bool _appInBackground = false;  // אפליקציה ברקע — לא להשהות סריקה
   Timer? _resumeDebounceTimer;
   static const Duration _resumeDebounce = Duration(seconds: 3);
-  
+  /// מקסימום קבצים לעיבוד במהלך סשן אחד — מונע חימום יתר של המכשיר
+  static const int maxFilesPerSession = 50;
+
   /// callback כשסריקה הושלמה
   Function(ScanResult result)? onScanComplete;
   
@@ -218,6 +220,7 @@ class AutoScanManager with WidgetsBindingObserver {
       
       final result = await FileScannerService.instance.processPendingFiles(
         shouldPause: _shouldPause,
+        maxFilesPerSession: maxFilesPerSession,
       );
       onProcessComplete?.call(result);
       
@@ -265,6 +268,7 @@ class AutoScanManager with WidgetsBindingObserver {
             
             final processResult = await FileScannerService.instance.processPendingFiles(
               shouldPause: _shouldPause,
+              maxFilesPerSession: maxFilesPerSession,
             );
             onProcessComplete?.call(processResult);
           }
@@ -297,6 +301,7 @@ class AutoScanManager with WidgetsBindingObserver {
         
         final processResult = await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
+          maxFilesPerSession: maxFilesPerSession,
         );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
@@ -362,6 +367,7 @@ class AutoScanManager with WidgetsBindingObserver {
         
         final processResult = await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
+          maxFilesPerSession: maxFilesPerSession,
         );
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
@@ -386,6 +392,7 @@ class AutoScanManager with WidgetsBindingObserver {
         _isProcessing = true;
         await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
+          maxFilesPerSession: maxFilesPerSession,
         );
         _isProcessing = false;
       }

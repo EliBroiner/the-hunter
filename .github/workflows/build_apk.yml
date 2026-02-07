@@ -27,14 +27,23 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Decode Keystore
+      - name: Recreate sensitive files
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
         run: |
-          echo "🔐 Decoding keystore..."
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
-          echo "✅ Keystore decoded to android/app/upload-keystore.jks"
-          ls -la android/app/upload-keystore.jks
+          echo "🔐 Recreating sensitive files from secrets..."
+          mkdir -p android/app
+          echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+          echo "$KEYSTORE_FILE" | base64 --decode > android/app/thehunter_release.jks
+          echo "✅ google-services.json @ android/app/google-services.json"
+          ls -la android/app/google-services.json
+          echo "✅ firebase_options.dart @ lib/firebase_options.dart"
+          ls -la lib/firebase_options.dart
+          echo "✅ Keystore @ android/app/thehunter_release.jks"
+          ls -la android/app/thehunter_release.jks
 
       - name: Clean build cache
         run: flutter clean
@@ -61,7 +70,7 @@ jobs:
 
       - name: Build APK (Release)
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/android/app/upload-keystore.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/android/app/thehunter_release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -74,8 +83,8 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-      - name: Cleanup Keystore
+      - name: Cleanup sensitive files
         if: always()
         run: |
-          rm -f android/app/upload-keystore.jks
-          echo "🧹 Keystore file cleaned up"
+          rm -f android/app/thehunter_release.jks android/app/google-services.json lib/firebase_options.dart
+          echo "🧹 Sensitive files cleaned up"

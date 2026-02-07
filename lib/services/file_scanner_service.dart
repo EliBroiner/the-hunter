@@ -737,9 +737,11 @@ class FileScannerService {
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
   /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
   /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד
+  /// maxFilesPerSession - מגביל כמה קבצים לעבד במהלך קריאה אחת (למניעת חימום יתר)
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
     bool Function()? shouldPause,
+    int? maxFilesPerSession,
     int batchSize = 3,  // כמה קבצים לעבד בכל פעם
     int delayBetweenBatchesMs = 500,  // השהיה בין אצוות (מילישניות)
     int delayBetweenFilesMs = 100,  // השהיה בין קבצים (מילישניות)
@@ -767,6 +769,7 @@ class FileScannerService {
 
       // עיבוד תמונות עם OCR - בקצב מבוקר
       for (final file in pendingImages) {
+        if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
         appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
 
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
@@ -838,6 +841,7 @@ class FileScannerService {
 
       // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
+        if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
         appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
 
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה

@@ -4173,32 +4173,35 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                     // תמונה ממוזערת או אייקון
                     _buildFileThumbnail(file, fileColor, isWhatsApp),
                     const SizedBox(width: 14),
-                    
-                    // תוכן
+                    // תוכן — Expanded + ellipsis מונעים overflow בשמות ארוכים
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // שם קובץ עם הדגשה
-                          Row(
-                            children: [
-                              if (isFavorite) ...[
-                                const Icon(Icons.star, color: Colors.amber, size: 14),
-                                const SizedBox(width: 4),
-                              ],
-                              Expanded(
-                                child: _buildHighlightedText(
-                                  file.name,
-                                  cleanQuery,
-                                  TextStyle(
-                                    fontWeight: FontWeight.w600, 
-                                    fontSize: 14,
-                                    color: theme.colorScheme.onSurface,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // שם קובץ עם הדגשה
+                            Row(
+                              children: [
+                                if (isFavorite) ...[
+                                  const Icon(Icons.star, color: Colors.amber, size: 14),
+                                  const SizedBox(width: 4),
+                                ],
+                                Expanded(
+                                  child: _buildHighlightedText(
+                                    file.name,
+                                    cleanQuery,
+                                    TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
+                            // תצוגת מקדימה של תוכן (extractedText) או "מעבד תוכן..."
+                            _buildContentPreviewSubtitle(file),
                           const SizedBox(height: 6),
                           
                           // מידע על הקובץ
@@ -4289,9 +4292,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                             ),
                           ],
                         ],
+                        ),
                       ),
                     ),
-                    
                     // כפתור תפריט פעולות
                     IconButton(
                       icon: Icon(
@@ -4314,6 +4317,43 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// תצוגת מקדימה: משפטים ראשונים מתוך extractedText, או "מעבד תוכן..." אם עדיין לא עובד
+  static const int _contentPreviewMaxLength = 120;
+
+  Widget _buildContentPreviewSubtitle(FileMetadata file) {
+    final subtitleStyle = TextStyle(
+      fontSize: 12,
+      color: Colors.grey.shade600,
+      fontWeight: FontWeight.normal,
+    );
+    if (!file.isIndexed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          'Processing content...',
+          style: subtitleStyle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }
+    final text = file.extractedText?.trim();
+    if (text == null || text.isEmpty) return const SizedBox.shrink();
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final preview = normalized.length <= _contentPreviewMaxLength
+        ? normalized
+        : '${normalized.substring(0, _contentPreviewMaxLength).trim()}...';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        preview,
+        style: subtitleStyle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -4567,7 +4607,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// בונה טקסט עם הדגשת מונח חיפוש
   Widget _buildHighlightedText(String text, String query, TextStyle baseStyle) {
     if (query.isEmpty) {
-      return Text(text, style: baseStyle, maxLines: 2, overflow: TextOverflow.ellipsis);
+      return Text(text, style: baseStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
     }
 
     final lowerText = text.toLowerCase();
@@ -4599,9 +4639,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       start = index + query.length;
     }
 
-    return RichText(
-      text: TextSpan(style: baseStyle, children: spans),
-      maxLines: 2,
+    return Text.rich(
+      TextSpan(style: baseStyle, children: spans),
+      maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
   }
