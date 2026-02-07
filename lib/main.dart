@@ -52,13 +52,18 @@ void main() async {
     providerApple: const AppleDebugProvider(),
   );
 
-  // משיכת טוקן Debug מיד אחרי activate — לשמירה ב-LogService ולהצגה בהגדרות
+  // משיכת טוקן Debug מיד אחרי activate — forceRefresh כדי לקבל טוקן טרי
   try {
-    final debugToken = await FirebaseAppCheck.instance.getToken();
-    print('!!! YOUR DEBUG TOKEN: $debugToken !!!');
-    LogService.debugToken = debugToken;
+    final token = await FirebaseAppCheck.instance.getToken(true);
+    if (token != null && token.isNotEmpty) {
+      print('🚀 SUCCESS! APP CHECK DEBUG TOKEN: $token');
+      LogService.debugToken = token;
+    } else {
+      print('❌ App Check: getToken returned null/empty');
+      LogService.debugToken = null;
+    }
   } catch (e) {
-    print('!!! Failed to get Debug Token: $e');
+    print('❌ App Check Error: $e');
     LogService.debugToken = null;
   }
 

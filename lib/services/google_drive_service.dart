@@ -4,6 +4,7 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../models/file_metadata.dart';
 import '../utils/smart_search_parser.dart';
+import '../configs/firebase_oauth_config.dart';
 import 'log_service.dart';
 import 'relevance_engine.dart';
 
@@ -25,6 +26,7 @@ class GoogleDriveService {
       'email',
       'https://www.googleapis.com/auth/drive.readonly',
     ],
+    serverClientId: serverClientIdForGoogleSignIn,
   );
 
   /// האם השירות מחובר

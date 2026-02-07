@@ -1,6 +1,7 @@
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../configs/firebase_oauth_config.dart';
 import 'log_service.dart';
 import 'settings_service.dart';
 import 'user_roles_service.dart';
@@ -45,6 +46,7 @@ class AuthService {
       'email',
       'https://www.googleapis.com/auth/drive.readonly',
     ],
+    serverClientId: serverClientIdForGoogleSignIn,
   );
   
   /// המשתמש הנוכחי
