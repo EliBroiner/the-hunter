@@ -25,7 +25,11 @@ class AppCheckHttpHelper {
       if (token != null && token.isNotEmpty) {
         headers[_headerName] = token;
         if (kDebugMode) {
-          debugPrint('Current App Check Debug Token: $token');
+          debugPrint('AppCheck: X-Firebase-AppCheck header attached (JWT len=${token.length})');
+        }
+      } else {
+        if (kDebugMode) {
+          debugPrint('AppCheck: NO TOKEN — X-Firebase-AppCheck not sent, 401 likely');
         }
       }
     } catch (e) {

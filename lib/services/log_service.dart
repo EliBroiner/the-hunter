@@ -8,9 +8,6 @@ class LogService {
   static final LogService _instance = LogService._();
   static LogService get instance => _instance;
 
-  /// טוקן Debug של App Check — נשמר ב־main אחרי activate (רק ב־kDebugMode)
-  static String? debugToken;
-
   LogService._();
 
   final List<String> _logs = [];

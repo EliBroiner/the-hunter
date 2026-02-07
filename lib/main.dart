@@ -39,6 +39,7 @@ import 'utils/smart_search_parser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  print('CURRENT_PACKAGE_NAME: com.thehunter.the_hunter');
 
   // ניקוי לוגים מההרצה הקודמת
   await LogService.instance.clearLogs();
@@ -46,26 +47,25 @@ void main() async {
   // אתחול Firebase
   await Firebase.initializeApp();
 
-  // App Check — AndroidDebugProvider מייצר Debug Secret שמודפס ל־logcat
-  // חפש: "Enter this debug secret into the allow list in the Firebase Console:"
+  // App Check — טוקן קבוע רשום ב־Firebase Console (פותר 401)
   await FirebaseAppCheck.instance.activate(
-    providerAndroid: const AndroidDebugProvider(),
+    providerAndroid: const AndroidDebugProvider(
+      debugToken: '9273D0C3-6F08-4825-9416-49FCD8ABA9B6',
+    ),
     providerApple: const AppleDebugProvider(),
   );
+  print('🛡️ App Check activated with FIXED debug token (9273D0C3-6F08-4825-9416-49FCD8ABA9B6).');
 
-  // משיכת טוקן Debug מיד אחרי activate — forceRefresh כדי לקבל טוקן טרי
+  // Force refresh — משיכת JWT טרי מיד אחרי activate
   try {
     final token = await FirebaseAppCheck.instance.getToken(true);
     if (token != null && token.isNotEmpty) {
-      print('🚀 SUCCESS! APP CHECK DEBUG TOKEN: $token');
-      LogService.debugToken = token;
+      print('🛡️ App Check JWT received OK (len=${token.length}) — will be sent in X-Firebase-AppCheck');
     } else {
-      print('❌ App Check: getToken returned null/empty');
-      LogService.debugToken = null;
+      print('❌ App Check getToken returned null/empty — API calls may get 401');
     }
   } catch (e) {
-    print('❌ App Check Error: $e');
-    LogService.debugToken = null;
+    print('❌ App Check getToken failed: $e — API calls may get 401');
   }
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
