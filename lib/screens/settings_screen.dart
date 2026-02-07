@@ -1415,10 +1415,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     } else if (LogService.debugToken != null && LogService.debugToken!.isNotEmpty) {
                       token = LogService.debugToken!;
                     } else if (snapshot.connectionState == ConnectionState.done) {
-                      token = 'טרם הופק - וודא חיבור לאינטרנט';
+                      token = 'מפיק מפתח... וודא שהרצת \'flutter clean\'';
                     } else {
                       token = '(טוען...)';
                     }
+                    final canCopy = token != '(טוען...)' &&
+                        !token.startsWith('שגיאה') &&
+                        !token.startsWith('מפיק מפתח');
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1430,9 +1433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(width: 8),
                         FilledButton.tonal(
-                          onPressed: token != '(טוען...)' &&
-                              !token.startsWith('שגיאה') &&
-                              !token.startsWith('טרם הופק')
+                          onPressed: canCopy
                               ? () {
                                   Clipboard.setData(ClipboardData(text: token));
                                   ScaffoldMessenger.of(context).showSnackBar(

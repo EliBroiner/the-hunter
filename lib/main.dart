@@ -46,20 +46,20 @@ void main() async {
   // אתחול Firebase
   await Firebase.initializeApp();
 
-  // App Check — אימות מקור הבקשות. מצב Debug מאפשר עבודה עם טוקן זמני באמולטור או APK פיתוח
+  // App Check — מאלץ Debug Provider כדי לקבל טוקן להדבקה ב-Firebase Console
   await FirebaseAppCheck.instance.activate(
-    providerAndroid: kDebugMode ? const AndroidDebugProvider() : const AndroidPlayIntegrityProvider(),
-    providerApple: kDebugMode ? const AppleDebugProvider() : const AppleAppAttestProvider(),
+    providerAndroid: const AndroidDebugProvider(),
+    providerApple: const AppleDebugProvider(),
   );
 
-  // שמירת טוקן Debug להצגה בהגדרות — רק במצב פיתוח
-  if (kDebugMode) {
-    try {
-      final token = await FirebaseAppCheck.instance.getToken();
-      LogService.debugToken = token;
-    } catch (_) {
-      LogService.debugToken = null;
-    }
+  // משיכת טוקן Debug מיד אחרי activate — לשמירה ב-LogService ולהצגה בהגדרות
+  try {
+    final debugToken = await FirebaseAppCheck.instance.getToken();
+    print('!!! YOUR DEBUG TOKEN: $debugToken !!!');
+    LogService.debugToken = debugToken;
+  } catch (e) {
+    print('!!! Failed to get Debug Token: $e');
+    LogService.debugToken = null;
   }
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
