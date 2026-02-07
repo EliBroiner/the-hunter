@@ -29,11 +29,15 @@ public class AdminKeyAuthorizationFilter : IAuthorizationFilter
         var from = key != null
             ? (context.HttpContext.Request.Cookies["admin_session"] != null ? "cookie" : context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault() != null ? "header" : "query")
             : "none";
-        Console.WriteLine($"[AdminFilter] Auth from: {from} | Key present: {!string.IsNullOrEmpty(key)}");
+        var path = context.HttpContext.Request.Path.Value ?? "";
+        Console.WriteLine($"[AdminFilter] DEBUG: Request for {path}. Key provided: {!string.IsNullOrEmpty(key)}, source: {from}");
 
         if (string.IsNullOrEmpty(key) || key != expectedKey)
         {
+            Console.WriteLine($"[AdminFilter] DEBUG: Unauthorized - key missing or invalid for {path}");
             context.Result = new UnauthorizedResult();
+            return;
         }
+        Console.WriteLine($"[AdminFilter] DEBUG: API Request authorized for {path}. Key from: {from}");
     }
 }

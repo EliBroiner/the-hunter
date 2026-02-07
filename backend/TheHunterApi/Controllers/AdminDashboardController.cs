@@ -36,6 +36,10 @@ public class AdminDashboardController : Controller
     [Route("index")]
     public async Task<IActionResult> Index()
     {
+        var keyFromCookie = Request.Cookies["admin_session"] != null;
+        _logger.LogInformation("DEBUG: API Request received for Admin Index (Terms). Key from cookie: {FromCookie}", keyFromCookie);
+        Console.WriteLine($"DEBUG: API Request received for [Admin Index]. Key from cookie: {keyFromCookie}");
+
         var dbOk = false;
         try
         {
@@ -48,12 +52,28 @@ public class AdminDashboardController : Controller
                 .OrderByDescending(x => x.Frequency)
                 .ThenByDescending(x => x.LastSeen)
                 .ToListAsync();
+            if (items.Count == 0)
+            {
+                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection LearnedTerms (pending)");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [LearnedTerms]");
+            }
+
             var rankingSettings = await db.RankingSettings.ToListAsync();
             var rankingWeights = rankingSettings.ToDictionary(r => r.Key, r => r.Value);
+            if (rankingSettings.Count == 0)
+            {
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [RankingSettings]");
+            }
+
             var searchActivities = await db.SearchActivities
                 .OrderByDescending(x => x.Count)
                 .Take(50)
                 .ToListAsync();
+            if (searchActivities.Count == 0)
+            {
+                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection SearchActivities");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [SearchActivities]");
+            }
 
             _logger.LogInformation("[Admin Index] PendingTerms: {Count}, RankingKeys: {RCount}, SearchActivities: {SCount}",
                 items.Count, rankingWeights.Count, searchActivities.Count);
@@ -75,7 +95,8 @@ public class AdminDashboardController : Controller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Admin Index] Exception loading dashboard");
+            _logger.LogError(ex, "ERROR fetching from database: {Message}", ex.Message);
+            Console.WriteLine($"ERROR fetching from database: {ex.Message}");
             AdminErrorTracker.AddError(ex.Message);
             return View(new AdminDashboardViewModel
             {
@@ -217,18 +238,28 @@ public class AdminDashboardController : Controller
     [Route("users")]
     public async Task<IActionResult> Users()
     {
+        var keyFromCookie = Request.Cookies["admin_session"] != null;
+        _logger.LogInformation("DEBUG: API Request received for Admin Users. Key from cookie: {FromCookie}", keyFromCookie);
+        Console.WriteLine($"DEBUG: API Request received for [Admin Users]. Key from cookie: {keyFromCookie}");
+
         try
         {
             await using var db = _dbFactory.CreateDbContext();
             var canConnect = await db.Database.CanConnectAsync();
             _logger.LogInformation("[Admin Users] DB connected: {Ok}", canConnect);
             var users = await db.AppManagedUsers.OrderBy(u => u.Email).ToListAsync();
+            if (users.Count == 0)
+            {
+                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection AppManagedUsers");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [AppManagedUsers]");
+            }
             _logger.LogInformation("[Admin Users] AppManagedUsers count: {Count}", users.Count);
             return View(users);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Admin Users] Exception loading users");
+            _logger.LogError(ex, "ERROR fetching from database: {Message}", ex.Message);
+            Console.WriteLine($"ERROR fetching from database: {ex.Message}");
             return View(new List<AppManagedUser>());
         }
     }
