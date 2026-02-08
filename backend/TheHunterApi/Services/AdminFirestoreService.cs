@@ -5,11 +5,11 @@ namespace TheHunterApi.Services;
 
 /// <summary>
 /// גישה ל-Firestore עבור לוח Admin — knowledge_base, users, logs.
-/// משתמש ב-Application Default Credentials (Cloud Run).
+/// משתמש ב-FIRESTORE_PROJECT_ID מ-env/config, ברירת מחדל: thehunter-485508.
 /// </summary>
 public class AdminFirestoreService
 {
-    public const string ProjectId = "thehunter-485508";
+    private const string DefaultProjectId = "thehunter-485508";
     private const string ColKnowledgeBase = "knowledge_base";
     private const string ColUsers = "users";
     private const string ColLogs = "logs";
@@ -17,22 +17,22 @@ public class AdminFirestoreService
 
     private readonly FirestoreDb _db;
     private readonly ILogger<AdminFirestoreService> _logger;
+    public string EffectiveProjectId { get; }
 
-    public AdminFirestoreService(ILogger<AdminFirestoreService> logger)
+    public AdminFirestoreService(ILogger<AdminFirestoreService> logger, IConfiguration config)
     {
         _logger = logger;
+        EffectiveProjectId = config["FIRESTORE_PROJECT_ID"]
+            ?? Environment.GetEnvironmentVariable("FIRESTORE_PROJECT_ID")
+            ?? DefaultProjectId;
         try
         {
-            _db = new FirestoreDbBuilder
-            {
-                ProjectId = ProjectId,
-            }.Build();
-            _logger.LogInformation("[AdminFirestore] Connected to project {ProjectId}", ProjectId);
-            Console.WriteLine("SUCCESS: Dashboard is now connected to Firestore project 'thehunter-485508'");
+            _db = new FirestoreDbBuilder { ProjectId = EffectiveProjectId }.Build();
+            _logger.LogInformation("[AdminFirestore] Connected to project {ProjectId}", EffectiveProjectId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[AdminFirestore] Failed to create FirestoreDb");
+            _logger.LogError(ex, "[AdminFirestore] Failed to create FirestoreDb for project {ProjectId}", EffectiveProjectId);
             throw;
         }
     }
@@ -58,15 +58,13 @@ public class AdminFirestoreService
             list = list.OrderByDescending(x => x.Frequency).ThenByDescending(x => x.LastSeen).ToList();
             if (list.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [{Col}]", ColKnowledgeBase);
-                Console.WriteLine($"DEBUG: Firestore query successful but returned 0 documents from collection [{ColKnowledgeBase}]");
+                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColKnowledgeBase, EffectiveProjectId);
             }
             return (list, true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new List<LearnedTerm>(), false);
         }
     }
@@ -88,15 +86,13 @@ public class AdminFirestoreService
             }
             if (list.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [{Col}]", ColUsers);
-                Console.WriteLine($"DEBUG: Firestore query successful but returned 0 documents from collection [{ColUsers}]");
+                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColUsers, EffectiveProjectId);
             }
             return (list, true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new List<AdminUserViewModel>(), false);
         }
     }
@@ -120,15 +116,13 @@ public class AdminFirestoreService
             }
             if (list.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [{Col}]", ColLogs);
-                Console.WriteLine($"DEBUG: Firestore query successful but returned 0 documents from collection [{ColLogs}]");
+                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColLogs, EffectiveProjectId);
             }
             return (list, true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new List<SearchActivity>(), false);
         }
     }
@@ -149,7 +143,7 @@ public class AdminFirestoreService
                     dict[doc.Id] = v.Value;
             }
             if (dict.Count == 0)
-                Console.WriteLine($"DEBUG: Firestore query successful but returned 0 documents from collection [{ColRankingSettings}]");
+                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColRankingSettings, EffectiveProjectId);
             return (dict, true);
         }
         catch (Exception ex)

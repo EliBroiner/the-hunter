@@ -252,12 +252,23 @@
 (function() {
     // רענון סטטיסטיקות ללא reload
     var refreshBtn = document.getElementById('statsRefreshBtn');
+    // רענון סטטיסטיקות — הלואדר חייב להיעצר תמיד (.finally) גם ב-401/404/500
     if (refreshBtn) {
         refreshBtn.addEventListener('click', function() {
             refreshBtn.disabled = true;
             refreshBtn.querySelector('i').classList.add('spin');
-            fetch('@Url.Action("GetStats", "AdminDashboard")')
-                .then(function(r) { return r.json(); })
+            var loadingEl = document.getElementById('admin-loading');
+            function stopLoader() {
+                refreshBtn.disabled = false;
+                var icon = refreshBtn.querySelector('i');
+                if (icon) icon.classList.remove('spin');
+                if (loadingEl) loadingEl.style.display = 'none';
+            }
+            fetch('@Url.Action("GetStats", "AdminDashboard")', { credentials: 'same-origin' })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
                 .then(function(data) {
                     var u = document.getElementById('stat-total-users');
                     var p = document.getElementById('stat-pending-terms');
@@ -271,7 +282,8 @@
                         lu.textContent = 'עודכן: ' + (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'));
                     }
                 })
-                .finally(function() { refreshBtn.disabled = false; refreshBtn.querySelector('i').classList.remove('spin'); });
+                .catch(function() { /* 401/404/500 — הלואדר נעצר ב-finally */ })
+                .finally(stopLoader);
         });
     }
     var newTermsPerDay = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.NewTermsPerDay.OrderBy(x => x.Key).ToDictionary(x => x.Key, x => x.Value)));
@@ -321,19 +333,22 @@
     document.querySelectorAll('.approve-term-form').forEach(function(form) {
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn) btn.disabled = true;
             var termId = form.querySelector('input[name="termId"]').value;
             var token = form.querySelector('input[name="__RequestVerificationToken"]').value;
             var fd = new FormData();
             fd.append('__RequestVerificationToken', token);
             fd.append('termId', termId);
             try {
-                var res = await fetch('@Url.Action("ApproveTerm", "AdminDashboard")', { method: 'POST', body: fd });
+                var res = await fetch('@Url.Action("ApproveTerm", "AdminDashboard")', { method: 'POST', body: fd, credentials: 'same-origin' });
                 if (res.ok) {
                     var row = form.closest('tr');
                     if (row) row.remove();
                     if (toast) toast.show();
                 } else window.location.reload();
             } catch (err) { window.location.reload(); }
+            finally { if (btn) btn.disabled = false; }
         });
     });
 })();

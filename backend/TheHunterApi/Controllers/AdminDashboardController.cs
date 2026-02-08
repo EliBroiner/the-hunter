@@ -47,13 +47,11 @@ public class AdminDashboardController : Controller
 
             if (terms.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [knowledge_base]");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [knowledge_base]");
+                _logger.LogWarning("[Admin Index] knowledge_base ריק. ProjectId={ProjectId}. ודא ש-FIRESTORE_PROJECT_ID מוגדר נכון ב-env.", _firestore.EffectiveProjectId);
             }
             if (activities.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [logs]");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [logs]");
+                _logger.LogWarning("[Admin Index] logs ריק. ProjectId={ProjectId}. ודא ש-FIRESTORE_PROJECT_ID מוגדר נכון ב-env.", _firestore.EffectiveProjectId);
             }
 
             var totalUsers = await _firestore.GetUsersCountAsync();
@@ -236,8 +234,7 @@ public class AdminDashboardController : Controller
             var (users, ok) = await _firestore.GetUsersAsync();
             if (users.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [users]");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [users]");
+                _logger.LogWarning("[Admin Users] users ריק. ProjectId={ProjectId}. ודא ש-FIRESTORE_PROJECT_ID מוגדר נכון ב-env.", _firestore.EffectiveProjectId);
             }
             _logger.LogInformation("[Admin Users] users count: {Count}", users.Count);
             return View(users);

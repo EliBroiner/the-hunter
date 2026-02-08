@@ -1,5 +1,6 @@
 # פריסת Backend (The Hunter API) ל-Google Cloud Run
-# דורש GitHub Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ו-GCP_SA_KEY (מפתח שירות GCP)
+# דורש GitHub Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ADMIN_KEY, FIRESTORE_PROJECT_ID, GCP_SA_KEY, GEMINI_API_KEY, FIREBASE_PROJECT_NUMBER, APP_URL, INITIAL_ADMIN_EMAIL
+# ⚠️ שינויים ידניים ב-Cloud Console (משתני סביבה) יידרסו בכל פריסה — עדכן רק ב-GitHub Secrets
 name: Deploy Backend to Cloud Run
 
 on:
@@ -52,4 +53,4 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --set-env-vars="TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }},TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}"
+            --set-env-vars="TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }},TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }},ADMIN_KEY=${{ secrets.ADMIN_KEY }},FIRESTORE_PROJECT_ID=${{ secrets.FIRESTORE_PROJECT_ID }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},FIREBASE_PROJECT_NUMBER=${{ secrets.FIREBASE_PROJECT_NUMBER }},APP_URL=${{ secrets.APP_URL }},INITIAL_ADMIN_EMAIL=${{ secrets.INITIAL_ADMIN_EMAIL }}"

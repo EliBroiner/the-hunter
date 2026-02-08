@@ -12,7 +12,15 @@
         <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
         <span class="ms-2">Loading...</span>
     </div>
-    <script>document.addEventListener('DOMContentLoaded', function() { document.getElementById('admin-loading').style.display = 'none'; });</script>
+    <script>
+        (function() {
+            function hideLoader() { var el = document.getElementById('admin-loading'); if (el) el.style.display = 'none'; }
+            document.addEventListener('DOMContentLoaded', hideLoader);
+            window.addEventListener('error', hideLoader);
+            window.addEventListener('load', hideLoader);
+            setTimeout(hideLoader, 5000); // fallback — תמיד להסתיר אחרי 5 שניות
+        })();
+    </script>
     <nav class="navbar navbar-dark bg-dark mb-3">
         <div class="container-fluid">
             <span class="navbar-brand">The Hunter — Admin</span>

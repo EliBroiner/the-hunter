@@ -15,10 +15,19 @@
 
 הוסף ב-GitHub Secrets (או ב-Cloud Run / App Engine env):
 
-| Secret / Env         | תיאור |
-|----------------------|--------|
-| `TELEGRAM_BOT_TOKEN` | טוקן הבוט מ-@BotFather |
-| `TELEGRAM_CHAT_ID`   | מזהה הצ'אט (למשל `295062084`) |
+| Secret / Env               | תיאור |
+|----------------------------|--------|
+| `TELEGRAM_BOT_TOKEN`       | טוקן הבוט מ-@BotFather |
+| `TELEGRAM_CHAT_ID`         | מזהה הצ'אט (למשל `295062084`) |
+| `ADMIN_KEY`                | מפתח Admin ללוח הבקרה |
+| `FIRESTORE_PROJECT_ID`     | מזהה פרויקט Firestore (למשל `thehunter-485508`) |
+| `GEMINI_API_KEY`           | מפתח API ל-Gemini (חיפוש AI) |
+| `FIREBASE_PROJECT_NUMBER`  | מספר פרויקט Firebase מ-google-services.json (למשל `105628026575`) — נדרש ל-App Check |
+| `APP_URL`                  | כתובת ה-API (למשל `https://the-hunter-xxx.me-west1.run.app`) — לכפתורי Telegram |
+| `INITIAL_ADMIN_EMAIL`      | אימייל Admin ראשון להתקנה (אופציונלי) |
+| `GCP_SA_KEY`               | מפתח שירות GCP (JSON) לפריסה |
+
+**⚠️ שינויים ידניים ב-Cloud Console (משתני סביבה) יידרסו בכל פריסה** — עדכן ערכים רק ב-GitHub Secrets.
 
 **אל תעלה את הטוקן ל-Git.** השתמש ב-Secrets או ב-User Secrets מקומית.
 
