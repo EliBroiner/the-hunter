@@ -304,6 +304,14 @@ class AiAutoTaggerService {
     if (_queue.isNotEmpty) await _flushQueue();
   }
 
+  /// מנתח קובץ בודד מיד — רק הקובץ הזה, לא דרך התור. לשימוש ב־Re-analyze
+  Future<void> processSingleFileImmediately(FileMetadata file, {required bool isPro}) async {
+    if (_disposed || _isInAuthCooldown) return;
+    if (!isPro) return;
+    final batch = [file];
+    await _sendBatch(batch);
+  }
+
   /// מנקה ומפנה את התור — שולח את כל הקבצים הנותרים
   Future<void> dispose() async {
     _disposed = true;

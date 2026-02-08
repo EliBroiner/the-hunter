@@ -26,6 +26,7 @@ import '../services/ai_auto_tagger_service.dart';
 import '../services/file_processing_service.dart';
 import '../services/knowledge_base_service.dart';
 import '../services/text_extraction_service.dart';
+import '../services/ocr_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
 import '../ui/sheets/file_details_sheet.dart';
@@ -1221,36 +1222,32 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     bool canceled() => isCanceled?.call() ?? false;
 
     try {
-      report('מתחבר לשרת...');
-      await KnowledgeBaseService.instance.syncDictionaryWithServer().timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('sync'),
-      );
-      if (!mounted || canceled()) return;
-
-      report('מעדכן מילון...');
-      await Future.delayed(const Duration(milliseconds: 200));
-      if (!mounted || canceled()) return;
-
-      report('מנתח נתונים...');
-      final text = await TextExtractionService.instance.extractText(filePath).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('extract'),
-      );
+      report('מחלץ טקסט...');
+      final ext = file.extension.toLowerCase();
+      String text;
+      if (TextExtractionService.isTextExtractable(ext)) {
+        text = await TextExtractionService.instance.extractText(filePath).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw TimeoutException('extract'),
+        );
+      } else if (OCRService.isSupportedImage(ext)) {
+        text = await OCRService.instance.extractText(filePath).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw TimeoutException('extract'),
+        );
+      } else {
+        text = file.extractedText ?? '';
+      }
       if (canceled()) return;
       file.extractedText = text.isEmpty ? null : text;
       file.isIndexed = true;
       _databaseService.saveFile(file);
       if (!mounted || canceled()) return;
 
-      await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro).timeout(
-        const Duration(seconds: 30),
+      report('מנתח ב-AI...');
+      await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro, immediate: true).timeout(
+        const Duration(seconds: 60),
         onTimeout: () => throw TimeoutException('process'),
-      );
-      if (canceled()) return;
-      await AiAutoTaggerService.instance.flushNow().timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('flush'),
       );
       if (!mounted || canceled()) return;
       if (reportProgress == null) {

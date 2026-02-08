@@ -22,20 +22,21 @@ class FileProcessingService {
   final _aiTagger = AiAutoTaggerService.instance;
 
   /// מריץ צינור עיבוד לפי נתיב — רק primitives (מניעת Illegal argument in isolate message)
-  Future<void> processFileByPath(String filePath, {required bool isPro}) async {
+  Future<void> processFileByPath(String filePath, {required bool isPro, bool immediate = false}) async {
     final file = _db.getFileByPath(filePath);
     if (file == null) {
       appLog('FileProcessing: קובץ לא נמצא — $filePath');
       return;
     }
-    await processFile(file, isPro: isPro);
+    await processFile(file, isPro: isPro, immediate: immediate);
   }
 
   /// מריץ את צינור העיבוד על קובץ בודד (לאחר חילוץ טקסט).
   /// 1) ולידציה — אם unreadable: עדכון Isar ועצירה.
   /// 2) מילון — אם יש התאמה (>= minDictionaryMatches): שמירת תגיות, dictionaryMatched, עצירה.
   /// 3) AI — רק אם עבר ו-PRO: שליחה ל-AiAutoTaggerService.
-  Future<void> processFile(FileMetadata file, {required bool isPro}) async {
+  /// immediate: true = שולח ישירות לשרת, רק הקובץ הזה (ללא התור המשותף) — ל-Re-analyze
+  Future<void> processFile(FileMetadata file, {required bool isPro, bool immediate = false}) async {
     final text = file.extractedText ?? '';
     // שלב 1: ולידציה איכות
     final status = _validator.validateQuality(text);
@@ -61,7 +62,11 @@ class FileProcessingService {
     }
     // שלב 3: AI רק ל-PRO
     if (isPro) {
-      await _aiTagger.addToQueue(file, skipLocalHeuristic: true);
+      if (immediate) {
+        await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+      } else {
+        await _aiTagger.addToQueue(file, skipLocalHeuristic: true);
+      }
     }
   }
 }
