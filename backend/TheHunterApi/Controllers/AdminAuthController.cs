@@ -24,7 +24,7 @@ public class AdminAuthController : Controller
     public IActionResult Login([FromQuery] string? key)
     {
         var expectedKey = _config["Admin:Key"]
-            ?? Environment.GetEnvironmentVariable("ADMIN_KEY")
+            ?? Environment.GetEnvironmentVariable("ADMIN__KEY")
             ?? "dev-admin-123";
 
         if (string.IsNullOrEmpty(key) || key != expectedKey)

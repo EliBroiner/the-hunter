@@ -1,5 +1,5 @@
 # פריסת Backend (The Hunter API) ל-Google Cloud Run
-# דורש GitHub Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ADMIN_KEY, FIRESTORE_PROJECT_ID, GCP_SA_KEY, GEMINI_API_KEY, FIREBASE_PROJECT_NUMBER, APP_URL, INITIAL_ADMIN_EMAIL
+# דורש GitHub Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ADMIN__KEY (2 קווי תחתון), FIRESTORE_PROJECT_ID, GCP_SA_KEY, GEMINI_API_KEY, FIREBASE_PROJECT_NUMBER, APP_URL, INITIAL_ADMIN_EMAIL
 # ⚠️ שינויים ידניים ב-Cloud Console (משתני סביבה) יידרסו בכל פריסה — עדכן רק ב-GitHub Secrets
 name: Deploy Backend to Cloud Run
 
@@ -46,6 +46,15 @@ jobs:
       - name: Push to Container Registry
         run: docker push gcr.io/${{ env.PROJECT_ID }}/the-hunter-api
 
+      - name: Validate required secrets
+        env:
+          ADMIN__KEY: ${{ secrets.ADMIN__KEY }}
+        run: |
+          if [ -z "$ADMIN__KEY" ]; then
+            echo "::error::ADMIN__KEY חסר או ריק. הוסף ב-GitHub: Settings > Secrets and variables > Actions. השם: ADMIN__KEY (שני קווי תחתון)"
+            exit 1
+          fi
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
@@ -53,4 +62,4 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --set-env-vars="TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }},TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }},ADMIN_KEY=${{ secrets.ADMIN_KEY }},FIRESTORE_PROJECT_ID=${{ secrets.FIRESTORE_PROJECT_ID }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},FIREBASE_PROJECT_NUMBER=${{ secrets.FIREBASE_PROJECT_NUMBER }},APP_URL=${{ secrets.APP_URL }},INITIAL_ADMIN_EMAIL=${{ secrets.INITIAL_ADMIN_EMAIL }}"
+            --set-env-vars="TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }},TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }},ADMIN__KEY=${{ secrets.ADMIN__KEY }},FIRESTORE_PROJECT_ID=${{ secrets.FIRESTORE_PROJECT_ID }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},FIREBASE_PROJECT_NUMBER=${{ secrets.FIREBASE_PROJECT_NUMBER }},APP_URL=${{ secrets.APP_URL }},INITIAL_ADMIN_EMAIL=${{ secrets.INITIAL_ADMIN_EMAIL }}"

@@ -68,7 +68,7 @@ SHA-256: A0:02:2E:AD:D0:AE:BC:3E:9D:B0:56:44:81:88:59:77:6C:D5:0A:40:B9:69:4B:02
 |-------|-----|------|
 | `FIREBASE_PROJECT_NUMBER` | `105628026575` | ולידציה של App Check tokens |
 | `GEMINI_API_KEY` | (סוד) | AI search / analyze |
-| `ADMIN_KEY` | (סוד) | הגנה על Admin Dashboard |
+| `ADMIN__KEY` | (סוד) | הגנה על Admin Dashboard |
 | `INITIAL_ADMIN_EMAIL` | (אופציונלי) | Bootstrap Admin ראשון |
 
 ---

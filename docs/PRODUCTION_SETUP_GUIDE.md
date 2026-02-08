@@ -74,8 +74,8 @@ Firebase App Check מגן על הבקאנד מפני לקוחות לא מורש�
 |----------|--------|---------|
 | `GEMINI_API_KEY` | Secret | Gemini API for AI search and analysis |
 | `FIREBASE_PROJECT_NUMBER` | Firebase Console | Validates App Check tokens |
-| `ADMIN_KEY` | Secret | Protects Admin Dashboard (header `X-Admin-Key`) |
-| `Admin:Key` | appsettings.json | Alternative to `ADMIN_KEY` |
+| `ADMIN__KEY` | Secret | Protects Admin Dashboard (header `X-Admin-Key`) |
+| `Admin:Key` | appsettings.json | Alternative to `ADMIN__KEY` |
 
 **Cloud Run — Set via Console or `gcloud`**
 
@@ -98,7 +98,7 @@ gcloud run services update the-hunter \
 
 **Important**
 
-- Do **not** commit `GEMINI_API_KEY`, `ADMIN_KEY`, or any secrets to Git.
+- Do **not** commit `GEMINI_API_KEY`, `ADMIN__KEY`, or any secrets to Git.
 - Add `appsettings.Development.json` and `appsettings.Production.json` to `.gitignore` if they contain secrets.
 - Use Google Secret Manager or Cloud Run secrets for production.
 
@@ -110,20 +110,20 @@ gcloud run services update the-hunter \
 |-------|------|------|
 | `GEMINI_API_KEY` | סוד | API של Gemini לחיפוש וניתוח |
 | `FIREBASE_PROJECT_NUMBER` | Firebase Console | ולידציה של App Check tokens |
-| `ADMIN_KEY` | סוד | הגנה על Admin Dashboard (header `X-Admin-Key`) |
-| `Admin:Key` | appsettings.json | חלופה ל־`ADMIN_KEY` |
+| `ADMIN__KEY` | סוד | הגנה על Admin Dashboard (header `X-Admin-Key`) |
+| `Admin:Key` | appsettings.json | חלופה ל־`ADMIN__KEY` |
 
 **Cloud Run**
 
 ```bash
 gcloud run services update the-hunter \
   --region=me-west1 \
-  --set-env-vars="FIREBASE_PROJECT_NUMBER=...,GEMINI_API_KEY=...,ADMIN_KEY=..."
+  --set-env-vars="FIREBASE_PROJECT_NUMBER=...,GEMINI_API_KEY=...,ADMIN__KEY=..."
 ```
 
 **אזהרה**
 
-- אל תעלה ל-Git את `GEMINI_API_KEY`, `ADMIN_KEY` או סודות אחרים.
+- אל תעלה ל-Git את `GEMINI_API_KEY`, `ADMIN__KEY` או סודות אחרים.
 - הוסף קבצי `appsettings.*.json` שמכילים סודות ל־`.gitignore`.
 
 ---
@@ -268,7 +268,7 @@ await db.Database.MigrateAsync();
 
 - Open `https://your-cloud-run-url/admin`.
 - Without `X-Admin-Key`: expect `401 Unauthorized`.
-- With header: `X-Admin-Key: your-ADMIN_KEY` → expect the dashboard UI.
+- With header: `X-Admin-Key: your-ADMIN__KEY` → expect the dashboard UI.
 
 **3. Health check**
 
@@ -285,7 +285,7 @@ await db.Database.MigrateAsync();
 
 - פתיחת `https://your-cloud-run-url/admin`.
 - בלי `X-Admin-Key` → `401`.
-- עם `X-Admin-Key: your-ADMIN_KEY` → תצוגת ה-dashboard.
+- עם `X-Admin-Key: your-ADMIN__KEY` → תצוגת ה-dashboard.
 
 **3. Health check**
 
@@ -301,5 +301,5 @@ await db.Database.MigrateAsync();
 |------|-------|
 | App Check header | `X-Firebase-AppCheck` |
 | Admin header | `X-Admin-Key` |
-| Backend env | `FIREBASE_PROJECT_NUMBER`, `GEMINI_API_KEY`, `ADMIN_KEY` |
+| Backend env | `FIREBASE_PROJECT_NUMBER`, `GEMINI_API_KEY`, `ADMIN__KEY` |
 | Migrations | `db.Database.MigrateAsync()` on startup |

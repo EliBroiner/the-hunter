@@ -19,7 +19,7 @@
 |----------------------------|--------|
 | `TELEGRAM_BOT_TOKEN`       | טוקן הבוט מ-@BotFather |
 | `TELEGRAM_CHAT_ID`         | מזהה הצ'אט (למשל `295062084`) |
-| `ADMIN_KEY`                | מפתח Admin ללוח הבקרה |
+| `ADMIN__KEY`               | מפתח Admin ללוח הבקרה (שם עם שני קווי תחתון) |
 | `FIRESTORE_PROJECT_ID`     | מזהה פרויקט Firestore (למשל `thehunter-485508`) |
 | `GEMINI_API_KEY`           | מפתח API ל-Gemini (חיפוש AI) |
 | `FIREBASE_PROJECT_NUMBER`  | מספר פרויקט Firebase מ-google-services.json (למשל `105628026575`) — נדרש ל-App Check |

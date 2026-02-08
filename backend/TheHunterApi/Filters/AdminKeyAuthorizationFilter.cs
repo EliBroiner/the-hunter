@@ -18,7 +18,7 @@ public class AdminKeyAuthorizationFilter : IAuthorizationFilter
     public void OnAuthorization(AuthorizationFilterContext context)
     {
         var expectedKey = _config["Admin:Key"]
-            ?? Environment.GetEnvironmentVariable("ADMIN_KEY")
+            ?? Environment.GetEnvironmentVariable("ADMIN__KEY")
             ?? "dev-admin-123";
 
         // סדר עדיפות: cookie (admin_session) → header → query
