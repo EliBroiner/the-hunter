@@ -15,11 +15,12 @@ public class FirebaseAppCheckMiddleware
     private readonly string? _projectNumber;
     private readonly bool _enabled;
 
-    // נתיבים שפטורים מ-App Check (health, swagger, root, admin)
+    // נתיבים שפטורים מ-App Check (health, swagger, root, admin, סטטיים)
     private static readonly HashSet<string> ExemptPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/",
         "/health",
+        "/favicon.ico",
         "/swagger",
         "/swagger/index.html",
         "/swagger/v1/swagger.json",

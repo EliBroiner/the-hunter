@@ -133,13 +133,11 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseCors();
+app.UseStaticFiles(); // לפני App Check — favicon וקבצים סטטיים לא דורשים אימות
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseMiddleware<FirebaseAppCheckMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
-
-// הוספת נתיב views
-app.UseStaticFiles();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
