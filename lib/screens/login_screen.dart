@@ -34,25 +34,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// התחברות כאורח
-  Future<void> _signInAsGuest() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final result = await _authService.signInAnonymously();
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-
-      if (!result.success && result.errorMessage != null) {
-        setState(() => _errorMessage = result.errorMessage);
-        _showErrorSnackBar(result.errorMessage!);
-      }
-    }
-  }
-
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -179,34 +160,9 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  /// בונה כפתורי התחברות
+  /// בונה כפתורי התחברות — רק Google (אין אופציית אורח)
   Widget _buildSignInButtons(ThemeData theme) {
-    return Column(
-      children: [
-        // כפתור Google
-        _buildGoogleButton(theme),
-        const SizedBox(height: 16),
-
-        // מפריד
-        Row(
-          children: [
-            Expanded(child: Divider(color: Colors.grey.shade700)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                tr('or'),
-                style: TextStyle(color: Colors.grey.shade500),
-              ),
-            ),
-            Expanded(child: Divider(color: Colors.grey.shade700)),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // כפתור אורח
-        _buildGuestButton(theme),
-      ],
-    );
+    return _buildGoogleButton(theme);
   }
 
   /// כפתור התחברות עם Google
@@ -261,41 +217,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
               ),
-      ),
-    );
-  }
-
-  /// כפתור המשך כאורח
-  Widget _buildGuestButton(ThemeData theme) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: OutlinedButton(
-        onPressed: _isLoading ? null : _signInAsGuest,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.5)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.person_outline,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              tr('continue_guest'),
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
