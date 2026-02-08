@@ -51,6 +51,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Generate Isar schemas
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Patch isar_flutter_libs SDK version
         run: |
           # Find and patch isar_flutter_libs build.gradle to use SDK 36
