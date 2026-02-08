@@ -1,4 +1,4 @@
-# --- SENSITIVE FILES ---
+# --- SENSITIVE FILES (לא לעלות ל-Git; נשלפים מ-Secrets/Env) ---
 *.jks
 *.keystore
 *.p12
@@ -9,6 +9,9 @@ local.properties
 *.local
 google-services.json
 firebase_options.dart
+**/secrets.json
+**/appsettings.Production.json
+**/appsettings.*.local.json
 
 # --- FLUTTER & DART ---
 .dart_tool/

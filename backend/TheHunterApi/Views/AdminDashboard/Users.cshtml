@@ -1,4 +1,4 @@
-@model List<TheHunterApi.Data.AppManagedUser>
+@model List<TheHunterApi.Models.AdminUserViewModel>
 @{
     ViewData["Title"] = "ניהול משתמשים";
     var isSuccess = TempData["UsersMessageSuccess"] as bool? ?? true;
@@ -64,7 +64,9 @@
                             <th>מייל</th>
                             <th>UserId</th>
                             <th>תפקיד</th>
+                            <th>תאריך רישום</th>
                             <th>עודכן</th>
+                            <th>נראה לאחרונה</th>
                             <th>פעולות</th>
                         </tr>
                     </thead>
@@ -84,7 +86,9 @@
                                         </select>
                                     </form>
                                 </td>
+                                <td class="small text-muted">@(u.RegistrationDate.HasValue ? u.RegistrationDate.Value.ToString("yyyy-MM-dd HH:mm") : "—")</td>
                                 <td class="small text-muted">@u.UpdatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="small text-muted">@(u.LastSeen.HasValue ? u.LastSeen.Value.ToString("yyyy-MM-dd HH:mm") : "—")</td>
                                 <td>
                                     <form asp-action="DeleteUser" asp-controller="AdminDashboard" asp-route-id="@u.Id" method="post" class="d-inline"
                                           onsubmit="return confirm('למחוק את @u.Email?');">

@@ -65,6 +65,12 @@ builder.Services.AddScoped<QuotaService>();
 builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
+builder.Services.AddScoped<AdminFirestoreService>();
+// Telegram: TELEGRAM_BOT_TOKEN ו-TELEGRAM_CHAT_ID נטענים מ-Environment / IConfiguration (ללא hardcode)
+builder.Services.AddScoped<ITelegramService, TelegramService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHttpClient();
+builder.Services.AddHostedService<DailySummaryHostedService>();
 
 // פילטר אבטחה ל-Admin Dashboard
 builder.Services.AddScoped<TheHunterApi.Filters.AdminKeyAuthorizationFilter>();
@@ -80,6 +86,10 @@ builder.Services.AddDbContextFactory<AppDbContext>(opts =>
     opts.UseSqlite($"Data Source={dbPath}"));
 
 var app = builder.Build();
+
+// לוג הפעלה — בודק טעינת Telegram מ-IConfiguration (ללא הדפסת הסוד)
+var telegramToken = builder.Configuration["TELEGRAM_BOT_TOKEN"];
+Log.Information("Server starting... Telegram integration enabled: {Enabled}", !string.IsNullOrEmpty(telegramToken));
 
 // יצירת DB והרצת migrations
 using (var scope = app.Services.CreateScope())

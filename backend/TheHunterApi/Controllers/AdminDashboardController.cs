@@ -1,6 +1,5 @@
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using TheHunterApi.Data;
 using TheHunterApi.Filters;
 using TheHunterApi.Models;
 using TheHunterApi.Services;
@@ -8,29 +7,29 @@ using TheHunterApi.Services;
 namespace TheHunterApi.Controllers;
 
 /// <summary>
-/// לוח בקרה לניהול מונחים שנלמדו - אישור/מחיקה
+/// לוח בקרה לניהול — נתונים מ-Firestore (knowledge_base, users, logs).
 /// </summary>
 [Route("admin")]
 [ServiceFilter(typeof(AdminKeyAuthorizationFilter))]
 public class AdminDashboardController : Controller
 {
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly AdminFirestoreService _firestore;
+    private readonly INotificationService _notification;
     private readonly ILogger<AdminDashboardController> _logger;
     private readonly IConfiguration _config;
 
     public AdminDashboardController(
-        IDbContextFactory<AppDbContext> dbFactory,
+        AdminFirestoreService firestore,
+        INotificationService notification,
         ILogger<AdminDashboardController> logger,
         IConfiguration config)
     {
-        _dbFactory = dbFactory;
+        _firestore = firestore;
+        _notification = notification;
         _logger = logger;
         _config = config;
     }
 
-    /// <summary>
-    /// מציג את כל המונחים שממתינים לאישור + הגדרות דירוג
-    /// </summary>
     [HttpGet]
     [Route("")]
     [Route("index")]
@@ -40,63 +39,60 @@ public class AdminDashboardController : Controller
         _logger.LogInformation("DEBUG: API Request received for Admin Index (Terms). Key from cookie: {FromCookie}", keyFromCookie);
         Console.WriteLine($"DEBUG: API Request received for [Admin Index]. Key from cookie: {keyFromCookie}");
 
-        var dbOk = false;
         try
         {
-            await using var db = _dbFactory.CreateDbContext();
-            dbOk = await db.Database.CanConnectAsync();
-            _logger.LogInformation("[Admin Index] DB connected: {Ok}", dbOk);
+            var (terms, termsOk) = await _firestore.GetPendingTermsAsync();
+            var (weights, weightsOk) = await _firestore.GetRankingWeightsAsync();
+            var (activities, logsOk) = await _firestore.GetLogsAsync(50);
 
-            var items = await db.LearnedTerms
-                .Where(x => !x.IsApproved)
-                .OrderByDescending(x => x.Frequency)
-                .ThenByDescending(x => x.LastSeen)
-                .ToListAsync();
-            if (items.Count == 0)
+            if (terms.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection LearnedTerms (pending)");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [LearnedTerms]");
+                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [knowledge_base]");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [knowledge_base]");
+            }
+            if (activities.Count == 0)
+            {
+                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [logs]");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [logs]");
             }
 
-            var rankingSettings = await db.RankingSettings.ToListAsync();
-            var rankingWeights = rankingSettings.ToDictionary(r => r.Key, r => r.Value);
-            if (rankingSettings.Count == 0)
-            {
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [RankingSettings]");
-            }
+            var totalUsers = await _firestore.GetUsersCountAsync();
+            var pendingCount = await _firestore.GetPendingTermsCountAsync();
+            var approvedCount = await _firestore.GetApprovedTermsCountAsync();
+            var newTermsPerDay = await _firestore.GetNewTermsPerDayAsync(30);
 
-            var searchActivities = await db.SearchActivities
-                .OrderByDescending(x => x.Count)
-                .Take(50)
-                .ToListAsync();
-            if (searchActivities.Count == 0)
-            {
-                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection SearchActivities");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [SearchActivities]");
-            }
+            await _notification.NotifyIfPendingThresholdAsync(pendingCount, terms.FirstOrDefault());
+            var threshold = _config.GetValue("Admin:Notification:PendingThreshold", 10);
+            if (pendingCount >= threshold)
+                ViewBag.PendingAlert = $"Action Required: {pendingCount} terms are waiting for your approval in The Hunter Admin.";
 
             _logger.LogInformation("[Admin Index] PendingTerms: {Count}, RankingKeys: {RCount}, SearchActivities: {SCount}",
-                items.Count, rankingWeights.Count, searchActivities.Count);
+                terms.Count, weights.Count, activities.Count);
 
+            var dbOk = termsOk && weightsOk && logsOk;
             var geminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
                 || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]);
             var firebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER"));
 
             return View(new AdminDashboardViewModel
             {
-                PendingTerms = items,
-                RankingWeights = rankingWeights,
-                SearchActivities = searchActivities,
+                PendingTerms = terms,
+                RankingWeights = weights,
+                SearchActivities = activities,
                 DatabaseOk = dbOk,
                 GeminiOk = geminiOk,
                 FirebaseOk = firebaseOk,
-                RecentErrors = AdminErrorTracker.RecentErrors
+                RecentErrors = AdminErrorTracker.RecentErrors,
+                TotalUsers = totalUsers,
+                PendingTermsCount = pendingCount,
+                ApprovedTermsCount = approvedCount,
+                NewTermsPerDay = newTermsPerDay
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ERROR fetching from database: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from database: {ex.Message}");
+            _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
+            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             AdminErrorTracker.AddError(ex.Message);
             return View(new AdminDashboardViewModel
             {
@@ -107,14 +103,38 @@ public class AdminDashboardController : Controller
                 GeminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
                     || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]),
                 FirebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER")),
-                RecentErrors = AdminErrorTracker.RecentErrors
+                RecentErrors = AdminErrorTracker.RecentErrors,
+                TotalUsers = 0,
+                PendingTermsCount = 0,
+                ApprovedTermsCount = 0,
+                NewTermsPerDay = new Dictionary<string, int>()
             });
         }
     }
 
-    /// <summary>
-    /// מנקה את רשימת שגיאות השרת ומחזיר ל-Index
-    /// </summary>
+    [HttpGet]
+    [Route("term/edit/{id}")]
+    public async Task<IActionResult> EditTerm(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var term = await _firestore.GetTermByIdAsync(id);
+        if (term == null) return NotFound();
+        return View(term);
+    }
+
+    [HttpPost]
+    [Route("term/update")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateTerm([FromForm] string? FirestoreId, [FromForm] string Term, [FromForm] string? Definition, [FromForm] string Category)
+    {
+        if (string.IsNullOrEmpty(FirestoreId)) return NotFound();
+        var ok = await _firestore.UpdateTermAsync(FirestoreId, Term ?? "", Definition ?? "", Category ?? "");
+        if (!ok) return NotFound();
+        TempData["WeightsMessage"] = "המונח עודכן בהצלחה.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(Index));
+    }
+
     [HttpPost]
     [Route("clear-errors")]
     [ValidateAntiForgeryToken]
@@ -124,9 +144,6 @@ public class AdminDashboardController : Controller
         return RedirectToAction(nameof(Index));
     }
 
-    /// <summary>
-    /// מעדכן משקלי דירוג — עובר על המילון ומעדכן ערכים ב-DB
-    /// </summary>
     [HttpPost]
     [Route("update-weights")]
     [ValidateAntiForgeryToken]
@@ -138,30 +155,13 @@ public class AdminDashboardController : Controller
             TempData["WeightsMessageSuccess"] = false;
             return RedirectToAction(nameof(Index));
         }
-
-        await using var db = _dbFactory.CreateDbContext();
-        foreach (var kvp in newWeights)
-        {
-            var existing = await db.RankingSettings.FindAsync(kvp.Key);
-            if (existing != null)
-            {
-                existing.Value = kvp.Value;
-            }
-            else
-            {
-                db.RankingSettings.Add(new RankingSetting { Key = kvp.Key, Value = kvp.Value });
-            }
-        }
-        await db.SaveChangesAsync();
+        await _firestore.SetRankingWeightsAsync(newWeights);
         _logger.LogInformation("משקלי דירוג עודכנו: {Count} מפתחות", newWeights.Count);
         TempData["WeightsMessage"] = "המשקלים עודכנו בהצלחה.";
         TempData["WeightsMessageSuccess"] = true;
         return RedirectToAction(nameof(Index));
     }
 
-    /// <summary>
-    /// מאפס משקלי דירוג לברירות המחדל הקשיחות (200, 120, 80, 1.2, 150)
-    /// </summary>
     [HttpPost]
     [Route("reset-weights")]
     [ValidateAntiForgeryToken]
@@ -175,65 +175,54 @@ public class AdminDashboardController : Controller
             { "fullMatchMultiplier", 1.2 },
             { "exactPhraseBonus", 150.0 }
         };
-
-        await using var db = _dbFactory.CreateDbContext();
-        foreach (var kvp in defaults)
-        {
-            var existing = await db.RankingSettings.FindAsync(kvp.Key);
-            if (existing != null)
-                existing.Value = kvp.Value;
-            else
-                db.RankingSettings.Add(new RankingSetting { Key = kvp.Key, Value = kvp.Value });
-        }
-        await db.SaveChangesAsync();
+        await _firestore.SetRankingWeightsAsync(defaults);
         _logger.LogInformation("משקלי דירוג אופסו לברירות מחדל");
         TempData["WeightsMessage"] = "המשקלים אופסו לברירות המחדל.";
         TempData["WeightsMessageSuccess"] = true;
         return RedirectToAction(nameof(Index));
     }
 
-    /// <summary>
-    /// מאשר מונח - מעדכן IsApproved = true (אישור ידני ללא תלות בסף תדירות)
-    /// </summary>
     [HttpPost]
-    [Route("approve/{id:int}")]
+    [Route("approve/{id}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Approve(int id)
+    public async Task<IActionResult> Approve(string id)
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var term = await db.LearnedTerms.FindAsync(id);
-        if (term == null)
-            return NotFound();
-
-        term.IsApproved = true;
-        term.LastSeen = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-        _logger.LogInformation("מונח אושר ידנית: {Term} ({Category}) Id={Id}", term.Term, term.Category, id);
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.ApproveTermAsync(id);
+        if (!ok) return NotFound();
+        _logger.LogInformation("DEBUG: Term {TermId} was approved by admin.", id);
+        Console.WriteLine($"DEBUG: Term {id} was approved by admin.");
         return RedirectToAction(nameof(Index));
     }
 
     /// <summary>
-    /// מוחק מונח מהמערכת
+    /// מאשר מונח (קריאה מ־AJAX) — מחזיר JSON.
     /// </summary>
     [HttpPost]
-    [Route("delete/{id:int}")]
+    [Route("approve-term")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> ApproveTerm([FromForm] string termId)
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var term = await db.LearnedTerms.FindAsync(id);
-        if (term == null)
-            return NotFound();
+        if (string.IsNullOrEmpty(termId)) return NotFound();
+        var ok = await _firestore.ApproveTermAsync(termId);
+        if (!ok) return NotFound();
+        _logger.LogInformation("DEBUG: Term {TermId} was approved by admin.", termId);
+        Console.WriteLine($"DEBUG: Term {termId} was approved by admin.");
+        return Json(new { success = true, termId });
+    }
 
-        db.LearnedTerms.Remove(term);
-        await db.SaveChangesAsync();
-        _logger.LogInformation("מונח נמחק: {Term} Id={Id}", term.Term, id);
+    [HttpPost]
+    [Route("delete/{id}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Delete(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.DeleteTermAsync(id);
+        if (!ok) return NotFound();
+        _logger.LogInformation("מונח נמחק, doc Id={Id}", id);
         return RedirectToAction(nameof(Index));
     }
 
-    /// <summary>
-    /// עמוד ניהול משתמשים — Admin, DebugAccess, User
-    /// </summary>
     [HttpGet]
     [Route("users")]
     public async Task<IActionResult> Users()
@@ -244,23 +233,20 @@ public class AdminDashboardController : Controller
 
         try
         {
-            await using var db = _dbFactory.CreateDbContext();
-            var canConnect = await db.Database.CanConnectAsync();
-            _logger.LogInformation("[Admin Users] DB connected: {Ok}", canConnect);
-            var users = await db.AppManagedUsers.OrderBy(u => u.Email).ToListAsync();
+            var (users, ok) = await _firestore.GetUsersAsync();
             if (users.Count == 0)
             {
-                _logger.LogWarning("DEBUG: Database query successful but returned 0 documents from collection AppManagedUsers");
-                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [AppManagedUsers]");
+                _logger.LogWarning("DEBUG: Firestore query successful but returned 0 documents from collection [users]");
+                Console.WriteLine("DEBUG: Query successful but returned 0 documents from collection [users]");
             }
-            _logger.LogInformation("[Admin Users] AppManagedUsers count: {Count}", users.Count);
+            _logger.LogInformation("[Admin Users] users count: {Count}", users.Count);
             return View(users);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ERROR fetching from database: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from database: {ex.Message}");
-            return View(new List<AppManagedUser>());
+            _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
+            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
+            return View(new List<AdminUserViewModel>());
         }
     }
 
@@ -275,64 +261,100 @@ public class AdminDashboardController : Controller
             TempData["UsersMessageSuccess"] = false;
             return RedirectToAction(nameof(Users));
         }
-
-        await using var db = _dbFactory.CreateDbContext();
-        var normalizedEmail = email.Trim();
-        if (await db.AppManagedUsers.AnyAsync(u => u.Email.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase)))
+        var added = await _firestore.AddUserAsync(email.Trim(), userId?.Trim() ?? "", role);
+        if (!added)
         {
             TempData["UsersMessage"] = "משתמש עם מייל זה כבר קיים.";
             TempData["UsersMessageSuccess"] = false;
             return RedirectToAction(nameof(Users));
         }
-
-        var now = DateTime.UtcNow;
-        db.AppManagedUsers.Add(new AppManagedUser
-        {
-            Email = normalizedEmail,
-            UserId = string.IsNullOrWhiteSpace(userId) ? "" : userId.Trim(),
-            Role = role is "Admin" or "DebugAccess" ? role : "User",
-            CreatedAt = now,
-            UpdatedAt = now,
-        });
-        await db.SaveChangesAsync();
-        _logger.LogInformation("משתמש נוסף: {Email} תפקיד {Role}", normalizedEmail, role);
+        _logger.LogInformation("משתמש נוסף: {Email} תפקיד {Role}", email.Trim(), role);
         TempData["UsersMessage"] = "המשתמש נוסף בהצלחה.";
         TempData["UsersMessageSuccess"] = true;
         return RedirectToAction(nameof(Users));
     }
 
     [HttpPost]
-    [Route("users/update/{id:int}")]
+    [Route("users/update/{id}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> UpdateUser(int id, [FromForm] string role)
+    public async Task<IActionResult> UpdateUser(string id, [FromForm] string role)
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var user = await db.AppManagedUsers.FindAsync(id);
-        if (user == null) return NotFound();
-
-        user.Role = role is "Admin" or "DebugAccess" ? role : "User";
-        user.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-        _logger.LogInformation("משתמש עודכן: {Email} תפקיד {Role}", user.Email, user.Role);
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.UpdateUserRoleAsync(id, role);
+        if (!ok) return NotFound();
+        _logger.LogInformation("משתמש עודכן, doc Id={Id} תפקיד {Role}", id, role);
         TempData["UsersMessage"] = "התפקיד עודכן.";
         TempData["UsersMessageSuccess"] = true;
         return RedirectToAction(nameof(Users));
     }
 
     [HttpPost]
-    [Route("users/delete/{id:int}")]
+    [Route("users/delete/{id}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> DeleteUser(int id)
+    public async Task<IActionResult> DeleteUser(string id)
     {
-        await using var db = _dbFactory.CreateDbContext();
-        var user = await db.AppManagedUsers.FindAsync(id);
-        if (user == null) return NotFound();
-
-        db.AppManagedUsers.Remove(user);
-        await db.SaveChangesAsync();
-        _logger.LogInformation("משתמש נמחק: {Email}", user.Email);
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.DeleteUserAsync(id);
+        if (!ok) return NotFound();
+        _logger.LogInformation("משתמש נמחק, doc Id={Id}", id);
         TempData["UsersMessage"] = "המשתמש נמחק.";
         TempData["UsersMessageSuccess"] = true;
         return RedirectToAction(nameof(Users));
+    }
+
+    /// <summary>API לסטטיסטיקות לרענון ללא reload — JSON.</summary>
+    [HttpGet]
+    [Route("api/stats")]
+    public async Task<IActionResult> GetStats()
+    {
+        var totalUsers = await _firestore.GetUsersCountAsync();
+        var pendingTermsCount = await _firestore.GetPendingTermsCountAsync();
+        var approvedTermsCount = await _firestore.GetApprovedTermsCountAsync();
+        var lastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        return Json(new { totalUsers, pendingTermsCount, approvedTermsCount, lastUpdated });
+    }
+
+    /// <summary>ייצוא מונחים מאושרים ל-Excel — עמודות: ID, Term, Definition, Category, Date Created.</summary>
+    [HttpGet]
+    [Route("export-approved-terms")]
+    public async Task<IActionResult> ExportApprovedTerms()
+    {
+        var terms = await _firestore.GetApprovedTermsForExportAsync();
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Approved Terms");
+        ws.Cell(1, 1).Value = "ID";
+        ws.Cell(1, 2).Value = "Term";
+        ws.Cell(1, 3).Value = "Definition";
+        ws.Cell(1, 4).Value = "Category";
+        ws.Cell(1, 5).Value = "Date Created";
+        int row = 2;
+        foreach (var t in terms)
+        {
+            ws.Cell(row, 1).Value = t.FirestoreId ?? "";
+            ws.Cell(row, 2).Value = t.Term ?? "";
+            ws.Cell(row, 3).Value = t.Definition ?? "";
+            ws.Cell(row, 4).Value = t.Category ?? "";
+            ws.Cell(row, 5).Value = t.LastSeen;
+            row++;
+        }
+        using var stream = new MemoryStream();
+        wb.SaveAs(stream);
+        stream.Position = 0;
+        var fileName = $"ApprovedTerms_{DateTime.UtcNow:yyyyMMddHHmmss}.xlsx";
+        return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    /// <summary>טריגר ידני לשליחת דוח יומי ל-Telegram.</summary>
+    [HttpPost]
+    [Route("send-daily-summary")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SendDailySummary()
+    {
+        var telegram = HttpContext.RequestServices.GetService<ITelegramService>();
+        if (telegram == null) return BadRequest("Telegram not configured.");
+        await telegram.SendDailySummaryAsync();
+        TempData["WeightsMessage"] = "דוח יומי נשלח ל-Telegram.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(Index));
     }
 }

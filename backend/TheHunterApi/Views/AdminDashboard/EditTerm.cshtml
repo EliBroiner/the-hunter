@@ -1,0 +1,32 @@
+@model TheHunterApi.Models.LearnedTerm
+@{
+    ViewData["Title"] = "עריכת מונח";
+    var termId = Model.FirestoreId ?? Model.Id.ToString();
+}
+
+<h1 class="mb-4">@ViewData["Title"]</h1>
+
+<section class="card">
+    <div class="card-body">
+        <form asp-action="UpdateTerm" asp-controller="AdminDashboard" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="FirestoreId" value="@termId" />
+            <div class="mb-3">
+                <label for="Term" class="form-label">מונח</label>
+                <input type="text" id="Term" name="Term" class="form-control" value="@Model.Term" required />
+            </div>
+            <div class="mb-3">
+                <label for="Definition" class="form-label">הגדרה</label>
+                <textarea id="Definition" name="Definition" class="form-control" rows="3">@(Model.Definition ?? "")</textarea>
+            </div>
+            <div class="mb-3">
+                <label for="Category" class="form-label">קטגוריה</label>
+                <input type="text" id="Category" name="Category" class="form-control" value="@Model.Category" />
+            </div>
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">שמירה</button>
+                <a asp-action="Index" asp-controller="AdminDashboard" class="btn btn-outline-secondary">ביטול</a>
+            </div>
+        </form>
+    </div>
+</section>

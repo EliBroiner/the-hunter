@@ -21,8 +21,90 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור"></button>
     </div>
 }
+@* התראת סף מונחים ממתינים *@
+@if (ViewBag.PendingAlert != null)
+{
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i> @ViewBag.PendingAlert
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור"></button>
+    </div>
+}
 
 <h1 class="mb-4">@ViewData["Title"]</h1>
+
+@* Stats Overview — כרטיסים מקצועיים (Bootstrap 5: shadow-sm, 15px, hover scale) *@
+<section class="row g-3 mb-4">
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h5 text-muted mb-0">סטטיסטיקות</h2>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small text-muted" id="statsLastUpdated">עודכן: @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</span>
+            <button type="button" id="statsRefreshBtn" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-clockwise"></i> רענון
+            </button>
+            <form asp-action="SendDailySummary" method="post" class="d-inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-send"></i> שלח דוח יומי
+                </button>
+            </form>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card stats-card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="flex-shrink-0 me-3 p-2 rounded-3 bg-primary bg-opacity-10">
+                    <i class="bi bi-people-fill text-primary fs-2"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="card-title text-muted small mb-1">Active Users</h5>
+                    <p class="card-text display-6 mb-0" id="stat-total-users">@Model.TotalUsers</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card stats-card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="flex-shrink-0 me-3 p-2 rounded-3 bg-warning bg-opacity-25">
+                    <i class="bi bi-hourglass-split text-warning fs-2"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="card-title text-muted small mb-1">Pending Terms</h5>
+                    <p class="card-text display-6 mb-0" id="stat-pending-terms">@Model.PendingTermsCount</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card stats-card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="flex-shrink-0 me-3 p-2 rounded-3 bg-success bg-opacity-10">
+                    <i class="bi bi-database-check text-success fs-2"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="card-title text-muted small mb-1">Knowledge Base</h5>
+                    <p class="card-text display-6 mb-0" id="stat-approved-terms">@Model.ApprovedTermsCount</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<style>
+.stats-card { border-radius: 15px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.stats-card:hover { transform: scale(1.02); box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.12) !important; }
+.spin { animation: spin 0.6s ease; }
+@@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+@* New Terms per Day — Chart.js *@
+<section class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title mb-0 h5">New Terms per Day</h2>
+    </div>
+    <div class="card-body">
+        <canvas id="newTermsChart" height="120"></canvas>
+    </div>
+</section>
 
 @* סטטוס מערכת — תגיות בריאות *@
 <div class="d-flex flex-wrap gap-2 mb-4">
@@ -59,10 +141,14 @@
     </div>
 </section>
 
-@* חיפושים נפוצים — לסיוע בהחלטה אילו synonyms להוסיף *@
+@* חיפושים נפוצים — עם פילטר חיפוש *@
 <section class="card mb-4">
-    <div class="card-header">
+    <div class="card-header d-flex flex-wrap align-items-center gap-2">
         <h2 class="card-title mb-0 h5">חיפושים נפוצים</h2>
+        @if (Model.SearchActivities.Count > 0)
+        {
+            <input type="text" id="activitiesSearch" class="form-control form-control-sm" placeholder="חיפוש מונח..." style="max-width: 220px;" aria-label="חיפוש בחיפושים נפוצים" />
+        }
     </div>
     <div class="card-body">
         @if (Model.SearchActivities.Count == 0)
@@ -72,7 +158,7 @@
         else
         {
             <div class="table-responsive">
-                <table class="table table-sm table-striped">
+                <table class="table table-sm table-striped" id="activitiesTable">
                     <thead>
                         <tr>
                             <th>מונח</th>
@@ -83,7 +169,7 @@
                     <tbody>
                         @foreach (var a in Model.SearchActivities)
                         {
-                            <tr>
+                            <tr data-activity-term="@(a.Term ?? "")">
                                 <td>@a.Term</td>
                                 <td>@a.Count</td>
                                 <td>@a.LastSearch.ToString("yyyy-MM-dd HH:mm")</td>
@@ -98,7 +184,13 @@
 
 @* מונחים ממתינים *@
 <section>
-    <h2 class="h5 mb-3">מונחים ממתינים לאישור</h2>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h2 class="h5 mb-0">מונחים ממתינים לאישור</h2>
+        <a asp-action="ExportApprovedTerms" asp-controller="AdminDashboard" class="btn btn-success btn-sm">
+            <i class="bi bi-file-earmark-excel"></i> Download Approved Data
+        </a>
+        <input type="text" id="termsSearch" class="form-control" placeholder="חיפוש מונח או קטגוריה..." style="max-width: 300px;" aria-label="חיפוש מונחים" />
+    </div>
     @if (Model.PendingTerms.Count == 0)
     {
         <div class="alert alert-info">לא נמצאו מונחים — בדוק חיבור למסד הנתונים או היכנס דרך /admin/login?key=מפתח_Admin</div>
@@ -107,7 +199,7 @@
     {
         <p class="text-muted">סה״כ @Model.PendingTerms.Count מונחים</p>
         <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-striped table-hover" id="termsTable">
                 <thead>
                     <tr>
                         <th>מונח</th>
@@ -120,20 +212,23 @@
                 <tbody>
                     @foreach (var item in Model.PendingTerms)
                     {
-                        <tr>
+                        var termId = item.FirestoreId ?? item.Id.ToString();
+                        <tr data-term-id="@termId" data-term="@(item.Term ?? "")" data-category="@(item.Category ?? "")">
                             <td>@item.Term</td>
                             <td>@item.Category</td>
                             <td>@item.Frequency</td>
                             <td>@item.LastSeen.ToString("yyyy-MM-dd HH:mm")</td>
                             <td>
-                                <form asp-action="Approve" asp-route-id="@item.Id" method="post" class="d-inline">
+                                <a asp-action="EditTerm" asp-controller="AdminDashboard" asp-route-id="@termId" class="btn btn-outline-primary btn-sm me-1">עריכה</a>
+                                <form class="approve-term-form d-inline" method="post" data-term-id="@termId">
                                     @Html.AntiForgeryToken()
+                                    <input type="hidden" name="termId" value="@termId" />
                                     <button type="submit" class="btn btn-success btn-sm">אישור</button>
                                 </form>
-                                <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="d-inline"
+                                <form asp-action="Delete" asp-route-id="@termId" method="post" class="d-inline"
                                       onsubmit="return confirm('למחוק את המונח?');">
                                     @Html.AntiForgeryToken()
-                                    <button type="submit" class="btn btn-danger btn-sm">מחיקה</button>
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">מחיקה</button>
                                 </form>
                             </td>
                         </tr>
@@ -143,6 +238,107 @@
         </div>
     }
 </section>
+
+<div id="term-approved-toast" class="toast align-items-center text-bg-success border-0 position-fixed top-0 start-50 translate-middle-x mt-3" role="alert" style="z-index: 9999; display: none;">
+    <div class="d-flex">
+        <div class="toast-body">Term approved and is now live in the app!</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+    // רענון סטטיסטיקות ללא reload
+    var refreshBtn = document.getElementById('statsRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            refreshBtn.disabled = true;
+            refreshBtn.querySelector('i').classList.add('spin');
+            fetch('@Url.Action("GetStats", "AdminDashboard")')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var u = document.getElementById('stat-total-users');
+                    var p = document.getElementById('stat-pending-terms');
+                    var a = document.getElementById('stat-approved-terms');
+                    var lu = document.getElementById('statsLastUpdated');
+                    if (u) u.textContent = data.totalUsers ?? 0;
+                    if (p) p.textContent = data.pendingTermsCount ?? 0;
+                    if (a) a.textContent = data.approvedTermsCount ?? 0;
+                    if (lu && data.lastUpdated) {
+                        var d = new Date(data.lastUpdated);
+                        lu.textContent = 'עודכן: ' + (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'));
+                    }
+                })
+                .finally(function() { refreshBtn.disabled = false; refreshBtn.querySelector('i').classList.remove('spin'); });
+        });
+    }
+    var newTermsPerDay = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.NewTermsPerDay.OrderBy(x => x.Key).ToDictionary(x => x.Key, x => x.Value)));
+    var labels = Object.keys(newTermsPerDay).sort();
+    var data = labels.map(function(d) { return newTermsPerDay[d] || 0; });
+    var ctx = document.getElementById('newTermsChart');
+    if (ctx && typeof Chart !== 'undefined') {
+        new Chart(ctx.getContext('2d'), {
+            type: 'bar',
+            data: { labels: labels, datasets: [{ label: 'New Terms', data: data, backgroundColor: 'rgba(54, 162, 235, 0.5)', borderColor: 'rgb(54, 162, 235)', borderWidth: 1 }] },
+            options: { responsive: true, maintainAspectRatio: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+    }
+    var searchInput = document.getElementById('termsSearch');
+    var table = document.getElementById('termsTable');
+    if (searchInput && table) {
+        searchInput.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            var tbody = table.getElementsByTagName('tbody')[0];
+            if (!tbody) return;
+            var rows = tbody.getElementsByTagName('tr');
+            for (var i = 0; i < rows.length; i++) {
+                var term = (rows[i].getAttribute('data-term') || '').toLowerCase();
+                var cat = (rows[i].getAttribute('data-category') || '').toLowerCase();
+                var show = !q || term.indexOf(q) !== -1 || cat.indexOf(q) !== -1;
+                rows[i].style.display = show ? '' : 'none';
+            }
+        });
+    }
+    var activitiesSearch = document.getElementById('activitiesSearch');
+    var activitiesTable = document.getElementById('activitiesTable');
+    if (activitiesSearch && activitiesTable) {
+        activitiesSearch.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            var tbody = activitiesTable.getElementsByTagName('tbody')[0];
+            if (!tbody) return;
+            var rows = tbody.getElementsByTagName('tr');
+            for (var i = 0; i < rows.length; i++) {
+                var term = (rows[i].getAttribute('data-activity-term') || '').toLowerCase();
+                var show = !q || term.indexOf(q) !== -1;
+                rows[i].style.display = show ? '' : 'none';
+            }
+        });
+    }
+    var toastEl = document.getElementById('term-approved-toast');
+    var toast = toastEl ? new bootstrap.Toast(toastEl, { delay: 4000 }) : null;
+    document.querySelectorAll('.approve-term-form').forEach(function(form) {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var termId = form.querySelector('input[name="termId"]').value;
+            var token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+            var fd = new FormData();
+            fd.append('__RequestVerificationToken', token);
+            fd.append('termId', termId);
+            try {
+                var res = await fetch('@Url.Action("ApproveTerm", "AdminDashboard")', { method: 'POST', body: fd });
+                if (res.ok) {
+                    var row = form.closest('tr');
+                    if (row) row.remove();
+                    if (toast) toast.show();
+                } else window.location.reload();
+            } catch (err) { window.location.reload(); }
+        });
+    });
+})();
+</script>
+}
 
 @* שגיאות שרת אחרונות *@
 <section class="card mb-4">

@@ -1,0 +1,38 @@
+rules_version = '2';
+// Firestore Security Rules — thehunter-485508
+// Deploy: firebase deploy --only firestore:rules
+//
+// Rate limiting (e.g. >50 creates per user per hour) cannot be enforced in rules.
+// Implement in Cloud Functions or in the backend API; block and alert there.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users: משתמש קורא/כותב רק למסמך שלו; מחיקה חסומה (מניעת mass deletion).
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // knowledge_base: קריאה ויצירה למשתמשים מחוברים; עדכון ומחיקה רק דרך Admin (Service Account).
+    // Client SDK cannot update/delete — only backend with Admin SDK bypasses.
+    match /knowledge_base/{termId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    // logs: כתיבה למשתמשים; קריאה רק לאדמין. עדכון/מחיקה חסומים.
+    match /logs/{logId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth.token.admin == true;
+      allow update, delete: if false;
+    }
+
+    // ranking_settings: קריאה למחוברים; כתיבה רק לאדמין (בדרך כלל Backend Service Account).
+    match /ranking_settings/{key} {
+      allow read: if request.auth != null;
+      allow write: if request.auth.token.admin == true;
+    }
+  }
+}

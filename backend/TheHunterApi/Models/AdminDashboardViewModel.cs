@@ -12,4 +12,8 @@ public class AdminDashboardViewModel
     public bool GeminiOk { get; set; }
     public bool FirebaseOk { get; set; }
     public IReadOnlyList<string> RecentErrors { get; set; } = new List<string>();
+    public int TotalUsers { get; set; }
+    public int PendingTermsCount { get; set; }
+    public int ApprovedTermsCount { get; set; }
+    public Dictionary<string, int> NewTermsPerDay { get; set; } = new();
 }
