@@ -110,6 +110,8 @@ class KnowledgeBaseService {
       if (data is List) {
         // השרת החזיר רשימה — מטפלים כ-synonyms (למשל [{term, category}, ...])
         final synonyms = _parseSynonymsFromList(data);
+        final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
+        appLog('SYNC_DEBUG: Received $recordCount records from API (List format)');
         if (synonyms.isNotEmpty) {
           await _mergeSynonymsToIsarAndCache(synonyms);
           appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from List response');
@@ -138,6 +140,8 @@ class KnowledgeBaseService {
         synonyms.addAll(_parseSynonymsFromList(synonymsRaw));
       }
       if (synonyms.isNotEmpty) {
+        final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
+        appLog('SYNC_DEBUG: Received $recordCount records from API (Map format)');
         await _mergeSynonymsToIsarAndCache(synonyms);
         appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
       }

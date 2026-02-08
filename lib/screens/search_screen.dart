@@ -2505,22 +2505,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
+  /// מעביר את ה־Theme-is — ה־DatePickerThemeData ב־main.dart מטפל בצבעים
   Theme _buildDatePickerTheme(ThemeData theme, Widget? child) {
-    return Theme(
-      data: theme.copyWith(
-        colorScheme: theme.colorScheme.copyWith(
-          primary: const Color(0xFF6366F1),
-          onPrimary: Colors.white,
-          surface: const Color(0xFF1E1E3F),
-          onSurface: Colors.white,
-          onSurfaceVariant: Colors.grey.shade300,
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
-        ),
-      ),
-      child: child!,
-    );
+    return Theme(data: theme, child: child!);
   }
 
   /// מנקה תאריכים
@@ -4201,51 +4188,55 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                             _buildContentPreviewSubtitle(file),
                           const SizedBox(height: 6),
                           
-                          // מידע על הקובץ
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isWhatsApp 
-                                      ? Colors.green.withValues(alpha: 0.2)
-                                      : Colors.grey.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(4),
+                          // תגית מקור — שורה נפרדת (מונעת overflow)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isWhatsApp 
+                                  ? Colors.green.withValues(alpha: 0.2)
+                                  : Colors.grey.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.max,
+                              children: [
+                                Icon(
+                                  isWhatsApp ? Icons.chat_bubble : (file.isCloud ? Icons.cloud : Icons.folder),
+                                  size: 10,
+                                  color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      isWhatsApp ? Icons.chat_bubble : (file.isCloud ? Icons.cloud : Icons.folder),
-                                      size: 10,
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    file.isCloud ? 'Google Drive' : folderName,
+                                    style: TextStyle(
+                                      fontSize: 10,
                                       color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
                                     ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      file.isCloud ? 'Google Drive' : folderName,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
-                                      ),
-                                    ),
-                                  ],
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          // גודל + תאריך + debug
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 12,
+                            runSpacing: 2,
+                            children: [
                               Text(
                                 file.readableSize,
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                 textDirection: TextDirection.ltr,
                               ),
-                              const SizedBox(width: 12),
                               Text(
                                 _formatDate(file.lastModified),
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                 textDirection: TextDirection.ltr,
                               ),
-                              // Debug: ציון בתחילה, פורמולה מקוצרת
-                              if (_showDebugScore && file.debugScore != null) ...[
-                                const SizedBox(width: 12),
+                              if (_showDebugScore && file.debugScore != null)
                                 Text(
                                   _formatDebugScore(file.debugScore!, file.debugScoreBreakdown),
                                   style: TextStyle(
@@ -4255,7 +4246,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                              ],
                             ],
                           ),
                           // תגיות (אם יש)

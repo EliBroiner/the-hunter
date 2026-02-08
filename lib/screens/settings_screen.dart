@@ -693,21 +693,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// מציג אישור שחזור
   void _showRestoreConfirmation(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Theme.of(context).colorScheme.surface,
+        backgroundColor: colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             const Icon(Icons.warning_amber, color: Colors.amber),
             const SizedBox(width: 12),
-            Text(tr('restore_title')),
+            Expanded(
+              child: Text(
+                tr('restore_title'),
+                style: TextStyle(color: colorScheme.onSurface),
+                textDirection: TextDirection.rtl,
+              ),
+            ),
           ],
         ),
         content: Text(
           tr('restore_confirm'),
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: colorScheme.onSurface),
+          textDirection: TextDirection.rtl,
         ),
         actions: [
           TextButton(

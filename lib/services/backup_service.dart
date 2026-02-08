@@ -180,6 +180,11 @@ class BackupService {
       final jsonString = jsonEncode(backupData);
       final bytes = utf8.encode(jsonString);
 
+      if (bytes.isEmpty) {
+        appLog('Backup ERROR: Data object is empty (0 bytes)');
+        return BackupResult.failure('אין נתונים לגיבוי');
+      }
+
       appLog('Backup: Uploading ${bytes.length} bytes to cloud...');
       appLog('Backup: Path=$_backupPath, Bucket=${_storage.bucket}');
       onProgress?.call(0.5);
@@ -193,28 +198,34 @@ class BackupService {
       final checksum = _calculateChecksum(files);
 
       // העלאה ל-Firebase Storage
-      final ref = _storage.ref(_backupPath);
-      final uploadTask = ref.putData(
-        Uint8List.fromList(bytes),
-        SettableMetadata(
-          contentType: 'application/json',
-          customMetadata: {
-            'filesCount': files.length.toString(),
-            'filesWithText': filesWithText.toString(),
-            'backupDate': DateTime.now().toIso8601String(),
-            'checksum': checksum,
-            'sizeBytes': bytes.length.toString(),
-          },
-        ),
-      );
+      try {
+        final ref = _storage.ref(_backupPath);
+        final uploadTask = ref.putData(
+          Uint8List.fromList(bytes),
+          SettableMetadata(
+            contentType: 'application/json',
+            customMetadata: {
+              'filesCount': files.length.toString(),
+              'filesWithText': filesWithText.toString(),
+              'backupDate': DateTime.now().toIso8601String(),
+              'checksum': checksum,
+              'sizeBytes': bytes.length.toString(),
+            },
+          ),
+        );
 
-      // מעקב אחר ההעלאה
-      uploadTask.snapshotEvents.listen((event) {
-        final progress = event.bytesTransferred / event.totalBytes;
-        onProgress?.call(0.5 + (progress * 0.4));
-      });
+        // מעקב אחר ההעלאה
+        uploadTask.snapshotEvents.listen((event) {
+          final progress = event.bytesTransferred / event.totalBytes;
+          onProgress?.call(0.5 + (progress * 0.4));
+        });
 
-      await uploadTask;
+        await uploadTask;
+      } on FirebaseException catch (e) {
+        print('FirebaseException on backup putData: code=${e.code}, message=${e.message}');
+        appLog('Backup FirebaseException: ${e.code} — ${e.message}');
+        return BackupResult.failure('שגיאת Firebase: ${e.message ?? e.code}');
+      }
       
       // שמירת זמן וחתימה של הגיבוי האחרון
       await _saveLastBackupInfo(files.length, filesWithText, checksum);
@@ -450,24 +461,35 @@ class BackupService {
       ).length;
       final checksum = _calculateChecksum(files);
 
+      if (bytes.isEmpty) {
+        appLog('IncrementalBackup ERROR: Data object is empty (0 bytes)');
+        throw StateError('Backup data is empty');
+      }
+
       appLog('IncrementalBackup: Uploading ${bytes.length} bytes...');
       appLog('IncrementalBackup: Path=$_backupPath, Bucket=${_storage.bucket}');
 
-      final ref = _storage.ref(_backupPath);
-      await ref.putData(
-        Uint8List.fromList(bytes),
-        SettableMetadata(
-          contentType: 'application/json',
-          customMetadata: {
-            'filesCount': files.length.toString(),
-            'filesWithText': filesWithText.toString(),
-            'backupDate': DateTime.now().toIso8601String(),
-            'checksum': checksum,
-            'sizeBytes': bytes.length.toString(),
-            'incrementalBackup': 'true',
-          },
-        ),
-      );
+      try {
+        final ref = _storage.ref(_backupPath);
+        await ref.putData(
+          Uint8List.fromList(bytes),
+          SettableMetadata(
+            contentType: 'application/json',
+            customMetadata: {
+              'filesCount': files.length.toString(),
+              'filesWithText': filesWithText.toString(),
+              'backupDate': DateTime.now().toIso8601String(),
+              'checksum': checksum,
+              'sizeBytes': bytes.length.toString(),
+              'incrementalBackup': 'true',
+            },
+          ),
+        );
+      } on FirebaseException catch (e) {
+        print('FirebaseException on incremental putData: code=${e.code}, message=${e.message}');
+        appLog('IncrementalBackup FirebaseException: ${e.code} — ${e.message}');
+        rethrow;
+      }
 
       await _saveLastBackupInfo(files.length, filesWithText, checksum);
 

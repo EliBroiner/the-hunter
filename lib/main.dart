@@ -47,6 +47,14 @@ void main() async {
   // אתחול Firebase
   await Firebase.initializeApp();
 
+  // לוג אבחון — ממתין למצב אימות (authStateChanges.first) ואז בודק currentUser
+  final authUser = await FirebaseAuth.instance.authStateChanges().first;
+  appLog(
+    authUser == null
+        ? 'AUTH: currentUser is null — Firestore/Storage writes will fail until user signs in'
+        : 'AUTH: currentUser=${authUser.uid} (${authUser.isAnonymous ? "anonymous" : authUser.email ?? "unknown"})',
+  );
+
   // App Check — טוקן קבוע רשום ב־Firebase Console (פותר 401)
   await FirebaseAppCheck.instance.activate(
     providerAndroid: const AndroidDebugProvider(
@@ -469,6 +477,9 @@ class _TheHunterAppState extends State<TheHunterApp>
       backgroundColor: const Color(0xFF1E1E3F),
       headerBackgroundColor: const Color(0xFF6366F1),
       headerForegroundColor: Colors.white,
+      headerHeadlineStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      headerHelpStyle: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+      yearStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
       dayForegroundColor: WidgetStateProperty.all(Colors.white),
       yearForegroundColor: WidgetStateProperty.all(Colors.white),
       surfaceTintColor: Colors.transparent,
@@ -533,6 +544,9 @@ class _TheHunterAppState extends State<TheHunterApp>
       backgroundColor: const Color(0xFFF8FAFC),
       headerBackgroundColor: const Color(0xFF6366F1),
       headerForegroundColor: Colors.white,
+      headerHeadlineStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      headerHelpStyle: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+      yearStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
       surfaceTintColor: Colors.transparent,
       dayForegroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) return Colors.white;

@@ -1,14 +1,18 @@
 using Google.Cloud.Firestore;
+using Grpc.Core;
 using TheHunterApi.Models;
 
 namespace TheHunterApi.Services;
 
 /// <summary>
-/// גישה ל-Firestore עבור לוח Admin — knowledge_base, users, logs.
-/// משתמש ב-FIRESTORE_PROJECT_ID מ-env/config, ברירת מחדל: thehunter-485508.
+/// גישה ל-Firestore עבור לוח Admin — knowledge_base, users, logs, ranking_settings.
+/// Project ID: FIRESTORE_PROJECT_ID מ-env/config; fallback: thehunter-485508 (לבדיקות).
+/// Collections: knowledge_base, users, logs, ranking_settings (תואם ל-Flutter/firestore.rules).
+/// חובה: Cloud Run Service Account חייב תפקיד Cloud Datastore User (roles/datastore.user).
 /// </summary>
 public class AdminFirestoreService
 {
+    /// <summary>ברירת מחדל לבדיקות — כאשר FIRESTORE_PROJECT_ID חסר ב-env.</summary>
     private const string DefaultProjectId = "thehunter-485508";
     private const string ColKnowledgeBase = "knowledge_base";
     private const string ColUsers = "users";
@@ -22,18 +26,51 @@ public class AdminFirestoreService
     public AdminFirestoreService(ILogger<AdminFirestoreService> logger, IConfiguration config)
     {
         _logger = logger;
+        // Fallback: אם FIRESTORE_PROJECT_ID חסר — משתמשים ב-thehunter-485508 לבדיקות
         EffectiveProjectId = config["FIRESTORE_PROJECT_ID"]
             ?? Environment.GetEnvironmentVariable("FIRESTORE_PROJECT_ID")
             ?? DefaultProjectId;
         try
         {
             _db = new FirestoreDbBuilder { ProjectId = EffectiveProjectId }.Build();
-            _logger.LogInformation("[AdminFirestore] Connected to project {ProjectId}", EffectiveProjectId);
+            _logger.LogInformation(
+                "[AdminFirestore] Connected to project {ProjectId}. Collections: {Cols}. " +
+                "Cloud Run: ודא שה-Service Account יש לו Cloud Datastore User / Firestore permissions.",
+                EffectiveProjectId,
+                string.Join(", ", ColKnowledgeBase, ColUsers, ColLogs, ColRankingSettings));
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "create FirestoreDb");
             _logger.LogError(ex, "[AdminFirestore] Failed to create FirestoreDb for project {ProjectId}", EffectiveProjectId);
             throw;
+        }
+    }
+
+    /// <summary>לוג לפני כתיבה ל-Firestore — לבדיקת Cloud Run.</summary>
+    private void LogWriteAttempt(string collectionName, string operation)
+    {
+        _logger.LogDebug("[FIRESTORE_ATTEMPT] Writing to collection {CollectionName} in project {ProjectId} (op={Op})",
+            collectionName, EffectiveProjectId, operation);
+        Console.WriteLine($"[FIRESTORE_ATTEMPT] Writing to collection {collectionName} in project {EffectiveProjectId}");
+    }
+
+    /// <summary>בודק אם השגיאה היא Permission Denied — לוג מפורט לקונסול ולבדיקת Cloud Run logs.</summary>
+    private void LogIfPermissionDenied(Exception ex, string operation)
+    {
+        var inner = ex;
+        while (inner != null)
+        {
+            if (inner is RpcException rpc && rpc.StatusCode == StatusCode.PermissionDenied)
+            {
+                Console.WriteLine($"[FIRESTORE PERMISSION DENIED] operation={operation}, ProjectId={EffectiveProjectId}, Detail={rpc.Status.Detail}");
+                _logger.LogError(
+                    "[FIRESTORE PERMISSION DENIED] {Operation}. ProjectId={ProjectId}. " +
+                    "ודא: 1) Cloud Run Service Account יש roles/datastore.user 2) FIRESTORE_PROJECT_ID תואם לפרויקט Firebase. Detail={Detail}",
+                    operation, EffectiveProjectId, rpc.Status.Detail);
+                return;
+            }
+            inner = inner.InnerException;
         }
     }
 
@@ -64,6 +101,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "GetPendingTerms");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
             return (new List<LearnedTerm>(), false);
         }
@@ -92,6 +130,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "GetUsers");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
             return (new List<AdminUserViewModel>(), false);
         }
@@ -122,6 +161,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "GetLogs");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
             return (new List<SearchActivity>(), false);
         }
@@ -148,6 +188,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "GetRankingWeights");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
             Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new Dictionary<string, double>(), false);
@@ -158,6 +199,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColKnowledgeBase, "Update");
             var ref_ = _db.Collection(ColKnowledgeBase).Document(documentId);
             await ref_.UpdateAsync(new Dictionary<string, object>
             {
@@ -190,6 +232,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColUsers, "Update");
             var docRef = _db.Collection(ColUsers).Document(userDocIdOrFirebaseUserId);
             var snap = await docRef.GetSnapshotAsync();
             if (snap.Exists)
@@ -221,6 +264,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColKnowledgeBase, "Delete");
             await _db.Collection(ColKnowledgeBase).Document(documentId).DeleteAsync();
             return true;
         }
@@ -235,6 +279,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColUsers, "Add");
             var col = _db.Collection(ColUsers);
             var existing = await col.WhereEqualTo("email", email.Trim()).GetSnapshotAsync();
             if (existing.Count > 0)
@@ -253,6 +298,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "AddUser");
             _logger.LogError(ex, "ERROR adding Firestore user: {Message}", ex.Message);
             return false;
         }
@@ -262,6 +308,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColUsers, "Update");
             await _db.Collection(ColUsers).Document(documentId).UpdateAsync(new Dictionary<string, object>
             {
                 { "role", role is "Admin" or "DebugAccess" ? role : "User" },
@@ -280,6 +327,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColUsers, "Delete");
             await _db.Collection(ColUsers).Document(documentId).DeleteAsync();
             return true;
         }
@@ -292,6 +340,8 @@ public class AdminFirestoreService
 
     public async Task SetRankingWeightsAsync(Dictionary<string, double> weights)
     {
+        if (weights.Count == 0) return;
+        LogWriteAttempt(ColRankingSettings, "Set");
         var col = _db.Collection(ColRankingSettings);
         foreach (var kvp in weights)
         {
@@ -319,6 +369,7 @@ public class AdminFirestoreService
     {
         try
         {
+            LogWriteAttempt(ColKnowledgeBase, "Update");
             await _db.Collection(ColKnowledgeBase).Document(documentId).UpdateAsync(new Dictionary<string, object>
             {
                 { "term", term ?? "" },
@@ -329,6 +380,7 @@ public class AdminFirestoreService
         }
         catch (Exception ex)
         {
+            LogIfPermissionDenied(ex, "UpdateTerm");
             _logger.LogError(ex, "ERROR updating term in Firestore: {Message}", ex.Message);
             return false;
         }

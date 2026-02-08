@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'log_service.dart';
@@ -66,19 +67,29 @@ class CloudStorageService {
       
       final fileName = customName ?? localPath.split('/').last;
       final cloudPath = '$_basePath/$fileName';
+      final size = await file.length();
+      if (size == 0) {
+        appLog('CloudStorage: Skipping empty file - $fileName');
+        return null;
+      }
+
       final ref = FirebaseStorage.instance.ref(cloudPath);
       
       // העלאה עם מעקב התקדמות
-      final uploadTask = ref.putFile(file);
-      
-      uploadTask.snapshotEvents.listen((snapshot) {
-        final progress = snapshot.bytesTransferred / snapshot.totalBytes;
-        onProgress?.call(progress);
-      });
-      
-      await uploadTask;
-      
-      final size = await file.length();
+      try {
+        final uploadTask = ref.putFile(file);
+        
+        uploadTask.snapshotEvents.listen((snapshot) {
+          final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+          onProgress?.call(progress);
+        });
+        
+        await uploadTask;
+      } on FirebaseException catch (e) {
+        print('FirebaseException on cloud upload putFile: code=${e.code}, message=${e.message}');
+        appLog('CloudStorage FirebaseException: ${e.code} — ${e.message}');
+        return null;
+      }
       
       appLog('CloudStorage: Uploaded - $fileName');
       
