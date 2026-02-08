@@ -1,16 +1,13 @@
 import 'dart:async';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
-import '../configs/ranking_config.dart';
 import '../services/auth_service.dart';
 import '../services/log_service.dart';
 import '../services/backup_service.dart';
 import '../services/database_service.dart';
-import '../services/dev_logger.dart';
 import '../services/file_scanner_service.dart';
 import '../services/settings_service.dart';
 import '../services/localization_service.dart';
@@ -223,13 +220,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            Visibility(
-              visible: _isDevMode,
-              maintainSize: false,
-              maintainAnimation: false,
-              child: _buildDeveloperConsoleSection(context, theme),
-            ),
-            // Debug Token — מוצג תמיד ב־dev mode (7 לחיצות) — לא דורש hasRole כי הבקאנד עלול להיכשל ב-App Check
             if (kDebugMode || _isDevMode) _buildDebugSection(context, theme),
             const SizedBox(height: 24),
 
@@ -1471,162 +1461,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               backgroundColor: Colors.red,
             ),
             child: Text(tr('logout')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDeveloperConsoleSection(BuildContext context, ThemeData theme) {
-    final devLogger = DevLogger.instance;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.only(right: 16, bottom: 8),
-          child: Text(
-            'Developer Console',
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        Card(
-          margin: EdgeInsets.zero,
-          child: ExpansionTile(
-            leading: const Icon(Icons.terminal, size: 22),
-            title: const Text('Logs (last 100)'),
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 280),
-                child: ValueListenableBuilder<List<String>>(
-                  valueListenable: devLogger.logsNotifier,
-                  builder: (context, logs, _) {
-                    if (logs.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'No logs yet.',
-                          style: TextStyle(color: theme.hintColor),
-                        ),
-                      );
-                    }
-                    return ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      itemCount: logs.length,
-                      itemBuilder: (context, i) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: SelectableText(
-                            logs[i],
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: TextButton.icon(
-                  onPressed: () => devLogger.clear(),
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Clear'),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          margin: EdgeInsets.zero,
-          child: ListTile(
-            leading: const Icon(Icons.bug_report, size: 22, color: Colors.red),
-            title: const Text('Test Crash'),
-            subtitle: const Text('Forces a crash to verify Crashlytics'),
-            onTap: () => FirebaseCrashlytics.instance.crash(),
-          ),
-        ),
-        const SizedBox(height: 8),
-        _buildRankingLabCard(context, theme),
-      ],
-    );
-  }
-
-  /// מעבדת דירוג — משקלי רלוונטיות (רק ב-Developer Mode)
-  Widget _buildRankingLabCard(BuildContext context, ThemeData theme) {
-    final config = RankingConfig.instance;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ExpansionTile(
-        leading: const Icon(Icons.tune, size: 22, color: Colors.orange),
-        title: const Text('מעבדת דירוג (Ranking Lab)'),
-        subtitle: const Text('כוונון משקלי חיפוש'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: ListenableBuilder(
-              listenable: config,
-              builder: (context, _) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _rankingSlider(theme, 'שם קובץ (Filename)', config.filenameWeight, 0, 400, (v) => config.filenameWeight = v),
-                    _rankingSlider(theme, 'תוכן (Content)', config.contentWeight, 0, 200, (v) => config.contentWeight = v),
-                    _rankingSlider(theme, 'נתיב (Path)', config.pathWeight, 0, 200, (v) => config.pathWeight = v),
-                    _rankingSlider(theme, 'מכפיל התאמה מלאה', config.fullMatchMultiplier, 0.5, 2.0, (v) => config.fullMatchMultiplier = v),
-                    _rankingSlider(theme, 'בונוס ביטוי מדויק', config.exactPhraseBonus, 0, 300, (v) => config.exactPhraseBonus = v),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await config.resetToDefaults();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('הוחזרו ברירות המחדל: 200, 120, 80, 1.2, 150'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.restore, size: 18),
-                      label: const Text('איפוס לברירות מחדל'),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _rankingSlider(ThemeData theme, String label, double value, double min, double max, ValueChanged<double> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: theme.textTheme.bodyMedium),
-              Text(value.toStringAsFixed(value == value.roundToDouble() ? 0 : 1), style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
-            ],
-          ),
-          Slider(
-            value: value.clamp(min, max),
-            min: min,
-            max: max,
-            divisions: (max - min) >= 10 ? 100 : ((max - min) * 10).round().clamp(5, 100),
-            onChanged: onChanged,
           ),
         ],
       ),
