@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/auth_service.dart';
@@ -29,7 +28,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isRestoring = false;
   double _backupProgress = 0;
   BackupInfo? _backupInfo;
-  bool _loadingBackupInfo = false;
   bool _autoBackupEnabled = true;
   bool _isReindexing = false;
   int _reindexCurrent = 0;
@@ -61,19 +59,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadBackupInfo() async {
     if (!_settingsService.isPremium) return;
-    
-    setState(() => _loadingBackupInfo = true);
-    
     try {
       final info = await _backupService.getBackupInfo();
-      if (mounted) {
-        setState(() {
-          _backupInfo = info;
-          _loadingBackupInfo = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingBackupInfo = false);
+      if (mounted) setState(() => _backupInfo = info);
+    } catch (_) {
+      if (mounted) setState(() => _backupInfo = null);
     }
   }
   
@@ -922,24 +912,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// מציג הודעה שהפיצ'ר בפיתוח
-  void _showComingSoon(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.construction, color: Colors.amber, size: 20),
-            const SizedBox(width: 12),
-            Text(tr('coming_soon').replaceFirst('\${feature}', feature)),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-  
   /// בונה פרופיל משתמש
   Widget _buildUserProfile(
     BuildContext context, 
@@ -979,7 +951,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Image.network(
                       photoUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
+                      errorBuilder: (_, _, _) => const Icon(
                         Icons.person,
                         color: Colors.white,
                         size: 30,
@@ -1312,44 +1284,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr('choose_language')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(tr('hebrew')),
-              leading: Radio<String>(
-                value: 'he',
-                groupValue: _settingsService.locale,
-                onChanged: (value) {
-                  _settingsService.setLocale(value!);
+        content: RadioGroup<String>(
+          groupValue: _settingsService.locale,
+          onChanged: (value) {
+            if (value != null) {
+              _settingsService.setLocale(value);
+              Navigator.pop(context);
+              setState(() {});
+            }
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(tr('hebrew')),
+                leading: Radio<String>(value: 'he'),
+                onTap: () {
+                  _settingsService.setLocale('he');
                   Navigator.pop(context);
                   setState(() {});
                 },
               ),
-              onTap: () {
-                _settingsService.setLocale('he');
-                Navigator.pop(context);
-                setState(() {});
-              },
-            ),
-            ListTile(
-              title: Text(tr('english')),
-              leading: Radio<String>(
-                value: 'en',
-                groupValue: _settingsService.locale,
-                onChanged: (value) {
-                  _settingsService.setLocale(value!);
+              ListTile(
+                title: Text(tr('english')),
+                leading: Radio<String>(value: 'en'),
+                onTap: () {
+                  _settingsService.setLocale('en');
                   Navigator.pop(context);
                   setState(() {});
                 },
               ),
-              onTap: () {
-                _settingsService.setLocale('en');
-                Navigator.pop(context);
-                setState(() {});
-              },
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1409,7 +1375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                       return;
                     }
-                    await Share.share(logs, subject: 'The Hunter Logs');
+                    await SharePlus.instance.share(ShareParams(text: logs, subject: 'The Hunter Logs'));
                   },
                   icon: const Icon(Icons.share, size: 18),
                   label: const Text('שתף לוגים'),

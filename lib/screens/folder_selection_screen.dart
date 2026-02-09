@@ -148,22 +148,21 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
           TextButton.icon(
             onPressed: () async {
               await _saveFolders();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                        const SizedBox(width: 8),
-                        Text(tr('settings_saved')),
-                      ],
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: Colors.green,
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
+                      Text(tr('settings_saved')),
+                    ],
                   ),
-                );
-                Navigator.of(context).pop(true);
-              }
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: Colors.green,
+                ),
+              );
+              Navigator.of(context).pop(true);
             },
             icon: const Icon(Icons.save),
             label: Text(tr('save')),

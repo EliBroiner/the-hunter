@@ -146,7 +146,9 @@ class AiAutoTaggerService {
   Future<void> _sendBatch(List<FileMetadata> batch) async {
     if (batch.isEmpty) return;
     if (_isInAuthCooldown) {
-      for (final f in batch) _queue.add(f);
+      for (final f in batch) {
+        _queue.add(f);
+      }
       _startFlushTimer();
       return;
     }

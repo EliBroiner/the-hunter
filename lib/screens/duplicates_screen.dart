@@ -668,7 +668,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
 
   void _showFileInFolder(FileMetadata file) {
     // שיתוף הקובץ כדרך להגיע אליו
-    Share.shareXFiles([XFile(file.path)], text: file.name);
+    SharePlus.instance.share(ShareParams(files: [XFile(file.path)], text: file.name));
   }
 
   String _formatSize(int bytes) {

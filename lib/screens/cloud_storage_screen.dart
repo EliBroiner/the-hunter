@@ -344,7 +344,7 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
     
     if (result != null) {
       HapticFeedback.mediumImpact();
-      
+      if (!mounted) return;
       final open = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -375,7 +375,9 @@ class _CloudStorageScreenState extends State<CloudStorageScreen> {
     final url = await _cloudService.getDownloadUrl(file.cloudPath);
     
     if (url != null) {
-      await Share.share(url, subject: file.name);
+      await SharePlus.instance.share(
+        ShareParams(text: url, subject: file.name),
+      );
     } else {
       _showMessage(tr('create_link_error'));
     }

@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
-import '../services/settings_service.dart';
+import '../services/log_service.dart';
 import '../services/localization_service.dart';
+import '../services/settings_service.dart';
 
 /// סוג מנוי
 enum SubscriptionPlan { monthly, yearly }
@@ -79,12 +80,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         // יש חבילות אמיתיות מ-RevenueCat
         _packages = _mapRealPackages(offerings.current!.availablePackages);
         _isMockMode = false;
-        print('RevenueCat: Loaded ${_packages.length} real packages');
+        LogService.instance.log('RevenueCat: Loaded ${_packages.length} real packages');
       } else {
         // אין חבילות - מצב פיתוח (Mock)
         _packages = _getMockPackages();
         _isMockMode = true;
-        print('RevenueCat: No offerings found, using MOCK mode');
+        LogService.instance.log('RevenueCat: No offerings found, using MOCK mode');
       }
       
       // בחירת ברירת מחדל - שנתי
@@ -94,7 +95,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       );
       
     } catch (e) {
-      print('RevenueCat Error: $e');
+      LogService.instance.log('RevenueCat Error: $e');
       // במקרה של שגיאה - מצב Mock
       _packages = _getMockPackages();
       _isMockMode = true;
@@ -367,7 +368,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         }
       }
     } on PurchasesErrorCode catch (e) {
-      print('Purchase Error: $e');
+      LogService.instance.log('Purchase Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -385,7 +386,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         );
       }
     } catch (e) {
-      print('Purchase Error: $e');
+      LogService.instance.log('Purchase Error: $e');
       // User cancelled - ignore
     }
 
@@ -466,7 +467,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         }
       }
     } catch (e) {
-      print('Restore Error: $e');
+      LogService.instance.log('Restore Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -539,6 +540,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ),
                         ],
                       ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.orange.shade700),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.orange.shade700, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(child: Text(_errorMessage!, style: TextStyle(color: Colors.orange.shade900, fontSize: 13))),
+                            ],
+                          ),
+                        ),
+                      ],
 
                       // אייקון הכתר
                       _buildCrownIcon(),

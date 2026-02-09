@@ -716,7 +716,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          'FileMetadata · ${_fileTotalCount} total · page ${_page + 1} of $totalPages',
+          'FileMetadata · $_fileTotalCount total · page ${_page + 1} of $totalPages',
           style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),

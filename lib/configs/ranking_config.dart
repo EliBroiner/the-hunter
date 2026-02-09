@@ -1,7 +1,20 @@
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/log_service.dart';
+
+/// מימוש מינימלי של ChangeNotifier — ללא תלות ב-flutter/foundation
+class _ChangeNotifier {
+  final List<void Function()> _listeners = [];
+  void addListener(void Function() listener) => _listeners.add(listener);
+  void removeListener(void Function() listener) => _listeners.remove(listener);
+  void notifyListeners() {
+    for (final l in List<void Function()>.from(_listeners)) {
+      l();
+    }
+  }
+}
+
+/// קונפיגורציית משקלי הדירוג — סינגלטון, נשמר ב-SharedPreferences
 
 /// אורך טקסט מינימלי (תווים) — מתחת לזה נחשב "לא קריא"
 const int minTextLength = 30;
@@ -24,7 +37,7 @@ const String _keyFullMatch = 'ranking_full_match_multiplier';
 const String _keyExactPhrase = 'ranking_exact_phrase_bonus';
 
 /// קונפיגורציית משקלי הדירוג — סינגלטון, נשמר ב-SharedPreferences
-class RankingConfig extends ChangeNotifier {
+class RankingConfig extends _ChangeNotifier {
   static RankingConfig? _instance;
   static RankingConfig get instance {
     _instance ??= RankingConfig._();

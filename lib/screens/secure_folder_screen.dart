@@ -507,7 +507,7 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     if (path == null) return;
     
     try {
-      await Share.shareXFiles([XFile(path)], text: file.name);
+      await SharePlus.instance.share(ShareParams(files: [XFile(path)], text: file.name));
     } catch (e) {
       appLog('SecureFolder: Share error - $e');
     }

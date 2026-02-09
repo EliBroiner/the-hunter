@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'log_service.dart';
@@ -86,7 +85,6 @@ class CloudStorageService {
         
         await uploadTask;
       } on FirebaseException catch (e) {
-        print('FirebaseException on cloud upload putFile: code=${e.code}, message=${e.message}');
         appLog('CloudStorage FirebaseException: ${e.code} — ${e.message}');
         return null;
       }

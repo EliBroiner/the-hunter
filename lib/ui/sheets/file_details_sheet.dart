@@ -56,10 +56,12 @@ class _FileDetailsSheetState extends State<FileDetailsSheet> {
     } catch (_) {
       if (mounted && !_cancelRequested) setState(() => _reanalyzeFailed = true);
     } finally {
-      if (mounted) setState(() {
-        _isReanalyzing = false;
-        _cancelRequested = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isReanalyzing = false;
+          _cancelRequested = false;
+        });
+      }
     }
   }
 

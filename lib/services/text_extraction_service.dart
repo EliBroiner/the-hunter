@@ -89,7 +89,7 @@ class TextExtractionService {
           return '';
       }
     } catch (e) {
-      print('TEXT_EXTRACT ERROR IN ISOLATE: $e');
+      debugPrint('TEXT_EXTRACT ERROR IN ISOLATE: $e');
       return '';
     }
   }
@@ -144,7 +144,7 @@ class TextExtractionService {
       
       return _cleanupText(text);
     } catch (e) {
-      print('TEXT_EXTRACT PDF ERROR: $e');
+      debugPrint('TEXT_EXTRACT PDF ERROR: $e');
       return '';
     }
   }

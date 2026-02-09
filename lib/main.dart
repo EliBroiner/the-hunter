@@ -40,7 +40,7 @@ import 'utils/smart_search_parser.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  print('CURRENT_PACKAGE_NAME: com.thehunter.the_hunter');
+  appLog('CURRENT_PACKAGE_NAME: com.thehunter.the_hunter');
 
   // ניקוי לוגים מההרצה הקודמת
   await LogService.instance.clearLogs();
@@ -63,18 +63,18 @@ void main() async {
     ),
     providerApple: const AppleDebugProvider(),
   );
-  print('🛡️ App Check activated with FIXED debug token (9273D0C3-6F08-4825-9416-49FCD8ABA9B6).');
+  appLog('🛡️ App Check activated with FIXED debug token (9273D0C3-6F08-4825-9416-49FCD8ABA9B6).');
 
   // Force refresh — משיכת JWT טרי מיד אחרי activate
   try {
     final token = await FirebaseAppCheck.instance.getToken(true);
     if (token != null && token.isNotEmpty) {
-      print('🛡️ App Check JWT received OK (len=${token.length}) — will be sent in X-Firebase-AppCheck');
+      appLog('🛡️ App Check JWT received OK (len=${token.length}) — will be sent in X-Firebase-AppCheck');
     } else {
-      print('❌ App Check getToken returned null/empty — API calls may get 401');
+      appLog('❌ App Check getToken returned null/empty — API calls may get 401');
     }
   } catch (e) {
-    print('❌ App Check getToken failed: $e — API calls may get 401');
+    appLog('❌ App Check getToken failed: $e — API calls may get 401');
   }
 
   // Crashlytics — דיווח קריסות ל־Firebase Console
@@ -688,9 +688,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  String _statusMessage = '';
-  bool _showStatus = false;
-  bool _isFirstScan = true;
   bool _showLogPanel = false;
 
   @override
@@ -701,17 +698,11 @@ class _MainScreenState extends State<MainScreen> {
 
   /// מאתחל סריקה אוטומטית ברקע
   Future<void> _initializeAutoScan() async {
-    final dbCount = DatabaseService.instance.getFilesCount();
-    _isFirstScan = dbCount == 0;
-    
     final manager = AutoScanManager.instance;
     
     manager.onStatusUpdate = (status) {
       if (!mounted) return;
-      setState(() {
-        _statusMessage = status;
-        _showStatus = status.isNotEmpty;
-      });
+      // סטטוס סריקה הוסר מהממשק - לא מעדכנים state
     };
     
     manager.onScanComplete = (result) {
@@ -721,9 +712,6 @@ class _MainScreenState extends State<MainScreen> {
     
     manager.onProcessComplete = (result) {
       if (!mounted) return;
-      setState(() {
-        _isFirstScan = false;
-      });
     };
     
     manager.onNewFileFound = (path) {
@@ -749,8 +737,6 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
     return Scaffold(
       body: Column(
         children: [

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
@@ -222,8 +221,7 @@ class BackupService {
 
         await uploadTask;
       } on FirebaseException catch (e) {
-        print('FirebaseException on backup putData: code=${e.code}, message=${e.message}');
-        appLog('Backup FirebaseException: ${e.code} — ${e.message}');
+        appLog('Backup putData FirebaseException: ${e.code} — ${e.message}');
         return BackupResult.failure('שגיאת Firebase: ${e.message ?? e.code}');
       }
       
@@ -486,8 +484,7 @@ class BackupService {
           ),
         );
       } on FirebaseException catch (e) {
-        print('FirebaseException on incremental putData: code=${e.code}, message=${e.message}');
-        appLog('IncrementalBackup FirebaseException: ${e.code} — ${e.message}');
+        appLog('IncrementalBackup putData FirebaseException: ${e.code} — ${e.message}');
         rethrow;
       }
 

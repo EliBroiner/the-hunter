@@ -92,7 +92,7 @@ class KnowledgeBaseService {
   }
 
   /// סינכרון מילון עם השרת — קורא GET api/dictionary/updates וממזג מונחים חדשים ל-cache ול-Isar
-  /// התשובה עשויה להיות Map או List — בדיקה דפנסיבית למניעת type 'List<dynamic>' is not a subtype of 'Map<String, dynamic>?'
+  /// התשובה עשויה להיות Map או List — בדיקה דפנסיבית למניעת type `List<dynamic>` is not a subtype of `Map<String, dynamic>?`
   Future<void> syncDictionaryWithServer() async {
     try {
       final uri = Uri.parse('$_baseUrl$_dictionaryUpdatesPath');
@@ -124,7 +124,7 @@ class KnowledgeBaseService {
         return;
       }
 
-      final map = data as Map<String, dynamic>;
+      final map = data;
 
       // מיזוג synonyms — חילוץ בטוח עם as Map<String, dynamic>? למניעת cast error
       final synonymsRaw = map['synonyms'];

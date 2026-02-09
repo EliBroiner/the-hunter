@@ -9,9 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../utils/file_type_helper.dart';
-import '../models/search_intent.dart';
 import '../services/database_service.dart';
-import '../utils/smart_search_parser.dart' as parser_util;
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/permission_service.dart';
@@ -19,12 +17,9 @@ import '../services/settings_service.dart';
 import '../services/hybrid_search_controller.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
-import '../services/cloud_storage_service.dart';
 import '../services/widget_service.dart';
 import '../services/google_drive_service.dart';
-import '../services/ai_auto_tagger_service.dart';
 import '../services/file_processing_service.dart';
-import '../services/knowledge_base_service.dart';
 import '../services/text_extraction_service.dart';
 import '../services/ocr_service.dart';
 import 'settings_screen.dart';
@@ -83,7 +78,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   
   // חיפוש חכם (AI) — נשלט על ידי HybridSearchController
   bool _isSmartSearchActive = false;
-  SearchIntent? _lastSmartIntent;
   /// האם להציג גם תוצאות Secondary (ציון < 70% מהמקסימלי)
   bool _showAllSearchResults = false;
 
@@ -141,28 +135,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     setState(() {
       _hybridResultsOverride = results.isNotEmpty ? results : null;
       _isSmartSearchActive = results.isNotEmpty;
-      _lastSmartIntent = _hybridController.lastIntent;
       _showAllSearchResults = false; // איפוס "הצג עוד" בכל חיפוש חדש
       if (_hybridResultsOverride != null) _cloudResults = [];
     });
     _updateSearchStream();
-  }
-
-  Future<SearchIntent?> _parserIntentToApi(String query) async {
-    final p = await parser_util.SmartSearchParser.parseAsync(query);
-    if (!p.hasContent) return null;
-    return SearchIntent(
-      terms: p.terms,
-      fileTypes: p.fileTypes,
-      dateRange: p.dateFrom != null
-          ? DateRange(
-              start: '${p.dateFrom!.year}-${p.dateFrom!.month.toString().padLeft(2, '0')}-${p.dateFrom!.day.toString().padLeft(2, '0')}',
-              end: p.dateTo != null
-                  ? '${p.dateTo!.year}-${p.dateTo!.month.toString().padLeft(2, '0')}-${p.dateTo!.day.toString().padLeft(2, '0')}'
-                  : null,
-            )
-          : null,
-    );
   }
 
   void _onHybridAILoading(bool isLoading) {
@@ -233,7 +209,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         _searchStream = Stream.value(mergeWithCloud(_hybridResultsOverride!));
       } else {
         _isSmartSearchActive = false;
-        _lastSmartIntent = null;
         _searchStream = _databaseService.watchSearch(
           query: query,
           filter: dbFilter,
@@ -259,21 +234,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     setState(() => _isSearchingCloud = true);
     try {
       final results = await _googleDriveService.searchFiles(query: query);
-      if (mounted) {
-        setState(() => _cloudResults = results);
-        _updateSearchStream();
-      }
-    } finally {
-      if (mounted) setState(() => _isSearchingCloud = false);
-    }
-  }
-
-  /// חיפוש בענן עם SearchIntent (parser) — מונחים, שנה, MIME; מיון ב-RelevanceEngine
-  Future<void> _searchCloudWithIntent(parser_util.SearchIntent intent) async {
-    if (_isSearchingCloud) return;
-    setState(() => _isSearchingCloud = true);
-    try {
-      final results = await _googleDriveService.searchFiles(intent: intent);
       if (mounted) {
         setState(() => _cloudResults = results);
         _updateSearchStream();
@@ -450,17 +410,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     _updateSearchStream();
   }
   
-  /// מפעיל/מכבה מצב בחירה מרובה
-  void _toggleSelectionMode() {
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _isSelectionMode = !_isSelectionMode;
-      if (!_isSelectionMode) {
-        _selectedFiles.clear();
-      }
-    });
-  }
-  
   /// בוחר/מבטל בחירת קובץ
   void _toggleFileSelection(String path) {
     HapticFeedback.selectionClick();
@@ -474,14 +423,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       } else {
         _selectedFiles.add(path);
       }
-    });
-  }
-  
-  /// בוחר את כל הקבצים
-  void _selectAll(List<FileMetadata> files) {
-    setState(() {
-      _selectedFiles.clear();
-      _selectedFiles.addAll(files.map((f) => f.path));
     });
   }
   
@@ -563,7 +504,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final files = _selectedFiles.map((path) => XFile(path)).toList();
     
     try {
-      await Share.shareXFiles(files);
+      await SharePlus.instance.share(ShareParams(files: files));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -764,10 +705,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       return;
     }
 
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(file.path)],
       text: tr('share_text').replaceFirst('\${file.name}', file.name),
-    );
+    ));
   }
   
   /// מוחק קובץ מהמכשיר ומהמסד
@@ -1646,10 +1587,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           }
           
           await _favoritesService.toggleFavorite(file.path);
+          if (!mounted) return;
           Navigator.of(context).pop();
-          
+
           setState(() {}); // רענון UI
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -2037,6 +1979,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 );
                 
                 await TagsService.instance.addTag(newTag);
+                if (!context.mounted) return;
                 Navigator.of(context).pop();
                 setModalState(() {});
               },
@@ -2169,7 +2112,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     
     // אם התיקייה נעולה - לבקש PIN
     if (!secureFolderService.isUnlocked) {
-      Navigator.of(context).pushNamed('/secure');
+      if (mounted) Navigator.of(context).pushNamed('/secure');
       return;
     }
     
@@ -2200,164 +2143,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
   
-  /// בונה פריט העלאה לענן
-  Widget _buildCloudUploadActionTile(FileMetadata file) {
-    final isPremium = _settingsService.isPremium;
-    
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () async {
-          if (!isPremium) {
-            Navigator.of(context).pop();
-            _showPremiumUpgradeMessage(tr('premium_feature_cloud'));
-            return;
-          }
-          
-          Navigator.of(context).pop();
-          _uploadToCloud(file);
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(12),
-            border: !isPremium 
-                ? Border.all(color: Colors.blue.withValues(alpha: 0.3))
-                : null,
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.cloud_upload, color: Colors.blue, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          tr('action_cloud_title'),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isPremium ? Theme.of(context).textTheme.bodyLarge?.color : Colors.grey,
-                          ),
-                        ),
-                        if (!isPremium) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'PRO',
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isPremium ? tr('action_cloud_subtitle') : tr('upgrade_premium'),
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              if (isPremium)
-                Icon(Icons.chevron_left, color: Colors.grey.shade600),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  /// מעלה קובץ לענן
-  Future<void> _uploadToCloud(FileMetadata file) async {
-    final cloudService = CloudStorageService.instance;
-    
-    // בדיקת חיבור
-    if (!cloudService.hasUser) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('cloud_upload_login_required'))),
-      );
-      return;
-    }
-    
-    // הצגת דיאלוג התקדמות
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: Theme.of(context).colorScheme.surface,
-            title: Row(
-              children: [
-                const Icon(Icons.cloud_upload, color: Colors.blue),
-                const SizedBox(width: 12),
-                Text(tr('cloud_upload_title')),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(file.name),
-                const SizedBox(height: 16),
-                const LinearProgressIndicator(),
-                const SizedBox(height: 8),
-                Text(tr('cloud_upload_progress'), style: const TextStyle(fontSize: 12)),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-    
-    // העלאה
-    final result = await cloudService.uploadFile(
-      file.path,
-      onProgress: (progress) {
-        // עדכון התקדמות (לא נגישה ישירות אבל תופיע בקונסול)
-      },
-    );
-    
-    // סגירת הדיאלוג
-    if (mounted) Navigator.of(context).pop();
-    
-    // הודעה
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                result != null ? Icons.check_circle : Icons.error,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 8),
-              Text(result != null ? tr('cloud_upload_success') : tr('cloud_upload_error')),
-            ],
-          ),
-          backgroundColor: result != null ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
   /// בונה פריט פעולה
   Widget _buildActionTile({
     required IconData icon,
@@ -2980,41 +2765,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     return list;
   }
 
-  /// חיבור ל-Google Drive
-  Future<void> _connectDrive() async {
-    if (!_settingsService.isPremium) {
-      _showPremiumUpgradeMessage('Google Drive');
-      return;
-    }
-
-    final success = await _googleDriveService.connect();
-    if (success) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('מחובר ל-Google Drive בהצלחה!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        setState(() {}); // רענון להסתרת הכפתור
-        
-        // אם יש כבר טקסט בשדה החיפוש - נבצע חיפוש מיידי בענן
-        if (_searchController.text.isNotEmpty && _searchController.text.length > 2) {
-          _searchCloud(_searchController.text);
-        }
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('שגיאה בחיבור ל-Google Drive'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
     return SingleChildScrollView(
@@ -3338,7 +3088,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   setState(() {
                     _hybridResultsOverride = null;
                     _isSmartSearchActive = false;
-                    _lastSmartIntent = null;
                   });
                   _hybridController.cancel();
                   _updateSearchStream();
@@ -3502,100 +3251,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         );
       },
       child: _buildResultItem(file),
-    );
-  }
-
-  Widget _buildLocalResultsList(ThemeData theme, List<FileMetadata> localVisible, bool hasMoreLocal) {
-    return RefreshIndicator(
-      onRefresh: _onRefresh,
-      color: theme.colorScheme.primary,
-      backgroundColor: theme.colorScheme.surface,
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        children: [
-          ...localVisible.asMap().entries.map((e) {
-            final file = e.value;
-            return TweenAnimationBuilder<double>(
-              key: ValueKey(file.path),
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) {
-                return Opacity(
-                  opacity: value,
-                  child: Transform.translate(
-                    offset: Offset(0, 20 * (1 - value)),
-                    child: child,
-                  ),
-                );
-              },
-              child: _buildResultItem(file),
-            );
-          }),
-          if (hasMoreLocal)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Center(
-                child: TextButton(
-                  onPressed: () => _hybridController.showMoreLocal(),
-                  child: Text(tr('show_more')),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCloudResultsList(ThemeData theme, List<FileMetadata> drive) {
-    return RefreshIndicator(
-      onRefresh: _onRefresh,
-      color: theme.colorScheme.primary,
-      backgroundColor: theme.colorScheme.surface,
-      child: drive.isEmpty
-          ? ListView(
-              padding: const EdgeInsets.all(40),
-              children: [
-                Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade500),
-                      const SizedBox(height: 12),
-                      Text(
-                        tr('tab_cloud_empty'),
-                        style: TextStyle(color: Colors.grey.shade500),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              children: drive.asMap().entries.map((e) {
-                final file = e.value;
-                return TweenAnimationBuilder<double>(
-                  key: ValueKey(file.cloudId ?? file.path),
-                  tween: Tween(begin: 0.0, end: 1.0),
-                  duration: Duration(milliseconds: 200 + (e.key.clamp(0, 10) * 30)),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, child) {
-                    return Opacity(
-                      opacity: value,
-                      child: Transform.translate(
-                        offset: Offset(0, 20 * (1 - value)),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _buildResultItem(file),
-                );
-              }).toList(),
-            ),
     );
   }
 
@@ -4510,84 +4165,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           ),
         ],
       ),
-    );
-  }
-
-  /// בונה אייקון לפי סוג קובץ
-  Widget _buildFileTypeIcon(String extension, bool isWhatsApp) {
-    IconData icon;
-    Color color;
-
-    if (isWhatsApp) {
-      icon = Icons.chat;
-      color = Colors.green;
-    } else {
-      switch (extension.toLowerCase()) {
-        // תמונות
-        case 'jpg':
-        case 'jpeg':
-        case 'png':
-        case 'gif':
-        case 'webp':
-        case 'bmp':
-        case 'heic':
-        case 'heif':
-          icon = Icons.image;
-          color = Colors.purple;
-          break;
-        // וידאו
-        case 'mp4':
-        case 'mov':
-        case 'avi':
-        case 'mkv':
-        case 'webm':
-        case '3gp':
-          icon = Icons.video_file;
-          color = Colors.pink;
-          break;
-        // מסמכים
-        case 'pdf':
-          icon = Icons.picture_as_pdf;
-          color = Colors.red;
-          break;
-        case 'doc':
-        case 'docx':
-          icon = Icons.description;
-          color = Colors.blue;
-          break;
-        case 'xls':
-        case 'xlsx':
-          icon = Icons.table_chart;
-          color = Colors.green;
-          break;
-        case 'txt':
-        case 'rtf':
-          icon = Icons.article;
-          color = Colors.orange;
-          break;
-        // אודיו
-        case 'mp3':
-        case 'wav':
-        case 'm4a':
-        case 'ogg':
-        case 'aac':
-          icon = Icons.audio_file;
-          color = Colors.teal;
-          break;
-        default:
-          icon = Icons.insert_drive_file;
-          color = Colors.grey;
-      }
-    }
-
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(icon, color: color, size: 24),
     );
   }
 

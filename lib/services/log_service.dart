@@ -24,8 +24,8 @@ class LogService {
     
     logsNotifier.value = List.from(_logs);
     
-    // גם מדפיס לקונסול
-    print(logEntry);
+    // גם מדפיס לקונסול (debugPrint מומלץ על פני print ב-Flutter)
+    debugPrint(logEntry);
   }
   
   /// מנקה את הלוגים
@@ -56,11 +56,11 @@ class LogService {
       final logContent = getAllLogs();
       await file.writeAsString(logContent);
       
-      await Share.shareXFiles(
-        [XFile(file.path)],
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(file.path)],
         subject: 'The Hunter App Logs',
         text: 'מצורף קובץ לוגים לאבחון תקלה.',
-      );
+      ));
     } catch (e) {
       log('Error exporting logs: $e');
     }

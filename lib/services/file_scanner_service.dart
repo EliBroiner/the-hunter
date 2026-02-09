@@ -1,13 +1,10 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_metadata.dart';
-import 'ai_auto_tagger_service.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
 import 'file_processing_service.dart';
-import 'knowledge_base_service.dart';
 import 'settings_service.dart';
-import '../utils/extracted_text_quality.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';

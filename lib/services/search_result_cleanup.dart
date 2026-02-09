@@ -61,8 +61,12 @@ class SearchResultCleanup {
     final m = a.length;
     final n = b.length;
     final d = List.generate(m + 1, (_) => List.filled(n + 1, 0));
-    for (var i = 0; i <= m; i++) d[i][0] = i;
-    for (var j = 0; j <= n; j++) d[0][j] = j;
+    for (var i = 0; i <= m; i++) {
+      d[i][0] = i;
+    }
+    for (var j = 0; j <= n; j++) {
+      d[0][j] = j;
+    }
     for (var i = 1; i <= m; i++) {
       for (var j = 1; j <= n; j++) {
         final cost = a[i - 1] == b[j - 1] ? 0 : 1;

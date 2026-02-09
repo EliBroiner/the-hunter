@@ -30,7 +30,7 @@ class RelevanceEngine {
     final t = _normalize(term);
     if (t.isEmpty) return false;
     if (_isAllDigits(t)) {
-      final pattern = '(^|\\D)' + RegExp.escape(t) + r'(\D|$)';
+      final pattern = '(^|\\D)${RegExp.escape(t)}(\\D|\$)';
       return RegExp(pattern).hasMatch(textNorm);
     }
     return textNorm.contains(t);
@@ -42,7 +42,7 @@ class RelevanceEngine {
     if (t.isEmpty || contentWithSpaces.isEmpty) return false;
     final escaped = RegExp.escape(t);
     // [^\w] = לא אות/ספרה; unicode: true כדי ש־\w יכלול עברית
-    final boundary = RegExp('(^|[^\\w])' + escaped + r'([^\w]|$)', unicode: true);
+    final boundary = RegExp('(^|[^\\w])$escaped([^\\w]|\$)', unicode: true);
     return boundary.hasMatch(contentWithSpaces);
   }
 
