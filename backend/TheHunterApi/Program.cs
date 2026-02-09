@@ -1,6 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+using Google.Cloud.Firestore;
 using Serilog;
-using TheHunterApi.Data;
 using TheHunterApi.Middleware;
 using TheHunterApi.Services;
 
@@ -66,6 +65,15 @@ builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
 builder.Services.AddScoped<AdminFirestoreService>();
+// Firestore — ל-LearningService (suggestions). אותו ProjectId כמו AdminFirestoreService
+builder.Services.AddSingleton<FirestoreDb>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var projectId = config["FIRESTORE_PROJECT_ID"]
+        ?? Environment.GetEnvironmentVariable("FIRESTORE_PROJECT_ID")
+        ?? "thehunter-485508";
+    return new FirestoreDbBuilder { ProjectId = projectId }.Build();
+});
 // Telegram: TELEGRAM_BOT_TOKEN ו-TELEGRAM_CHAT_ID נטענים מ-Environment / IConfiguration (ללא hardcode)
 builder.Services.AddScoped<ITelegramService, TelegramService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
@@ -75,46 +83,11 @@ builder.Services.AddHostedService<DailySummaryHostedService>();
 // פילטר אבטחה ל-Admin Dashboard
 builder.Services.AddScoped<TheHunterApi.Filters.AdminKeyAuthorizationFilter>();
 
-// SQLite - מכסת AI
-var dbPath = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "the-hunter",
-    "usage.db");
-var dbDir = Path.GetDirectoryName(dbPath);
-if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
-builder.Services.AddDbContextFactory<AppDbContext>(opts =>
-    opts.UseSqlite($"Data Source={dbPath}"));
-
 var app = builder.Build();
 
 // לוג הפעלה — בודק טעינת Telegram מ-IConfiguration (ללא הדפסת הסוד)
 var telegramToken = builder.Configuration["TELEGRAM_BOT_TOKEN"];
 Log.Information("Server starting... Telegram integration enabled: {Enabled}", !string.IsNullOrEmpty(telegramToken));
-
-// יצירת DB והרצת migrations
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
-    await db.Database.MigrateAsync();
-
-    // Bootstrap: Admin ראשון לפי INITIAL_ADMIN_EMAIL (UserId ריק — יתקשר בהתחברות הראשונה)
-    var initialEmail = Environment.GetEnvironmentVariable("INITIAL_ADMIN_EMAIL")
-        ?? builder.Configuration["INITIAL_ADMIN_EMAIL"];
-    if (!string.IsNullOrWhiteSpace(initialEmail) && !await db.AppManagedUsers.AnyAsync())
-    {
-        var now = DateTime.UtcNow;
-        db.AppManagedUsers.Add(new AppManagedUser
-        {
-            Email = initialEmail.Trim(),
-            UserId = "",
-            Role = "Admin",
-            CreatedAt = now,
-            UpdatedAt = now,
-        });
-        await db.SaveChangesAsync();
-        Log.Information("Bootstrap: Admin ראשון נוצר עבור {Email}", initialEmail);
-    }
-}
 
 // Root endpoint
 app.MapGet("/", () => new { 
@@ -132,6 +105,8 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
 });
 
+// Deep Network Tracing — ראשון בצינור כדי לראות כל בקשה לפני Auth
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseCors();
 app.UseStaticFiles(); // לפני App Check — favicon וקבצים סטטיים לא דורשים אימות
 app.UseMiddleware<GlobalExceptionMiddleware>();

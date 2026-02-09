@@ -141,6 +141,7 @@ public class AnalyzeController : ControllerBase
             if (string.IsNullOrWhiteSpace(tag)) continue;
             await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
         }
+        _logger.LogInformation("[SPY] analyze-debug/save OK — Category={Category}, Tags={TagCount}", result.Category, result.Tags?.Count ?? 0);
         return Ok();
     }
 }

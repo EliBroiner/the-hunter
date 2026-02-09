@@ -15,7 +15,7 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// בודק אם למשתמש יש תפקיד מסוים — לצורך הצגת Debug Token וכדומה
+    /// בודק אם למשתמש יש תפקיד מסוים. העברת email מאפשרת Auto-Bootstrap Admin (ADMIN_EMAIL).
     /// </summary>
     [HttpGet("check-role")]
     [ProducesResponseType(typeof(CheckRoleResponse), StatusCodes.Status200OK)]

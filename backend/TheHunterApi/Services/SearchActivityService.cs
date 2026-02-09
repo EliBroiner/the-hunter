@@ -1,56 +1,43 @@
-using Microsoft.EntityFrameworkCore;
-using TheHunterApi.Data;
-using TheHunterApi.Models;
+using Google.Cloud.Firestore;
 
 namespace TheHunterApi.Services;
 
 /// <summary>
-/// מעקב סטטיסטיקת חיפושים — מונחים שחיפשו המשתמשים (להחלטות על synonyms)
+/// רישום היסטוריית חיפושים — Firestore collection search_history, מסמך חדש לכל term.
 /// </summary>
 public interface ISearchActivityService
 {
-    Task RecordSearchTermsAsync(IEnumerable<string> terms);
+    Task RecordSearchTermsAsync(IEnumerable<string> terms, string? userId = null);
 }
 
 public class SearchActivityService : ISearchActivityService
 {
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private const string ColSearchHistory = "search_history";
+    private readonly FirestoreDb _firestore;
 
-    public SearchActivityService(IDbContextFactory<AppDbContext> dbFactory)
+    public SearchActivityService(FirestoreDb firestore)
     {
-        _dbFactory = dbFactory;
+        _firestore = firestore;
     }
 
     /// <summary>
-    /// מעלה מונה לכל מונח שחיפשו — אם חדש יוצר רשומה
+    /// מוסיף מסמך לכל מונח: userId, term, timestamp.
     /// </summary>
-    public async Task RecordSearchTermsAsync(IEnumerable<string> terms)
+    public async Task RecordSearchTermsAsync(IEnumerable<string> terms, string? userId = null)
     {
         var list = terms.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).Distinct().ToList();
         if (list.Count == 0) return;
 
-        await using var db = _dbFactory.CreateDbContext();
-        var now = DateTime.UtcNow;
-
+        var col = _firestore.Collection(ColSearchHistory);
+        var now = Timestamp.FromDateTime(DateTime.UtcNow);
         foreach (var term in list)
         {
-            var existing = await db.SearchActivities.FirstOrDefaultAsync(x => x.Term == term);
-            if (existing != null)
+            await col.AddAsync(new Dictionary<string, object>
             {
-                existing.Count++;
-                existing.LastSearch = now;
-            }
-            else
-            {
-                db.SearchActivities.Add(new SearchActivity
-                {
-                    Term = term,
-                    Count = 1,
-                    LastSearch = now
-                });
-            }
+                { "userId", userId ?? "" },
+                { "term", term },
+                { "timestamp", now }
+            });
         }
-
-        await db.SaveChangesAsync();
     }
 }

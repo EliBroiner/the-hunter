@@ -208,6 +208,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'v1.0.0',
                   onTap: () => _showAboutSheet(context),
                 ),
+                _buildSettingsTile(
+                  context,
+                  icon: Icons.science,
+                  title: 'AI Lab (Admin)',
+                  subtitle: 'Pipeline, Server AI, Local DB, Dictionary',
+                  onTap: () => Navigator.of(context).pushNamed('/ai-lab'),
+                ),
               ],
             ),
             if (kDebugMode || _isDevMode) _buildDebugSection(context, theme),

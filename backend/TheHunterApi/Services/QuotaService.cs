@@ -1,93 +1,64 @@
-using System.Collections.Concurrent;
-using Microsoft.EntityFrameworkCore;
+using Google.Cloud.Firestore;
 using Serilog;
-using TheHunterApi.Data;
 
 namespace TheHunterApi.Services;
 
 /// <summary>
-/// ניהול מכסת סריקות AI — בשלב בדיקות: 1000 סריקות לחודש
+/// ניהול מכסת שימוש יומי — Firestore collection quotas, document id = {userId}_{yyyyMMdd}.
 /// </summary>
 public class QuotaService
 {
-    private const int FreeTierLimit = 1000;
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private const string ColQuotas = "quotas";
+    private const int FreeTierLimitPerDay = 1000;
+    private readonly FirestoreDb _firestore;
 
-    // מפתח לכל userId — מניעת race על UNIQUE(UserId, YearMonth)
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> PerUserLocks = new();
-
-    public QuotaService(IDbContextFactory<AppDbContext> dbFactory)
+    public QuotaService(FirestoreDb firestore)
     {
-        _dbFactory = dbFactory;
+        _firestore = firestore;
     }
 
-    private static SemaphoreSlim GetLockForUser(string userId) =>
-        PerUserLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
+    private static string DocId(string userId) =>
+        $"{userId}_{DateTime.UtcNow:yyyyMMdd}";
 
     /// <summary>
-    /// בודק אם למשתמש יש מכסה פנויה — אם אין רשומה ב-DB נחשב 0 ומוענק שימוש
+    /// מחזיר את מספר השימושים היום למשתמש (0 אם אין מסמך).
+    /// </summary>
+    public async Task<long> GetUsageAsync(string userId)
+    {
+        var snap = await _firestore.Collection(ColQuotas).Document(DocId(userId)).GetSnapshotAsync();
+        if (!snap.Exists)
+            return 0;
+        var v = snap.GetValue<long?>("count");
+        return v ?? 0;
+    }
+
+    /// <summary>
+    /// בודק אם למשתמש יש מכסה פנויה ליום.
     /// </summary>
     public async Task<bool> CanUserScanAsync(string userId, int requestedAmount)
     {
-        var yearMonth = DateTime.UtcNow.ToString("yyyy-MM");
-        await using var db = _dbFactory.CreateDbContext();
-        var row = await db.UserAiUsages
-            .FirstOrDefaultAsync(x => x.UserId == userId && x.YearMonth == yearMonth);
-        var current = row?.ScanCount ?? 0;
-        var allowed = current + requestedAmount <= FreeTierLimit;
+        var current = await GetUsageAsync(userId);
+        var allowed = current + requestedAmount <= FreeTierLimitPerDay;
         Log.Information("User {UserId} quota: {Current}/{Max} (requested {Requested}) → {Result}",
-            userId, current, FreeTierLimit, requestedAmount, allowed ? "ALLOWED" : "BLOCKED");
+            userId, current, FreeTierLimitPerDay, requestedAmount, allowed ? "ALLOWED" : "BLOCKED");
         return allowed;
     }
 
     /// <summary>
-    /// Upsert: אם קיים — מעלה Count; אם לא — יוצר רשומה. Retry אם race עם thread אחר.
+    /// מעלה את מונה השימוש ב־1 (אטומי — FieldValue.Increment).
     /// </summary>
     public async Task IncrementUsageAsync(string userId, int amount)
     {
-        var yearMonth = DateTime.UtcNow.ToString("yyyy-MM");
-        Log.Information("[Quota] Incrementing usage for user {UserId} for month {YearMonth}", userId, yearMonth);
-
-        var sem = GetLockForUser(userId);
-        await sem.WaitAsync();
-        try
-        {
-            const int maxRetries = 3;
-            for (var attempt = 0; attempt < maxRetries; attempt++)
+        var dateStr = DateTime.UtcNow.ToString("yyyyMMdd");
+        var docId = $"{userId}_{dateStr}";
+        Log.Information("[Quota] Incrementing usage for user {UserId} for date {Date}", userId, dateStr);
+        await _firestore.Collection(ColQuotas).Document(docId).SetAsync(
+            new Dictionary<string, object>
             {
-                try
-                {
-                    await using var db = _dbFactory.CreateDbContext();
-                    var row = await db.UserAiUsages
-                        .FirstOrDefaultAsync(x => x.UserId == userId && x.YearMonth == yearMonth);
-
-                    if (row != null)
-                    {
-                        row.ScanCount += amount;
-                    }
-                    else
-                    {
-                        db.UserAiUsages.Add(new UserAiUsage
-                        {
-                            UserId = userId,
-                            YearMonth = yearMonth,
-                            ScanCount = amount
-                        });
-                    }
-
-                    await db.SaveChangesAsync();
-                    return;
-                }
-                catch (DbUpdateException ex) when (attempt < maxRetries - 1)
-                {
-                    // UNIQUE(UserId,YearMonth) — thread אחר יצר את הרשומה, ננסה שוב עם Increment
-                    Log.Warning(ex, "[Quota] Unique constraint on user {UserId} month {YearMonth}, retry {Attempt}", userId, yearMonth, attempt + 1);
-                }
-            }
-        }
-        finally
-        {
-            sem.Release();
-        }
+                { "userId", userId },
+                { "date", dateStr },
+                { "count", FieldValue.Increment(amount) }
+            },
+            SetOptions.MergeAll);
     }
 }

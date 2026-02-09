@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using TheHunterApi.Data;
+using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
 
@@ -8,37 +7,35 @@ namespace TheHunterApi.Controllers;
 [Route("api/[controller]")]
 public class DictionaryController : ControllerBase
 {
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly AdminFirestoreService _firestore;
 
-    public DictionaryController(IDbContextFactory<AppDbContext> dbFactory)
+    public DictionaryController(AdminFirestoreService firestore)
     {
-        _dbFactory = dbFactory;
+        _firestore = firestore;
     }
 
     /// <summary>
-    /// מחזיר עדכוני מילון: synonyms (מונחים מאושרים) + rankingConfig (משקלי דירוג דינמיים)
+    /// מחזיר עדכוני מילון: synonyms ממונחים מאושרים ב-Firestore knowledge_base + rankingConfig מ-ranking_settings.
     /// </summary>
     [HttpGet("updates")]
     [ProducesResponseType(typeof(DictionaryUpdatesResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetUpdates()
     {
-        await using var db = _dbFactory.CreateDbContext();
-
-        var synonyms = await db.LearnedTerms
-            .Where(x => x.IsApproved)
+        var terms = await _firestore.GetApprovedTermsForExportAsync();
+        var synonyms = terms
             .OrderByDescending(x => x.Frequency)
             .Select(x => new LearnedTermDto(x.Term, x.Category, x.Frequency))
-            .ToListAsync();
+            .ToList();
 
-        var rankingSettings = await db.RankingSettings.ToListAsync();
-        var rankingConfig = rankingSettings.ToDictionary(r => r.Key, r => r.Value);
+        var (weights, ok) = await _firestore.GetRankingWeightsAsync();
+        var rankingConfig = ok ? weights : new Dictionary<string, double>();
 
         return Ok(new DictionaryUpdatesResponse(synonyms, rankingConfig));
     }
 }
 
 /// <summary>
-/// DTO למונח מאושר - ללא Id ו-IsApproved
+/// DTO למונח מאושר — ללא Id ו-IsApproved
 /// </summary>
 public record LearnedTermDto(string Term, string Category, int Frequency);
 

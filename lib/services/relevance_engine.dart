@@ -24,7 +24,7 @@ class RelevanceEngine {
   static bool _isAllDigits(String s) =>
       s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
 
-  /// התאמת מונח — אחרי נרמול (ניקוד, רווחים, לא־אלפאנומרי); מספרים: גבולות regex
+  /// התאמת מונח — אחרי נרמול. מונחים קצרים (< 4): מילה שלמה בלבד (מניעת "ID" ב-"DAVID").
   static bool _termMatches(String text, String term) {
     final textNorm = _normalize(text);
     final t = _normalize(term);
@@ -32,6 +32,11 @@ class RelevanceEngine {
     if (_isAllDigits(t)) {
       final pattern = '(^|\\D)${RegExp.escape(t)}(\\D|\$)';
       return RegExp(pattern).hasMatch(textNorm);
+    }
+    if (t.length < 4) {
+      final escaped = RegExp.escape(t);
+      final re = RegExp('(^|[^\\w])$escaped([^\\w]|\$)', unicode: true);
+      return re.hasMatch(textNorm);
     }
     return textNorm.contains(t);
   }
@@ -115,8 +120,10 @@ class RelevanceEngine {
         final factor = densityFactor(t, locLower.length);
         locPts += ptsLocation * pts * factor;
       }
-      // תוכן: סופרים רק מונחי שאילתה (raw) שמופיעים — ציון לפי Query Coverage Ratio
-      final inContent = extRaw.isNotEmpty && (_wholeWordInContent(extRaw, term) || extLower.contains(t));
+      // תוכן: מונחים קצרים — מילה שלמה בלבד (מניעת "ID" ב-"DAVID"); ארוכים — מילה שלמה או contains
+      final shortTerm = t.length < 4;
+      final inContent = extRaw.isNotEmpty &&
+          (shortTerm ? _wholeWordInContent(extRaw, term) : (_wholeWordInContent(extRaw, term) || extLower.contains(t)));
       if (inContent) {
         termsFound.add(t);
         if (isRaw) contentTermsFound.add(t);

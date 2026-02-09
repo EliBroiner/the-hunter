@@ -12,8 +12,11 @@ import '../../../services/knowledge_base_service.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
 
-/// בסיס כתובת הבקאנד — AI Lab
+/// בסיס כתובת הבקאנד — AI Lab (חשוף ל־UI לצורכי Deep Network Tracing)
 const String _kBackendBase = 'https://the-hunter-105628026575.me-west1.run.app';
+
+/// כתובת הבסיס הנוכחית — לתצוגה ובדיקת חיבור אמיתי
+String get currentBaseUrl => _kBackendBase;
 
 /// מסך דיבאג — Pipeline, Local DB, Dictionary. מוגבל למשתמש Admin.
 class AiLabScreen extends StatefulWidget {
@@ -45,6 +48,11 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // Pipeline: שלב 3 — Save to DB
   String _saveStatus = ''; // Success / Error
   bool _saveSuccess = false;
+
+  // Deep Network Tracing — ספינר ו־timing
+  bool _sendingInProgress = false;
+  bool _savingInProgress = false;
+  static const Duration _suspiciouslyFastThreshold = Duration(milliseconds: 100);
 
   // Local DB
   List<FileMetadata> _fileList = [];
@@ -180,20 +188,53 @@ class _AiLabScreenState extends State<AiLabScreen> {
     setState(() {
       _serverJsonController.text = '...';
       _saveStatus = '';
+      _sendingInProgress = true;
     });
+    final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
     try {
-      final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
       final body = jsonEncode({
         'text': text,
         'customPrompt': _customPrompt.isEmpty ? null : _customPrompt,
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
-      _labLog('POST $uri');
+      // Deep Network Tracing — הדפסה לפני שליחה
+      final fullUrl = uri.toString();
+      final authPreview = headers['Authorization'] != null
+          ? 'Bearer ${headers['Authorization']!.length > 17 ? '${headers['Authorization']!.substring(7, 17)}...' : '...'}'
+          : (headers['X-Firebase-AppCheck'] != null
+              ? 'AppCheck ${headers['X-Firebase-AppCheck']!.length > 10 ? '${headers['X-Firebase-AppCheck']!.substring(0, 10)}...' : '...'}'
+              : 'none');
+      debugPrint('[SPY] POST FULL URL: $fullUrl');
+      debugPrint('[SPY] Auth/AppCheck: $authPreview');
+      _labLog('POST $fullUrl');
+      final stopwatch = Stopwatch()..start();
       final response = await http
           .post(uri, headers: headers, body: body)
           .timeout(const Duration(seconds: 30));
-      _labLog('analyze-debug ${response.statusCode}');
+      stopwatch.stop();
+      final elapsed = stopwatch.elapsed;
+      _labLog('analyze-debug ${response.statusCode} (${elapsed.inMilliseconds}ms)');
+      if (elapsed < _suspiciouslyFastThreshold && response.statusCode == 200 && mounted) {
+        _labLog('⚠️ Suspiciously fast response — check if hitting real server');
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Network Warning'),
+              content: const Text(
+                'Suspiciously Fast Response (<100ms). Check that the app is hitting the real server, not localhost or cache.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
       if (response.statusCode != 200) {
         setState(() {
           _serverJsonController.text = 'Error: ${response.statusCode}\n${response.body}';
@@ -217,6 +258,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
         _saveStatus = 'Error';
         _saveSuccess = false;
       });
+    } finally {
+      if (mounted) setState(() => _sendingInProgress = false);
     }
   }
 
@@ -230,21 +273,31 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _labLog('Save: no JSON');
       return;
     }
-    // הסרת markdown אם יש
     raw = raw
         .replaceFirst(RegExp(r'^```\w*\n?'), '')
         .replaceFirst(RegExp(r'\n?```\s*$'), '')
         .trim();
+    setState(() => _savingInProgress = true);
+    final uri = Uri.parse('$_kBackendBase/api/analyze-debug/save');
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final uri = Uri.parse('$_kBackendBase/api/analyze-debug/save');
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
-      _labLog('POST $uri');
+      final fullUrl = uri.toString();
+      final authPreview = headers['Authorization'] != null
+          ? 'Bearer ${headers['Authorization']!.length > 17 ? '${headers['Authorization']!.substring(7, 17)}...' : '...'}'
+          : (headers['X-Firebase-AppCheck'] != null
+              ? 'AppCheck ${headers['X-Firebase-AppCheck']!.length > 10 ? '${headers['X-Firebase-AppCheck']!.substring(0, 10)}...' : '...'}'
+              : 'none');
+      debugPrint('[SPY] POST FULL URL: $fullUrl');
+      debugPrint('[SPY] Auth/AppCheck: $authPreview');
+      _labLog('POST $fullUrl');
+      final stopwatch = Stopwatch()..start();
       final response = await http
           .post(uri, headers: headers, body: jsonEncode(decoded))
           .timeout(const Duration(seconds: 10));
-      _labLog('analyze-debug/save ${response.statusCode}');
+      stopwatch.stop();
+      _labLog('analyze-debug/save ${response.statusCode} (${stopwatch.elapsedMilliseconds}ms)');
       setState(() {
         _saveSuccess = response.statusCode == 200;
         _saveStatus = response.statusCode == 200 ? 'Success' : 'Error: ${response.statusCode}';
@@ -256,6 +309,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
         _saveSuccess = false;
         _saveStatus = 'Error: $e';
       });
+    } finally {
+      if (mounted) setState(() => _savingInProgress = false);
     }
   }
 
@@ -371,6 +426,32 @@ class _AiLabScreenState extends State<AiLabScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Deep Network Tracing — הצגת כתובת היעד
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.blueGrey.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blueGrey),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.dns, color: Colors.white70, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Target Server: $currentBaseUrl',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.white70,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         _buildStage(
           stageIndex: 1,
           title: 'Local OCR',
@@ -434,11 +515,13 @@ class _AiLabScreenState extends State<AiLabScreen> {
                       readOnly: true,
                       maxLines: 6,
                       controller: _ocrDisplayController,
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(color: Colors.black87, fontSize: 13),
                       decoration: const InputDecoration(
                         hintText: 'Extracted text…',
                         border: InputBorder.none,
                         isDense: true,
+                        filled: true,
+                        fillColor: Color(0xFFE8E8E8),
                       ),
                     ),
                   );
@@ -484,7 +567,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
                   maxLines: null,
                   expands: true,
                   style: const TextStyle(
-                    color: Colors.white70,
+                    color: Colors.black87,
                     fontSize: 12,
                     fontFamily: 'monospace',
                   ),
@@ -493,14 +576,22 @@ class _AiLabScreenState extends State<AiLabScreen> {
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.all(8),
+                    filled: true,
+                    fillColor: Color(0xFFE8E8E8),
                   ),
                 ),
               ),
               const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: _sendToServer,
-                icon: const Icon(Icons.send, size: 20),
-                label: const Text('Send to Server'),
+                onPressed: _sendingInProgress ? null : _sendToServer,
+                icon: _sendingInProgress
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.send, size: 20),
+                label: Text(_sendingInProgress ? 'Sending...' : 'Send to Server'),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.blue.shade700,
                   foregroundColor: Colors.white,
@@ -517,12 +608,23 @@ class _AiLabScreenState extends State<AiLabScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Text(
+                'שומר ב־DB של השרת (LearnedTerms) — לא ב־DB המקומי של הקבצים.',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+              ),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   FilledButton.icon(
-                    onPressed: _saveToServerDb,
-                    icon: const Icon(Icons.save, size: 20),
-                    label: const Text('Save to DB'),
+                    onPressed: _savingInProgress ? null : _saveToServerDb,
+                    icon: _savingInProgress
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.save, size: 20),
+                    label: Text(_savingInProgress ? 'Saving...' : 'Save to DB'),
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
@@ -685,11 +787,13 @@ class _AiLabScreenState extends State<AiLabScreen> {
           child: TextField(
             controller: controller,
             maxLines: 12,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            style: const TextStyle(color: Colors.black87, fontSize: 12),
             decoration: const InputDecoration(
               hintText: 'Override server prompt for this request…',
               border: OutlineInputBorder(),
               alignLabelWithHint: true,
+              filled: true,
+              fillColor: Color(0xFFE8E8E8),
             ),
           ),
         ),

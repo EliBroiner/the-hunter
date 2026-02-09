@@ -265,7 +265,25 @@ class KnowledgeBaseService {
   /// מפת synonyms לסינכרוני — לשימוש SmartSearchParser
   Map<String, List<String>> get synonymMap => Map.unmodifiable(_synonymCache);
 
-  /// בודק אם הטקסט מכיל מילת מפתח — לשימוש AiAutoTaggerService
+  /// התאמת מילה שלמה — מונעת False Positive (למשל "ID" בתוך "DAVID").
+  /// למונחים קצרים (< 4 תווים) חובה; למונחים ארוכים אפשר contains.
+  static bool _termMatchesWholeWord(String text, String term, {bool caseSensitive = false}) {
+    if (term.isEmpty || text.isEmpty) return false;
+    final escaped = RegExp.escape(term);
+    // גבול מילה: לא אות/ספרה לפני ואחרי (תומך Unicode — עברית)
+    final re = RegExp('(^|[^\\w])$escaped([^\\w]|\$)', unicode: true, caseSensitive: caseSensitive);
+    return re.hasMatch(text);
+  }
+
+  static bool _termMatches(String text, String term, bool useWholeWord) {
+    final lower = text.toLowerCase();
+    final t = term.toLowerCase();
+    if (useWholeWord) return _termMatchesWholeWord(lower, t);
+    return lower.contains(t);
+  }
+
+  /// בודק אם הטקסט מכיל מילת מפתח — לשימוש AiAutoTaggerService.
+  /// מונחים קצרים (< 4 תווים): התאמת מילה שלמה בלבד (מניעת "ID" ב-"DAVID").
   Future<AiAnalysisResult?> findMatchingCategory(String text) async {
     await initialize();
 
@@ -276,13 +294,15 @@ class KnowledgeBaseService {
       final term = entry.key;
       final expansions = entry.value;
       if (term.length < 2) continue;
-      if (lower.contains(term)) {
+      final shortTerm = term.length < 4;
+      if (_termMatches(lower, term, shortTerm)) {
         appLog('KnowledgeBase: local hit for "$term"');
         return AiAnalysisResult(category: term, tags: expansions.take(5).toList());
       }
       for (final exp in expansions) {
         if (exp.length < 2) continue;
-        if (lower.contains(exp.toLowerCase())) {
+        final shortExp = exp.length < 4;
+        if (_termMatches(lower, exp, shortExp)) {
           appLog('KnowledgeBase: local hit for "$term" (expansion: $exp)');
           return AiAnalysisResult(category: term, tags: expansions.take(5).toList());
         }
