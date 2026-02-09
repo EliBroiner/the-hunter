@@ -10,15 +10,21 @@ public class AnalyzeController : ControllerBase
 {
     private readonly GeminiService _geminiService;
     private readonly QuotaService _quotaService;
+    private readonly ILearningService _learningService;
+    private readonly UserRoleService _userRoleService;
     private readonly ILogger<AnalyzeController> _logger;
 
     public AnalyzeController(
         GeminiService geminiService,
         QuotaService quotaService,
+        ILearningService learningService,
+        UserRoleService userRoleService,
         ILogger<AnalyzeController> logger)
     {
         _geminiService = geminiService;
         _quotaService = quotaService;
+        _learningService = learningService;
+        _userRoleService = userRoleService;
         _logger = logger;
     }
 
@@ -46,7 +52,17 @@ public class AnalyzeController : ControllerBase
                 return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 1000 scans/month" });
             }
 
-            var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId);
+            // דריסת פרומפט — רק Admin; משתמש רגיל לא יכול להזריק פרומפט
+            string? customPromptOverride = null;
+            if (!string.IsNullOrWhiteSpace(request.CustomPromptOverride))
+            {
+                if (await _userRoleService.HasRoleAsync(userId, "Admin"))
+                    customPromptOverride = request.CustomPromptOverride!.Trim();
+                else
+                    customPromptOverride = null; // מתעלמים מבקשה של לא-Admin
+            }
+
+            var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId, customPromptOverride);
             await _quotaService.IncrementUsageAsync(userId, count);
 
             _logger.LogInformation("✅ [Server] Successfully processed batch. Returning 200 OK.");
@@ -86,5 +102,44 @@ public class AnalyzeController : ControllerBase
             DateTo = intent.DateRange?.End,
             FileTypes = intent.FileTypes
         });
+    }
+
+    /// <summary>
+    /// ניתוח דיבאג — טקסט + פרומפט מותאם (AI Lab). מחזיר JSON ללא שמירה ל-Learning.
+    /// </summary>
+    [HttpPost("analyze-debug")]
+    [ProducesResponseType(typeof(DocumentAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> AnalyzeDebug([FromBody] DebugAnalyzeRequest request)
+    {
+        if (request == null)
+            return BadRequest(new ErrorResponse { Error = "Request body required" });
+        if (!_geminiService.IsConfigured)
+            return StatusCode(503, new ErrorResponse { Error = "AI service not configured" });
+
+        var result = await _geminiService.AnalyzeDocumentWithCustomPromptAsync(request.Text ?? "", request.CustomPrompt);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// שמירת תוצאת ניתוח ל-Learning (AI Lab — שלב 3).
+    /// </summary>
+    [HttpPost("analyze-debug/save")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SaveAnalyzeResult([FromBody] DocumentAnalysisResult result)
+    {
+        if (result == null)
+            return BadRequest(new ErrorResponse { Error = "Result body required" });
+
+        var userId = (string?)null; // דיבאג — ללא אכיפת מכסת משתמש
+        if (!string.IsNullOrWhiteSpace(result.Category))
+            await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
+        foreach (var tag in result.Tags ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(tag)) continue;
+            await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
+        }
+        return Ok();
     }
 }

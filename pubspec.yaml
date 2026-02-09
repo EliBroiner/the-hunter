@@ -66,6 +66,9 @@ dependencies:
   # HTTP - בקשות לבקאנד AI
   http: ^1.2.2
 
+  # בחירת קבצים — AI Lab (דיבאג)
+  file_picker: ^8.0.0
+
   # Geocoding - מיקום לאנגלית (en_US) להתאמה למילים נרדפות
   geocoding: ^4.0.0
   

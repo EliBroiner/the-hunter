@@ -197,7 +197,11 @@ public class GeminiService
     /// מנתח אצווה של מסמכים ב-Gemini 1.5 Flash במקביל - חסכוני ומהיר
     /// </summary>
     /// <param name="userId">מזהה משתמש ללולאת למידה (מכסת הצעות יומית)</param>
-    public async Task<List<DocumentAnalysisResponse>> AnalyzeDocumentsBatchAsync(List<DocumentPayload> documents, string? userId = null)
+    /// <param name="customPromptOverride">דריסת פרומפט — רק Admin (מגיע כבר מאומת Controller)</param>
+    public async Task<List<DocumentAnalysisResponse>> AnalyzeDocumentsBatchAsync(
+        List<DocumentPayload> documents,
+        string? userId = null,
+        string? customPromptOverride = null)
     {
         if (documents.Count == 0) return new List<DocumentAnalysisResponse>();
         if (!IsConfigured)
@@ -206,15 +210,25 @@ public class GeminiService
             return documents.Select(d => new DocumentAnalysisResponse { DocumentId = d.Id, Result = new DocumentAnalysisResult() }).ToList();
         }
 
-        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId));
+        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId, customPromptOverride));
         var results = await Task.WhenAll(tasks);
         return results.ToList();
     }
 
-    private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(DocumentPayload doc, string? userId = null)
+    private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(
+        DocumentPayload doc,
+        string? userId = null,
+        string? customPromptOverride = null)
     {
         try
         {
+            string systemInstruction = DocAnalysisPrompt;
+            if (!string.IsNullOrEmpty(customPromptOverride))
+            {
+                _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", doc.Id);
+                systemInstruction = customPromptOverride;
+            }
+
             var client = _httpClientFactory.CreateClient("GeminiApi");
             var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
 
@@ -226,7 +240,7 @@ public class GeminiService
                     {
                         Parts = new List<GeminiPart>
                         {
-                            new GeminiPart { Text = DocAnalysisPrompt },
+                            new GeminiPart { Text = systemInstruction },
                             new GeminiPart { Text = doc.Text }
                         }
                     }
@@ -261,6 +275,61 @@ public class GeminiService
         {
             _logger.LogError(ex, "Error analyzing document {Id}", doc.Id);
             return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+        }
+    }
+
+    /// <summary>
+    /// ניתוח מסמך בודד עם פרומפט מותאם — לשימוש AI Lab (דיבאג). לא קורא ל-Learning.
+    /// </summary>
+    public async Task<DocumentAnalysisResult> AnalyzeDocumentWithCustomPromptAsync(string text, string? customPrompt)
+    {
+        if (!IsConfigured)
+            return new DocumentAnalysisResult();
+
+        var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? DocAnalysisPrompt : customPrompt.Trim();
+        try
+        {
+            var client = _httpClientFactory.CreateClient("GeminiApi");
+            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var request = new GeminiRequest
+            {
+                Contents = new List<GeminiContent>
+                {
+                    new()
+                    {
+                        Parts = new List<GeminiPart>
+                        {
+                            new GeminiPart { Text = systemPrompt },
+                            new GeminiPart { Text = text }
+                        }
+                    }
+                },
+                GenerationConfig = new GenerationConfig
+                {
+                    Temperature = 0.1,
+                    MaxOutputTokens = 512,
+                    ResponseMimeType = "application/json"
+                }
+            };
+            var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(url, httpContent);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Gemini analyze-debug failed: {StatusCode}", response.StatusCode);
+                return new DocumentAnalysisResult();
+            }
+            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
+                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+            var cleanJson = SanitizeJsonResponse(rawText);
+            return JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AnalyzeDocumentWithCustomPrompt failed");
+            return new DocumentAnalysisResult();
         }
     }
 

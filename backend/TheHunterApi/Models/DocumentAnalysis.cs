@@ -27,6 +27,11 @@ public class BatchRequest
 {
     public string UserId { get; set; } = string.Empty;
     public List<DocumentPayload> Documents { get; set; } = new();
+
+    /// <summary>
+    /// דריסת פרומפט לניתוח — רק למשתמשי Admin (מתעלמים אם המשתמש לא Admin).
+    /// </summary>
+    public string? CustomPromptOverride { get; set; }
 }
 
 /// <summary>
@@ -36,4 +41,13 @@ public class DocumentAnalysisResponse
 {
     public string DocumentId { get; set; } = string.Empty;
     public DocumentAnalysisResult Result { get; set; } = new();
+}
+
+/// <summary>
+/// בקשת ניתוח דיבאג — טקסט + פרומפט מותאם (AI Lab)
+/// </summary>
+public class DebugAnalyzeRequest
+{
+    public string Text { get; set; } = string.Empty;
+    public string? CustomPrompt { get; set; }
 }

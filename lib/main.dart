@@ -19,6 +19,7 @@ import 'services/secure_folder_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'ui/screens/debug/ai_lab_screen.dart';
 import 'services/ai_auto_tagger_service.dart';
 import 'services/auth_service.dart';
 import 'services/backup_service.dart';
@@ -636,6 +637,7 @@ class _TheHunterAppState extends State<TheHunterApp>
                   '/duplicates': (context) => const DuplicatesScreen(),
                   '/secure': (context) => const SecureFolderScreen(),
                   '/cloud': (context) => const CloudStorageScreen(),
+                  '/ai-lab': (context) => const AiLabScreen(),
                 },
               );
             },
