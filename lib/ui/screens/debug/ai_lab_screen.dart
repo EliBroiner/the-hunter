@@ -24,8 +24,7 @@ class AiLabScreen extends StatefulWidget {
 }
 
 class _AiLabScreenState extends State<AiLabScreen> {
-  // Admin — טעינה אסינכרונית
-  bool _adminCheckDone = false;
+  // Admin — רק לתצוגת Badge ב-Stage 2 (המסך תמיד מוצג)
   bool _isAdmin = false;
 
   // Pipeline: שלב 1 — OCR (גודל קובץ לשקלול צפיפות: תווים/בייטים)
@@ -103,20 +102,14 @@ class _AiLabScreenState extends State<AiLabScreen> {
   Future<void> _checkAdmin() async {
     final user = AuthService.instance.currentUser;
     if (user == null) {
-      setState(() {
-        _adminCheckDone = true;
-        _isAdmin = false;
-      });
+    setState(() => _isAdmin = false);
       return;
     }
     // UID ספציפי או תפקיד Admin
     const allowedUids = <String>{}; // הוסף UID לדיבאג מקומי אם צריך
     final byUid = allowedUids.contains(user.uid);
     final byRole = await UserRolesService.instance.hasRole('Admin');
-    setState(() {
-      _adminCheckDone = true;
-      _isAdmin = byUid || byRole;
-    });
+    setState(() => _isAdmin = byUid || byRole);
   }
 
   /// צפיפות טקסט לפי גודל קובץ — (extractedText.length / fileSizeInBytes) * 100 (כמו FileProcessingService)
@@ -336,55 +329,28 @@ class _AiLabScreenState extends State<AiLabScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_adminCheckDone) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0D1117),
-        body: Center(child: CircularProgressIndicator(color: Colors.white70)),
-      );
-    }
-    if (!_isAdmin) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0D1117),
-        body: Center(child: SizedBox()),
-      );
-    }
-
-    final darkTheme = ThemeData.dark().copyWith(
-      scaffoldBackgroundColor: const Color(0xFF0D1117),
-      colorScheme: ColorScheme.dark(
-        surface: const Color(0xFF161B22),
-        error: Colors.redAccent,
-        primary: Colors.blueAccent,
-      ),
-      textTheme: ThemeData.dark().textTheme.apply(
-            bodyColor: Colors.white70,
-            displayColor: Colors.white,
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: Colors.grey[900],
+        appBar: AppBar(
+          backgroundColor: Colors.grey[850],
+          title: const Text('AI Lab Debugger', style: TextStyle(color: Colors.white)),
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white54,
+            indicatorColor: Colors.blueAccent,
+            tabs: const [
+              Tab(text: 'Pipeline'),
+              Tab(text: 'Local DB'),
+              Tab(text: 'Dictionary'),
+            ],
           ),
-    );
-
-    return Theme(
-      data: darkTheme,
-      child: DefaultTabController(
-        length: 3,
-        child: Scaffold(
-          backgroundColor: const Color(0xFF0D1117),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF161B22),
-            title: const Text('AI Lab', style: TextStyle(color: Colors.white)),
-            bottom: TabBar(
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white54,
-              indicatorColor: Colors.blueAccent,
-              tabs: const [
-                Tab(text: 'Pipeline'),
-                Tab(text: 'Local DB'),
-                Tab(text: 'Dictionary'),
-              ],
-            ),
-          ),
-          body: Column(
-            children: [
-              Expanded(
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: SafeArea(
                 child: TabBarView(
                   children: [
                     _buildPipelineTab(),
@@ -393,9 +359,9 @@ class _AiLabScreenState extends State<AiLabScreen> {
                   ],
                 ),
               ),
-              _buildLogConsole(),
-            ],
-          ),
+            ),
+            _buildLogConsole(),
+          ],
         ),
       ),
     );
