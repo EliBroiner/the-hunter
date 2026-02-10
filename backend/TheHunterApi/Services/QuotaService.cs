@@ -4,7 +4,8 @@ using Serilog;
 namespace TheHunterApi.Services;
 
 /// <summary>
-/// ניהול מכסת שימוש יומי — Firestore collection quotas, document id = {userId}_{yyyyMMdd}.
+/// ניהול מכסת שימוש יומי — Firestore collection "quotas", document id = {userId}_{yyyyMMdd}.
+/// איפוס: Firebase Console → Firestore → quotas → מחק/ערוך מסמך עבור userId_תאריך.
 /// </summary>
 public class QuotaService
 {
@@ -60,5 +61,23 @@ public class QuotaService
                 { "count", FieldValue.Increment(amount) }
             },
             SetOptions.MergeAll);
+    }
+
+    /// <summary>
+    /// מאפס מכסה למשתמש לתאריך נתון (דיבאג/אדמין). תאריך ברירת מחדל = היום.
+    /// </summary>
+    public async Task ResetQuotaAsync(string userId, string? dateYyyyMmDd = null)
+    {
+        var dateStr = dateYyyyMmDd ?? DateTime.UtcNow.ToString("yyyyMMdd");
+        var docId = $"{userId}_{dateStr}";
+        await _firestore.Collection(ColQuotas).Document(docId).SetAsync(
+            new Dictionary<string, object>
+            {
+                { "userId", userId },
+                { "date", dateStr },
+                { "count", 0L }
+            },
+            SetOptions.MergeAll);
+        Log.Information("[Quota] Reset to 0 for user {UserId} date {Date} (docId={DocId})", userId, dateStr, docId);
     }
 }

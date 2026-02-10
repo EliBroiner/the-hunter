@@ -45,11 +45,15 @@ public class AnalyzeController : ControllerBase
 
             var userId = string.IsNullOrEmpty(request.UserId) ? "anonymous" : request.UserId;
             var count = request.Documents.Count;
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            if (isAdmin)
+                _logger.LogInformation("👑 [Quota] User {UserId} is Admin — skipping quota check and usage increment.", userId);
 
-            if (!await _quotaService.CanUserScanAsync(userId, count))
+            // Admin — לא מוגבל במכסה
+            if (!isAdmin && !await _quotaService.CanUserScanAsync(userId, count))
             {
                 _logger.LogWarning("Quota exceeded for user {UserId}", userId);
-                return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 1000 scans/month" });
+                return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 1000 scans/day (stored in Firestore collection 'quotas')" });
             }
 
             // Trace: מה הגיע מהלקוח
@@ -72,7 +76,9 @@ public class AnalyzeController : ControllerBase
             }
 
             var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId, customPromptOverride);
-            await _quotaService.IncrementUsageAsync(userId, count);
+            // Admin — לא מעדכנים מכסה
+            if (!isAdmin)
+                await _quotaService.IncrementUsageAsync(userId, count);
 
             _logger.LogInformation("✅ [Server] Successfully processed batch. Returning 200 OK.");
             return Ok(results);

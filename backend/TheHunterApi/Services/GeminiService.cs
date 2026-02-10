@@ -263,14 +263,9 @@ public class GeminiService
 
             // פרומפט אחד — הוראות + תוכן. רק Part.Text, בלי FileData/FileUri.
             var prompt = $"Analyze this document text.\nFilename: {filename}\nContent:\n{text}\n\n{systemInstructions}";
-            var previewLen = Math.Min(100, prompt.Length);
-            _logger.LogInformation("🤖 [SERVER_TO_AI] Sending prompt to Gemini. Length: {Length}. Preview: {Preview}...",
-                prompt.Length, prompt.Substring(0, previewLen));
-
             var client = _httpClientFactory.CreateClient("GeminiApi");
             var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
 
-            // רק Parts עם Text — אין שום FileData/FileUri
             var request = new GeminiRequest
             {
                 Contents = new List<GeminiContent>
@@ -289,15 +284,23 @@ public class GeminiService
             };
 
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+
+            // —— לוג: מה שולחים ל-Gemini ——
+            _logger.LogInformation("[GEMINI_REQUEST] Model={Model} | URL=v1beta/models/{Model}:generateContent | Request body length={Len} chars | Prompt preview: {Preview}",
+                GeminiDocModel, GeminiDocModel, jsonContent.Length, TruncateForLog(prompt));
+
             var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
 
-            _logger.LogInformation("⬅️ [AI_TO_SERVER] Raw JSON from Gemini: {Raw}", TruncateForLog(responseBody));
+            // —— לוג: מה קיבלנו בחזרה ——
+            _logger.LogInformation("[GEMINI_RESPONSE] Status={Status} | Body length={Len} | Body: {Body}",
+                (int)response.StatusCode, responseBody.Length, TruncateForLog(responseBody));
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Gemini doc analysis failed: {StatusCode} for doc {Id}. Batch continues.", response.StatusCode, documentId);
+                _logger.LogError("[GEMINI_FAIL] Doc {Id} — HTTP {Status}. Full body: {Body}. Batch continues.",
+                    documentId, response.StatusCode, responseBody.Length > 1000 ? responseBody.Substring(0, 1000) + "…" : responseBody);
                 return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
             }
 
@@ -305,10 +308,14 @@ public class GeminiService
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
             var cleanJson = SanitizeJsonResponse(rawText);
             var result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+
+            _logger.LogInformation("[GEMINI_PARSED] Doc {Id} — Category={Category} | Tags count={TagCount} | Raw text length={RawLen}",
+                documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
+
             await LearnFromDocumentResultAsync(result, userId);
 
             var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = result }, _jsonOptions);
-            _logger.LogInformation("✅ [SERVER_OUT] Sending result to Client: {Final}", TruncateForLog(finalJson));
+            _logger.LogInformation("[GEMINI_TO_CLIENT] Doc {Id} — Sending result: {Preview}", documentId, TruncateForLog(finalJson));
 
             return new DocumentAnalysisResponse { DocumentId = documentId, Result = result };
         }
@@ -353,13 +360,17 @@ public class GeminiService
                 }
             };
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+            _logger.LogInformation("[GEMINI_REQUEST] analyze-debug | Model={Model} | Request length={Len} | Text preview: {Preview}",
+                GeminiDocModel, jsonContent.Length, TruncateForLog(text));
             var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation("[GEMINI_RESPONSE] analyze-debug | Status={Status} | Body: {Body}",
+                (int)response.StatusCode, TruncateForLog(responseBody));
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Gemini analyze-debug failed: {StatusCode}", response.StatusCode);
+                _logger.LogError("[GEMINI_FAIL] analyze-debug — HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
                 return new DocumentAnalysisResult();
             }
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)

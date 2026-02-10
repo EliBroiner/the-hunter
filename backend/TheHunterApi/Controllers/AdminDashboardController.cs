@@ -17,17 +17,20 @@ public class AdminDashboardController : Controller
     private readonly INotificationService _notification;
     private readonly ILogger<AdminDashboardController> _logger;
     private readonly IConfiguration _config;
+    private readonly QuotaService _quotaService;
 
     public AdminDashboardController(
         AdminFirestoreService firestore,
         INotificationService notification,
         ILogger<AdminDashboardController> logger,
-        IConfiguration config)
+        IConfiguration config,
+        QuotaService quotaService)
     {
         _firestore = firestore;
         _notification = notification;
         _logger = logger;
         _config = config;
+        _quotaService = quotaService;
     }
 
     [HttpGet]
@@ -339,6 +342,18 @@ public class AdminDashboardController : Controller
         stream.Position = 0;
         var fileName = $"ApprovedTerms_{DateTime.UtcNow:yyyyMMddHHmmss}.xlsx";
         return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    /// <summary>איפוס מכסת סריקות למשתמש (Firestore quotas). GET /admin/api/quota-reset?userId=XXX&amp;date=20260210 (date אופציונלי, ברירת מחדל היום).</summary>
+    [HttpGet]
+    [Route("api/quota-reset")]
+    public async Task<IActionResult> QuotaReset([FromQuery] string userId, [FromQuery] string? date = null)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("userId required");
+        await _quotaService.ResetQuotaAsync(userId.Trim(), string.IsNullOrWhiteSpace(date) ? null : date.Trim());
+        var after = await _quotaService.GetUsageAsync(userId.Trim());
+        return Json(new { ok = true, userId = userId.Trim(), date = date ?? DateTime.UtcNow.ToString("yyyyMMdd"), countAfter = after });
     }
 
     /// <summary>טריגר ידני לשליחת דוח יומי ל-Telegram.</summary>

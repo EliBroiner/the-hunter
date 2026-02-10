@@ -225,9 +225,9 @@ class AiAutoTaggerService {
       if (response == null) throw Exception('No response after $_maxRetries attempts');
 
       // X-Ray: גוף גולמי לפני כל פרסור — לראות בדיוק מה השרת החזיר
-      print('🔍 [X-RAY] Raw JSON from Server: ${response.body}');
+      debugPrint('🔍 [X-RAY] Raw JSON from Server: ${response.body}');
       // גוף התגובה עם UTF-8 מפורש — עברית קריאה ב-Debug Console
-      print('🚀 [RAW SERVER BODY]: ${utf8.decode(response.bodyBytes)}');
+      debugPrint('🚀 [RAW SERVER BODY]: ${utf8.decode(response.bodyBytes)}');
       debugPrint('🚀 [DEBUG] Raw Server Response: ${response.body}');
       appLog('🚀 [DEBUG] Raw Body: ${response.body}');
       debugPrint('📡 [Client] Response Status: ${response.statusCode}');
