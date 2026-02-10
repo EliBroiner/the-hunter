@@ -159,19 +159,25 @@ class AiAutoTaggerService {
     final results = <String, DocumentAnalysisResult>{};
     _isUploading = true;
     try {
-      final documents = <Map<String, String>>[];
-      for (final file in batch) {
+      // שולחים טקסט חולץ (extractedText) + filename — לא path — כדי שהשרת לא ינסה לפתוח נתיב מקומי (404)
+      final documents = <Map<String, dynamic>>[];
+      for (var i = 0; i < batch.length; i++) {
+        final file = batch[i];
         String text = file.extractedText ?? '';
         if (text.isEmpty) text = await _extractTextAsync(file);
-        if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = ''; // מונע הזיות מ־ג'יבריש
+        if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = '';
         if (text.isEmpty) text = file.name;
         final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
-        documents.add({'id': file.path, 'text': truncated});
+        documents.add({
+          'id': i.toString(),
+          'filename': file.name,
+          'text': truncated,
+        });
       }
       final userId = AuthService.instance.currentUser?.uid ?? 'anonymous';
       final body = jsonEncode({
         'userId': userId,
-        'documents': documents.map((d) => {'id': d['id'], 'text': d['text']}).toList(),
+        'documents': documents.map((d) => {'id': d['id'], 'filename': d['filename'], 'text': d['text']}).toList(),
       });
 
       final sendMsg = '🚀 sending batch of ${batch.length} files to $_baseUrl';
@@ -258,7 +264,9 @@ class AiAutoTaggerService {
               final result = map['result'] as Map<String, dynamic>?;
               if (docId == null || result == null) continue;
 
-              final file = batch.where((f) => f.path == docId).firstOrNull;
+              // id נשלח כאינדקס באצווה — התאמה לפי מיקום
+              final idx = int.tryParse(docId);
+              final file = (idx != null && idx >= 0 && idx < batch.length) ? batch[idx] : null;
               if (file == null) continue;
 
               file.category = result['category'] as String?;
@@ -274,12 +282,12 @@ class AiAutoTaggerService {
                   .map((e) => AiSuggestion.fromJson(e as Map<String, dynamic>?))
                   .whereType<AiSuggestion>()
                   .toList();
-              results[docId] = DocumentAnalysisResult(
+              results[file.path] = DocumentAnalysisResult(
                 category: file.category ?? '',
                 tags: file.tags ?? [],
                 suggestions: suggestions,
               );
-              appLog('[SCAN] File: $docId — 4. API Response: Success.');
+              appLog('[SCAN] File: ${file.path} — 4. API Response: Success.');
             }
           }
         } catch (e, st) {
