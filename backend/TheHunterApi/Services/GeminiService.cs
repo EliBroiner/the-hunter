@@ -506,16 +506,21 @@ public class GeminiService
     /// </summary>
     private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null)
     {
+        var category = result.Category ?? "—";
+        var tagCount = (result.Tags ?? []).Count(t => !string.IsNullOrWhiteSpace(t));
+        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}. Attempting to save to DB (collection: suggestions)...",
+            category, tagCount);
+
         try
         {
             if (!string.IsNullOrWhiteSpace(result.Category))
                 await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
-            foreach (var tag in result.Tags.Where(t => !string.IsNullOrWhiteSpace(t)))
-                await _learningService.ProcessAiResultAsync(tag, result.Category, userId);
+            foreach (var tag in (result.Tags ?? []).Where(t => !string.IsNullOrWhiteSpace(t)))
+                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "לולאת למידה: כשלון בעדכון מונחים מניתוח מסמך");
+            _logger.LogError(ex, "[Server] CRITICAL: Failed to save to DB (learn from document). Error: {Message}", ex.Message);
         }
     }
 

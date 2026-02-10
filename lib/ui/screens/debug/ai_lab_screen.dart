@@ -50,10 +50,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
   String _saveStatus = ''; // Success / Error
   bool _saveSuccess = false;
 
-  // Deep Network Tracing — ספינר ו־timing
   bool _sendingInProgress = false;
   bool _savingInProgress = false;
-  static const Duration _suspiciouslyFastThreshold = Duration(milliseconds: 100);
 
   // Dictionary
   DateTime? _lastSyncTime;
@@ -171,15 +169,24 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
+  /// Send to Server — קורא ל-analyze-debug, מציג את ה-JSON הגולמי בתיבה לעריכה ואז Save to DB.
   Future<void> _sendToServer() async {
     final text = _ocrExtractedText.isEmpty
-        ? _serverJsonController.text
+        ? _serverJsonController.text.trim()
         : _ocrExtractedText;
     if (text.isEmpty) {
       _labLog('Send: no text');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enter text or pick an image for OCR first'),
+            backgroundColor: Colors.amber,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
-    // איפוס סטטוסים — לא להציג "Success" משלב 3 או משליחה קודמת
     setState(() {
       _serverJsonController.text = '...';
       _sendStatus = '';
@@ -188,6 +195,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _saveSuccess = false;
       _sendingInProgress = true;
     });
+
     final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
     try {
       final body = jsonEncode({
@@ -196,84 +204,64 @@ class _AiLabScreenState extends State<AiLabScreen> {
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
-      final fullUrl = uri.toString();
-      final authPreview = headers['Authorization'] != null
-          ? 'Bearer ${headers['Authorization']!.length > 17 ? '${headers['Authorization']!.substring(7, 17)}...' : '...'}'
-          : (headers['X-Firebase-AppCheck'] != null
-              ? 'AppCheck ${headers['X-Firebase-AppCheck']!.length > 10 ? '${headers['X-Firebase-AppCheck']!.substring(0, 10)}...' : '...'}'
-              : 'none');
-      debugPrint('[SPY] POST FULL URL: $fullUrl');
-      debugPrint('[SPY] Auth/AppCheck: $authPreview');
-      _labLog('POST $fullUrl');
-      final stopwatch = Stopwatch()..start();
+      _labLog('POST $uri');
       final response = await http
           .post(uri, headers: headers, body: body)
           .timeout(const Duration(seconds: 30));
-      stopwatch.stop();
-      final elapsed = stopwatch.elapsed;
-      _labLog('analyze-debug ${response.statusCode} (${elapsed.inMilliseconds}ms)');
-      if (elapsed < _suspiciouslyFastThreshold && response.statusCode == 200 && mounted) {
-        _labLog('⚠️ Suspiciously fast response — check if hitting real server');
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Network Warning'),
-              content: const Text(
-                'Suspiciously Fast Response (<100ms). Check that the app is hitting the real server, not localhost or cache.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
+      _labLog('analyze-debug ${response.statusCode}');
+      if (!mounted) return;
       if (response.statusCode != 200) {
-        final errMsg = '${response.statusCode}: ${response.body.isNotEmpty ? response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body : 'no body'}';
-        _labLog('Error: $errMsg');
-        if (mounted) {
-          setState(() {
-            _serverJsonController.text = 'Error: ${response.statusCode}\n${response.body}';
-            _sendStatus = 'Error: $errMsg';
-            _sendSuccess = false;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Send to Server failed: $errMsg'),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 6),
-            ),
-          );
-        }
-        return;
-      }
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final pretty = const JsonEncoder.withIndent('  ').convert(decoded);
-      if (mounted) {
+        final errMsg = response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body;
         setState(() {
-          _serverJsonController.text = pretty;
-          _sendStatus = 'Success';
-          _sendSuccess = true;
-        });
-      }
-      _labLog('OK: ${decoded['category'] ?? '?'}');
-    } catch (e, st) {
-      _labLog('Send error: $e');
-      final errMsg = e.toString();
-      if (mounted) {
-        setState(() {
-          _serverJsonController.text = 'Exception: $e';
+          _serverJsonController.text = 'Error: ${response.statusCode}\n${response.body}';
           _sendStatus = 'Error: $errMsg';
           _sendSuccess = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Send to Server failed: $errMsg'),
+            content: Text('Send to Server failed: ${response.statusCode} $errMsg'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      } else {
+        final rawBody = response.body;
+        try {
+          final decoded = jsonDecode(rawBody) as Map<String, dynamic>;
+          final pretty = const JsonEncoder.withIndent('  ').convert(decoded);
+          setState(() {
+            _serverJsonController.text = pretty;
+            _sendStatus = 'Success';
+            _sendSuccess = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('JSON loaded. Edit if needed, then tap Save to DB.'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } catch (e) {
+          setState(() {
+            _serverJsonController.text = rawBody.isEmpty ? '(empty response)' : rawBody;
+            _sendStatus = 'Success (raw)';
+            _sendSuccess = true;
+          });
+        }
+      }
+    } catch (e, st) {
+      _labLog('Send error: $e');
+      if (mounted) {
+        final errMsg = e.toString();
+        setState(() {
+          _serverJsonController.text = 'Exception: $errMsg';
+          _sendStatus = 'Error: $errMsg';
+          _sendSuccess = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errMsg),
             backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 6),
@@ -286,6 +274,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
+  /// Save to DB — קורא את ה-JSON מהתיבה, מאמת, שולח ל-/api/analyze-debug/save (Firestore).
   Future<void> _saveToServerDb() async {
     String raw = _serverJsonController.text.trim();
     if (raw.isEmpty) {
@@ -297,7 +286,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Save to DB failed: no JSON to save'),
+            content: Text('No JSON to save. Use Send to Server first.'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -309,58 +298,75 @@ class _AiLabScreenState extends State<AiLabScreen> {
         .replaceFirst(RegExp(r'^```\w*\n?'), '')
         .replaceFirst(RegExp(r'\n?```\s*$'), '')
         .trim();
+
+    Map<String, dynamic> decoded;
+    try {
+      decoded = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (e) {
+      _labLog('Save: invalid JSON — $e');
+      if (mounted) {
+        setState(() {
+          _saveStatus = 'Error: invalid JSON';
+          _saveSuccess = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invalid JSON: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() => _savingInProgress = true);
     final uri = Uri.parse('$_kBackendBase/api/analyze-debug/save');
     try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
-      final fullUrl = uri.toString();
-      final authPreview = headers['Authorization'] != null
-          ? 'Bearer ${headers['Authorization']!.length > 17 ? '${headers['Authorization']!.substring(7, 17)}...' : '...'}'
-          : (headers['X-Firebase-AppCheck'] != null
-              ? 'AppCheck ${headers['X-Firebase-AppCheck']!.length > 10 ? '${headers['X-Firebase-AppCheck']!.substring(0, 10)}...' : '...'}'
-              : 'none');
-      debugPrint('[SPY] POST FULL URL: $fullUrl');
-      debugPrint('[SPY] Auth/AppCheck: $authPreview');
-      _labLog('POST $fullUrl');
-      final stopwatch = Stopwatch()..start();
+      _labLog('POST $uri');
       final response = await http
           .post(uri, headers: headers, body: jsonEncode(decoded))
           .timeout(const Duration(seconds: 10));
-      stopwatch.stop();
-      _labLog('analyze-debug/save ${response.statusCode} (${stopwatch.elapsedMilliseconds}ms)');
+      _labLog('analyze-debug/save ${response.statusCode}');
+      if (!mounted) return;
       final success = response.statusCode == 200;
-      if (mounted) {
-        setState(() {
-          _saveSuccess = success;
-          _saveStatus = success
-              ? 'Success'
-              : 'Error: ${response.statusCode}${response.body.isNotEmpty ? ' — ${response.body.length > 150 ? response.body.substring(0, 150) : response.body}' : ''}';
-        });
-        if (!success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Save to DB failed: ${response.statusCode} ${response.body.isNotEmpty ? response.body : 'no body'}'),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 6),
-            ),
-          );
-        }
+      setState(() {
+        _saveSuccess = success;
+        _saveStatus = success ? 'Success' : 'Error: ${response.statusCode}';
+      });
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Saved to Server DB!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        final errBody = response.body.isEmpty ? 'no body' : (response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save to DB failed: ${response.statusCode} $errBody'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
       }
-      if (!success) _labLog('Save error: ${response.body}');
     } catch (e, st) {
       _labLog('Save error: $e');
-      final errMsg = e.toString();
       if (mounted) {
+        final errMsg = e.toString();
         setState(() {
           _saveSuccess = false;
           _saveStatus = 'Error: $errMsg';
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Save to DB failed: $errMsg'),
+            content: Text(errMsg),
             backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 6),

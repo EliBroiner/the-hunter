@@ -12,6 +12,12 @@ public interface ILearningService
     /// </summary>
     /// <param name="userId">מזהה משתמש לאימות/לוג (אופציונלי)</param>
     Task ProcessAiResultAsync(string term, string category, string? userId = null);
+
+    /// <summary>
+    /// כותב מסמך בדיקה ל-Firestore — לאבחון חיבור DB (Database Doctor).
+    /// </summary>
+    /// <returns>DocId בהצלחה, אחרת null + הודעת שגיאה</returns>
+    Task<(string? DocId, string? Error)> TryWriteTestDocumentAsync();
 }
 
 public class LearningService : ILearningService
@@ -58,16 +64,49 @@ public class LearningService : ILearningService
         if (!string.IsNullOrWhiteSpace(userId))
             data["userId"] = userId;
 
+        _logger.LogInformation("[Server] Attempting to save to Firestore. Collection: {Collection}. Term: {Term}, Category: {Category}",
+            CollectionSuggestions, t.Length > 40 ? t[..40] + "…" : t, cat);
+
         try
         {
             var col = _firestore.Collection(CollectionSuggestions);
             var newDoc = await col.AddAsync(data);
-            _logger.LogInformation("Successfully wrote suggestion to Firestore. ID: {Id}", newDoc.Id);
+            _logger.LogInformation("[Server] Successfully saved to DB. Document ID: {Id}", newDoc.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to write suggestion to Firestore: {Term}, {Category}", t, cat);
+            _logger.LogError(ex, "[Server] CRITICAL: Failed to save to DB. Error: {Message}", ex.Message);
             throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(string? DocId, string? Error)> TryWriteTestDocumentAsync()
+    {
+        const string collectionName = CollectionSuggestions;
+        var now = DateTime.UtcNow;
+        var data = new Dictionary<string, object>
+        {
+            { "term", "TEST_CONNECTIVITY" },
+            { "definition", "Checking DB Write" },
+            { "timestamp", Timestamp.FromDateTime(now) },
+            { "status", "test" },
+        };
+
+        _logger.LogInformation("[Server] Database Doctor: Writing test document to collection: {Collection}", collectionName);
+
+        try
+        {
+            var col = _firestore.Collection(collectionName);
+            var newDoc = await col.AddAsync(data);
+            _logger.LogInformation("[Server] Database Doctor: Write successful. Document ID: {Id}", newDoc.Id);
+            return (newDoc.Id, null);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.ToString();
+            _logger.LogError(ex, "[Server] Database Doctor: Write failed. Error: {Message}", ex.Message);
+            return (null, msg);
         }
     }
 }

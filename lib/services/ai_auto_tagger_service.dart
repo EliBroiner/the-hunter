@@ -218,41 +218,63 @@ class AiAutoTaggerService {
       }
       if (response == null) throw Exception('No response after $_maxRetries attempts');
 
+      debugPrint('🚀 [DEBUG] Raw Server Response: ${response.body}');
+      appLog('[DEBUG] Raw Server Response length: ${response.body.length}');
       debugPrint('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📄 [Client] Response Body: ${bodyForLog(response.body)}');
       if (response.statusCode == 200) {
-        DevLogger.instance.log('✅ Status: ${response.statusCode}');
-        appLog('[SCAN] 4. API Response: Success (batch ${batch.length} files).');
-        final list = jsonDecode(response.body) as List<dynamic>;
-        for (final item in list) {
-          final map = item as Map<String, dynamic>;
-          final docId = map['documentId'] as String?;
-          final result = map['result'] as Map<String, dynamic>?;
-          if (docId == null || result == null) continue;
+        try {
+          final decoded = jsonDecode(response.body);
+          debugPrint('🚀 [DEBUG] Decoded JSON type: ${decoded.runtimeType}, value: $decoded');
+          if (decoded is! List<dynamic>) {
+            appLog('[SCAN] 4. API Response: 200 but body is not a list (type: ${decoded.runtimeType}). Body: ${response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body}');
+            if (decoded is Map<String, dynamic> && decoded.containsKey('error')) {
+              appLog('[SCAN] 4. API Response: Server returned error object: ${decoded['error']}');
+            }
+          } else {
+            final list = decoded;
+            if (list.isEmpty) {
+              appLog('[SCAN] 4. API Response: 200 but empty list []. No results to apply.');
+            }
+            DevLogger.instance.log('✅ Status: ${response.statusCode}');
+            appLog('[SCAN] 4. API Response: Success (batch ${batch.length} files, list length ${list.length}).');
+            for (final item in list) {
+              final map = item as Map<String, dynamic>;
+              final docId = map['documentId'] as String?;
+              final result = map['result'] as Map<String, dynamic>?;
+              if (docId == null || result == null) continue;
 
-          final file = batch.where((f) => f.path == docId).firstOrNull;
-          if (file == null) continue;
+              final file = batch.where((f) => f.path == docId).firstOrNull;
+              if (file == null) continue;
 
-          file.category = result['category'] as String?;
-          final newTags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-          final existing = file.tags ?? [];
-          file.tags = [...existing, ...newTags.where((t) => !existing.contains(t))].toList();
-          file.isAiAnalyzed = true;
-          file.aiStatus = null;
-          _updateInIsar(file);
+              file.category = result['category'] as String?;
+              final newTags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+              final existing = file.tags ?? [];
+              file.tags = [...existing, ...newTags.where((t) => !existing.contains(t))].toList();
+              file.isAiAnalyzed = true;
+              file.aiStatus = null;
+              _updateInIsar(file);
 
-          final suggestionsRaw = result['suggestions'] as List<dynamic>? ?? [];
-          final suggestions = suggestionsRaw
-              .map((e) => AiSuggestion.fromJson(e as Map<String, dynamic>?))
-              .whereType<AiSuggestion>()
-              .toList();
-          results[docId] = DocumentAnalysisResult(
-            category: file.category ?? '',
-            tags: file.tags ?? [],
-            suggestions: suggestions,
-          );
-          appLog('[SCAN] File: $docId — 4. API Response: Success.');
+              final suggestionsRaw = result['suggestions'] as List<dynamic>? ?? [];
+              final suggestions = suggestionsRaw
+                  .map((e) => AiSuggestion.fromJson(e as Map<String, dynamic>?))
+                  .whereType<AiSuggestion>()
+                  .toList();
+              results[docId] = DocumentAnalysisResult(
+                category: file.category ?? '',
+                tags: file.tags ?? [],
+                suggestions: suggestions,
+              );
+              appLog('[SCAN] File: $docId — 4. API Response: Success.');
+            }
+          }
+        } catch (e, st) {
+          debugPrint('🛑 [ERROR] Failed to parse JSON: $e');
+          debugPrint('🛑 [ERROR] problematic body: ${response.body}');
+          debugPrint('🛑 [ERROR] stack: $st');
+          appLog('[SCAN] 4. API Response: JSON parse failed. Error: $e. Body length: ${response.body.length}. Body preview: ${response.body.length > 300 ? response.body.substring(0, 300) : response.body}');
+          rethrow;
         }
       } else if (response.statusCode == 401) {
         _authFailedUntil = DateTime.now().add(_authCooldown);

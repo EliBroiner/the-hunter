@@ -133,15 +133,42 @@ public class AnalyzeController : ControllerBase
         if (result == null)
             return BadRequest(new ErrorResponse { Error = "Result body required" });
 
-        var userId = (string?)null; // דיבאג — ללא אכיפת מכסת משתמש
-        if (!string.IsNullOrWhiteSpace(result.Category))
-            await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
-        foreach (var tag in result.Tags ?? [])
+        var category = result.Category ?? "—";
+        var tagCount = result.Tags?.Count ?? 0;
+        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}. Attempting to save to DB (collection: suggestions)...",
+            category, tagCount);
+
+        try
         {
-            if (string.IsNullOrWhiteSpace(tag)) continue;
-            await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
+            var userId = (string?)null;
+            if (!string.IsNullOrWhiteSpace(result.Category))
+                await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
+            foreach (var tag in result.Tags ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(tag)) continue;
+                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
+            }
+            _logger.LogInformation("[Server] analyze-debug/save OK — Category={Category}, Tags={TagCount}", result.Category, tagCount);
+            return Ok();
         }
-        _logger.LogInformation("[SPY] analyze-debug/save OK — Category={Category}, Tags={TagCount}", result.Category, result.Tags?.Count ?? 0);
-        return Ok();
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Server] CRITICAL: Failed to save analyze-debug/save to DB. Error: {Message}", ex.Message);
+            return StatusCode(500, new ErrorResponse { Error = "Save to DB failed", Details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Database Doctor — בודק כתיבה ל-Firestore (collection: suggestions). GET לבדיקה בדפדפן.
+    /// </summary>
+    [HttpGet("test-db-write")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> TestDbWrite()
+    {
+        var (docId, error) = await _learningService.TryWriteTestDocumentAsync();
+        if (docId != null)
+            return Ok($"Write Successful. ID: {docId}");
+        return StatusCode(500, $"Write Failed. Exception: {error}");
     }
 }
