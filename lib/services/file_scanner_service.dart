@@ -6,6 +6,7 @@ import 'database_service.dart';
 import 'file_processing_service.dart';
 import 'settings_service.dart';
 import 'log_service.dart';
+import '../utils/log_sanitization.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
 import 'text_extraction_service.dart';
@@ -818,8 +819,8 @@ class FileScannerService {
           
           _checkAndTriggerBackup(filesProcessed);
           
-        } catch (e) {
-          appLog('❌ CRASH on file: ${file.path} - Error: $e');
+        } catch (e, st) {
+          appLog('❌ CRASH on file: ${file.path} - ${sanitizeError(e, st)}');
           file.isIndexed = true;
           file.extractedText = '';
           file.aiStatus = 'error';
@@ -890,8 +891,8 @@ class FileScannerService {
           
           _checkAndTriggerBackup(filesProcessed);
           
-        } catch (e) {
-          appLog('❌ CRASH on file: ${file.path} - Error: $e');
+        } catch (e, st) {
+          appLog('❌ CRASH on file: ${file.path} - ${sanitizeError(e, st)}');
           file.isIndexed = true;
           file.extractedText = '';
           file.aiStatus = 'error';
@@ -916,13 +917,13 @@ class FileScannerService {
         filesWithText: filesWithText,
         message: 'עובדו $filesProcessed קבצים, נמצא טקסט ב-$filesWithText קבצים',
       );
-    } catch (e) {
-      appLog('PROCESS ERROR: $e');
+    } catch (e, st) {
+      appLog('PROCESS ERROR: ${sanitizeError(e, st)}');
       return ProcessResult(
         success: false,
         filesProcessed: 0,
         filesWithText: 0,
-        error: 'שגיאה בעיבוד קבצים: $e',
+        error: 'שגיאה בעיבוד קבצים: ${sanitizeError(e)}',
       );
     }
   }

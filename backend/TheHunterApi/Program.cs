@@ -64,6 +64,7 @@ builder.Services.AddScoped<QuotaService>();
 builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
+builder.Services.AddScoped<ISmartCategoriesService, SmartCategoriesService>();
 builder.Services.AddScoped<AdminFirestoreService>();
 // Firestore — ל-LearningService (suggestions). אותו ProjectId כמו AdminFirestoreService
 builder.Services.AddSingleton<FirestoreDb>(sp =>

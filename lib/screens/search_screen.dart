@@ -19,6 +19,8 @@ import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
 import '../services/widget_service.dart';
 import '../services/google_drive_service.dart';
+import '../models/ai_analysis_response.dart';
+import '../services/category_manager_service.dart';
 import '../services/file_processing_service.dart';
 import '../services/text_extraction_service.dart';
 import '../services/ocr_service.dart';
@@ -80,6 +82,9 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   bool _isSmartSearchActive = false;
   /// האם להציג גם תוצאות Secondary (ציון < 70% מהמקסימלי)
   bool _showAllSearchResults = false;
+
+  /// הצעות למידה מ-Gemini אחרי Re-analyze — path -> רשימת הצעות (להצגת כרטיס Smart Learning)
+  final Map<String, List<AiSuggestion>> _pendingSuggestionsByPath = {};
 
   late TabController _resultsTabController;
   
@@ -918,7 +923,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                         _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
                       ],
                       Divider(height: 20, color: dividerColor),
-                      _buildAIDetailSection(file, theme, textColor, secondaryColor),
+                      _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingSuggestionsByPath[file.path]),
                     ],
                   ),
                 ),
@@ -1061,8 +1066,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
-  /// בונה סקציית AI — קטגוריה + תגיות כ־Chips
-  Widget _buildAIDetailSection(FileMetadata file, ThemeData theme, Color textColor, Color secondaryColor) {
+  /// בונה סקציית AI — קטגוריה + תגיות כ־Chips + כרטיס Smart Learning אם יש הצעות
+  Widget _buildAIDetailSection(
+    FileMetadata file,
+    ThemeData theme,
+    Color textColor,
+    Color secondaryColor, [
+    List<AiSuggestion>? pendingSuggestions,
+  ]) {
+    final suggestions = pendingSuggestions ?? [];
     const aiColor = Color(0xFF26A69A);
     const aiIcon = Icons.psychology;
     return Container(
@@ -1093,9 +1105,117 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               )).toList(),
             ),
           ],
+          if (suggestions.isNotEmpty) ...[
+            Divider(height: 20, color: theme.dividerColor),
+            _buildSmartLearningCard(file, suggestions, theme, textColor, secondaryColor),
+          ],
         ],
       ),
     );
+  }
+
+  /// כרטיס "Smart Learning" — הצעות מג'מיני: Regex/מילים, כפתורי [הוסף חוק] / [התעלם]
+  Widget _buildSmartLearningCard(
+    FileMetadata file,
+    List<AiSuggestion> suggestions,
+    ThemeData theme,
+    Color textColor,
+    Color secondaryColor,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF9C27B0).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF9C27B0).withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lightbulb_outline, color: Color(0xFF9C27B0), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Smart Learning',
+                style: TextStyle(fontWeight: FontWeight.w600, color: textColor, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Gemini suggests a new rule to automate this category:',
+            style: TextStyle(color: secondaryColor, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          ...suggestions.take(3).expand((s) {
+            final widgets = <Widget>[];
+            if (s.suggestedRegex != null && s.suggestedRegex!.isNotEmpty) {
+              widgets.add(Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text('Regex: ${s.suggestedRegex}', style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: textColor)),
+              ));
+            }
+            for (final kw in s.suggestedKeywords.take(3)) {
+              if (kw.isNotEmpty) {
+                widgets.add(Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('Keyword: $kw', style: TextStyle(fontSize: 12, color: textColor)),
+                ));
+              }
+            }
+            return widgets;
+          }),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() => _pendingSuggestionsByPath.remove(file.path));
+                },
+                child: const Text('Dismiss'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: () => _onAddRule(file, suggestions),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Rule'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _onAddRule(FileMetadata file, List<AiSuggestion> suggestions) async {
+    final categoryId = file.category?.trim() ?? suggestions.firstOrNull?.suggestedCategory ?? '';
+    if (categoryId.isEmpty) return;
+    final catManager = CategoryManagerService.instance;
+    int added = 0;
+    for (final s in suggestions) {
+      final cat = s.suggestedCategory.isNotEmpty ? s.suggestedCategory : categoryId;
+      if (s.suggestedRegex != null && s.suggestedRegex!.isNotEmpty) {
+        final ok = await catManager.addRuleToCategory(cat, 'regex', s.suggestedRegex!);
+        if (ok) added++;
+      }
+      for (final kw in s.suggestedKeywords) {
+        if (kw.isNotEmpty) {
+          final ok = await catManager.addRuleToCategory(cat, 'keyword', kw);
+          if (ok) added++;
+        }
+      }
+    }
+    if (mounted) {
+      setState(() => _pendingSuggestionsByPath.remove(file.path));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(added > 0 ? 'Rule saved! Future documents will be detected locally.' : 'No rule added.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   /// בונה שורת פרט — צבעים מתוך theme; נתיב: maxLines 2 + ellipsis
@@ -1186,11 +1306,14 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       if (!mounted || canceled()) return;
 
       report('מנתח ב-AI...');
-      await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro, immediate: true).timeout(
+      final result = await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro, immediate: true).timeout(
         const Duration(seconds: 60),
         onTimeout: () => throw TimeoutException('process'),
       );
       if (!mounted || canceled()) return;
+      if (result != null && result.suggestions.isNotEmpty) {
+        setState(() => _pendingSuggestionsByPath[file.path] = result.suggestions);
+      }
       if (reportProgress == null) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(

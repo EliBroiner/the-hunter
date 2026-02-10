@@ -44,6 +44,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // Pipeline: שלב 2 — Server AI
   final TextEditingController _serverJsonController = TextEditingController();
   String _customPrompt = '';
+  String _sendStatus = ''; // תוצאת שלב 2 (Send to Server) — Success / Error: ...
+  bool _sendSuccess = false;
 
   // Pipeline: שלב 3 — Save to DB
   String _saveStatus = ''; // Success / Error
@@ -185,9 +187,13 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _labLog('Send: no text');
       return;
     }
+    // איפוס סטטוסים — לא להציג "Success" משלב 3 או משליחה קודמת
     setState(() {
       _serverJsonController.text = '...';
+      _sendStatus = '';
+      _sendSuccess = false;
       _saveStatus = '';
+      _saveSuccess = false;
       _sendingInProgress = true;
     });
     final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
@@ -198,7 +204,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
-      // Deep Network Tracing — הדפסה לפני שליחה
       final fullUrl = uri.toString();
       final authPreview = headers['Authorization'] != null
           ? 'Bearer ${headers['Authorization']!.length > 17 ? '${headers['Authorization']!.substring(7, 17)}...' : '...'}'
@@ -236,28 +241,54 @@ class _AiLabScreenState extends State<AiLabScreen> {
         }
       }
       if (response.statusCode != 200) {
-        setState(() {
-          _serverJsonController.text = 'Error: ${response.statusCode}\n${response.body}';
-          _saveStatus = 'Error';
-          _saveSuccess = false;
-        });
-        _labLog('Error: ${response.body}');
+        final errMsg = '${response.statusCode}: ${response.body.isNotEmpty ? response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body : 'no body'}';
+        _labLog('Error: $errMsg');
+        if (mounted) {
+          setState(() {
+            _serverJsonController.text = 'Error: ${response.statusCode}\n${response.body}';
+            _sendStatus = 'Error: $errMsg';
+            _sendSuccess = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Send to Server failed: $errMsg'),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
         return;
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final pretty = const JsonEncoder.withIndent('  ').convert(decoded);
-      setState(() {
-        _serverJsonController.text = pretty;
-        _saveStatus = '';
-      });
+      if (mounted) {
+        setState(() {
+          _serverJsonController.text = pretty;
+          _sendStatus = 'Success';
+          _sendSuccess = true;
+        });
+      }
       _labLog('OK: ${decoded['category'] ?? '?'}');
-    } catch (e) {
+    } catch (e, st) {
       _labLog('Send error: $e');
-      setState(() {
-        _serverJsonController.text = 'Exception: $e';
-        _saveStatus = 'Error';
-        _saveSuccess = false;
-      });
+      final errMsg = e.toString();
+      if (mounted) {
+        setState(() {
+          _serverJsonController.text = 'Exception: $e';
+          _sendStatus = 'Error: $errMsg';
+          _sendSuccess = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Send to Server failed: $errMsg'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      debugPrint('_sendToServer exception: $e\n$st');
     } finally {
       if (mounted) setState(() => _sendingInProgress = false);
     }
@@ -271,6 +302,15 @@ class _AiLabScreenState extends State<AiLabScreen> {
         _saveSuccess = false;
       });
       _labLog('Save: no JSON');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Save to DB failed: no JSON to save'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
     raw = raw
@@ -298,17 +338,44 @@ class _AiLabScreenState extends State<AiLabScreen> {
           .timeout(const Duration(seconds: 10));
       stopwatch.stop();
       _labLog('analyze-debug/save ${response.statusCode} (${stopwatch.elapsedMilliseconds}ms)');
-      setState(() {
-        _saveSuccess = response.statusCode == 200;
-        _saveStatus = response.statusCode == 200 ? 'Success' : 'Error: ${response.statusCode}';
-      });
-      if (response.statusCode != 200) _labLog('Save error: ${response.body}');
-    } catch (e) {
+      final success = response.statusCode == 200;
+      if (mounted) {
+        setState(() {
+          _saveSuccess = success;
+          _saveStatus = success
+              ? 'Success'
+              : 'Error: ${response.statusCode}${response.body.isNotEmpty ? ' — ${response.body.length > 150 ? response.body.substring(0, 150) : response.body}' : ''}';
+        });
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Save to DB failed: ${response.statusCode} ${response.body.isNotEmpty ? response.body : 'no body'}'),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      }
+      if (!success) _labLog('Save error: ${response.body}');
+    } catch (e, st) {
       _labLog('Save error: $e');
-      setState(() {
-        _saveSuccess = false;
-        _saveStatus = 'Error: $e';
-      });
+      final errMsg = e.toString();
+      if (mounted) {
+        setState(() {
+          _saveSuccess = false;
+          _saveStatus = 'Error: $errMsg';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save to DB failed: $errMsg'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      debugPrint('_saveToServerDb exception: $e\n$st');
     } finally {
       if (mounted) setState(() => _savingInProgress = false);
     }
@@ -582,20 +649,42 @@ class _AiLabScreenState extends State<AiLabScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed: _sendingInProgress ? null : _sendToServer,
-                icon: _sendingInProgress
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.send, size: 20),
-                label: Text(_sendingInProgress ? 'Sending...' : 'Send to Server'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                  foregroundColor: Colors.white,
-                ),
+              Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: _sendingInProgress ? null : _sendToServer,
+                    icon: _sendingInProgress
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send, size: 20),
+                    label: Text(_sendingInProgress ? 'Sending...' : 'Send to Server'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  if (_sendStatus.isNotEmpty)
+                    Icon(
+                      _sendSuccess ? Icons.check_circle : Icons.error,
+                      color: _sendSuccess ? Colors.green : Colors.red,
+                      size: 24,
+                    ),
+                  if (_sendStatus.isNotEmpty)
+                    Flexible(
+                      child: Text(
+                        _sendStatus,
+                        style: TextStyle(
+                          color: _sendSuccess ? Colors.green : Colors.red,
+                          fontSize: 14,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
               ),
             ],
           ),

@@ -24,6 +24,7 @@ import 'services/ai_auto_tagger_service.dart';
 import 'services/auth_service.dart';
 import 'services/backup_service.dart';
 import 'services/database_service.dart';
+import 'services/category_manager_service.dart';
 import 'services/knowledge_base_service.dart';
 import 'services/favorites_service.dart';
 import 'services/recent_files_service.dart';
@@ -94,6 +95,7 @@ void main() async {
   await DatabaseService.instance.init();
   await KnowledgeBaseService.instance.initialize();
   SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
+  await CategoryManagerService.instance.loadCategories();
   AiAutoTaggerService.instance.initialize(); // Backfill קבצים ישנים (3s delay)
   await SettingsService.instance.init();
   await RankingConfig.ensureLoaded();

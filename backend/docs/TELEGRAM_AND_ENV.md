@@ -22,6 +22,7 @@
 | `ADMIN__KEY`               | מפתח Admin ללוח הבקרה (שם עם שני קווי תחתון) |
 | `FIRESTORE_PROJECT_ID`     | מזהה פרויקט Firestore (למשל `thehunter-485508`) |
 | `GEMINI_API_KEY`           | מפתח API ל-Gemini (חיפוש AI) |
+| `DOC_ANALYSIS_PROMPT_FILE` | שם קובץ פרומפט מתוך תיקיית Prompts (למשל `doc_analysis_learning.txt`). ברירת מחדל: `doc_analysis_default.txt`. לא למחוק את הקבצים הישנים — להחליף רק דרך קונפיגורציה. |
 | `FIREBASE_PROJECT_NUMBER`  | מספר פרויקט Firebase מ-google-services.json (למשל `105628026575`) — נדרש ל-App Check |
 | `APP_URL`                  | כתובת ה-API (למשל `https://the-hunter-xxx.me-west1.run.app`) — לכפתורי Telegram |
 | `INITIAL_ADMIN_EMAIL`      | אימייל Admin ראשון להתקנה (אופציונלי) |

@@ -2,8 +2,9 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/log_sanitization.dart';
 
-/// שירות לוגים פשוט לאבחון
+/// שירות לוגים פשוט לאבחון — כל הודעה מקוצרת כדי לא לחרוג ממגבלת שורת לוג (Cloud Run ~256KB).
 class LogService {
   static final LogService _instance = LogService._();
   static LogService get instance => _instance;
@@ -13,10 +14,11 @@ class LogService {
   final List<String> _logs = [];
   final ValueNotifier<List<String>> logsNotifier = ValueNotifier([]);
   
-  /// מוסיף לוג
+  /// מוסיף לוג (הודעה מקוצרת אוטומטית — Smart Summary לא Full Dump)
   void log(String message) {
+    final safe = sanitizeMessage(message);
     final timestamp = DateTime.now().toString().substring(11, 19);
-    final logEntry = '[$timestamp] $message';
+    final logEntry = '[$timestamp] $safe';
     _logs.add(logEntry);
     
     // שומר רק 500 לוגים אחרונים (הגדלתי מ-100 כדי לתפוס יותר היסטוריה)

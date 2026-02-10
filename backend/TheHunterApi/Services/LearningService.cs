@@ -17,6 +17,8 @@ public interface ILearningService
 public class LearningService : ILearningService
 {
     private const string CollectionSuggestions = "suggestions";
+    /// <summary>אוסף קטגוריות חכמות — key, display_names, keywords, regex_patterns (קריאה/כתיבה מהלקוח או Admin).</summary>
+    public const string CollectionSmartCategories = "smart_categories";
     private const string StatusPendingApproval = "pending_approval";
 
     private readonly FirestoreDb _firestore;

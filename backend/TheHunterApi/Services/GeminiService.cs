@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Hosting;
 using Serilog;
 using TheHunterApi.Models;
 
@@ -18,6 +19,7 @@ public class GeminiService
 
     private const string GeminiModel = "gemini-3-flash-preview";
     private const string GeminiDocModel = "gemini-1.5-flash";
+    private const int MaxLogPayloadChars = 200; // היגיינת לוגים — לא לדפיס Body/JSON מלא (Cloud Run ~256KB limit)
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
@@ -103,26 +105,30 @@ public class GeminiService
         7. OUTPUT: Return ONLY the raw JSON object. No explanations, no markdown code fences, no text before or after.
         """;
 
-    private const string DocAnalysisPrompt = """
+    /// <summary>פרומפט ניתוח מסמכים — fallback אם הקובץ לא נטען.</summary>
+    private const string DocAnalysisPromptFallback = """
         Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
         Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
         """;
 
     private readonly ILearningService _learningService;
     private readonly ISearchActivityService _searchActivityService;
+    private readonly IWebHostEnvironment _webHost;
 
     public GeminiService(
         IHttpClientFactory httpClientFactory,
         GeminiConfig geminiConfig,
         ILogger<GeminiService> logger,
         ILearningService learningService,
-        ISearchActivityService searchActivityService)
+        ISearchActivityService searchActivityService,
+        IWebHostEnvironment webHost)
     {
         _httpClientFactory = httpClientFactory;
         _geminiConfig = geminiConfig;
         _logger = logger;
         _learningService = learningService;
         _searchActivityService = searchActivityService;
+        _webHost = webHost;
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -165,11 +171,11 @@ public class GeminiService
             var responseBody = await response.Content.ReadAsStringAsync();
 
             _logger.LogDebug("📡 GEMINI_RAW_RESPONSE | Status: {StatusCode} | Body: {Body}",
-                response.StatusCode, responseBody.Replace("\n", " ").Replace("\r", ""));
+                response.StatusCode, TruncateForLog(responseBody));
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, responseBody);
+                _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, TruncateForLog(responseBody));
                 return GeminiResult<SearchIntent>.Failure($"Gemini API error: {response.StatusCode}");
             }
 
@@ -222,7 +228,7 @@ public class GeminiService
     {
         try
         {
-            string systemInstruction = DocAnalysisPrompt;
+            string systemInstruction = GetDocAnalysisPrompt();
             if (!string.IsNullOrEmpty(customPromptOverride))
             {
                 _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", doc.Id);
@@ -286,7 +292,7 @@ public class GeminiService
         if (!IsConfigured)
             return new DocumentAnalysisResult();
 
-        var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? DocAnalysisPrompt : customPrompt.Trim();
+        var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? GetDocAnalysisPrompt() : customPrompt.Trim();
         try
         {
             var client = _httpClientFactory.CreateClient("GeminiApi");
@@ -331,6 +337,40 @@ public class GeminiService
             _logger.LogError(ex, "AnalyzeDocumentWithCustomPrompt failed");
             return new DocumentAnalysisResult();
         }
+    }
+
+    /// <summary>
+    /// טוען פרומפט ניתוח מסמכים מקובץ. קובץ נבחר לפי DOC_ANALYSIS_PROMPT_FILE (למשל doc_analysis_learning.txt).
+    /// ברירת מחדל: doc_analysis_default.txt. אם הקובץ חסר — משתמשים ב-fallback מוטבע (לא מוחקים את הקודם).
+    /// </summary>
+    private string GetDocAnalysisPrompt()
+    {
+        var fileName = Environment.GetEnvironmentVariable("DOC_ANALYSIS_PROMPT_FILE")?.Trim()
+            ?? "doc_analysis_default.txt";
+        var dirs = new[]
+        {
+            Path.Combine(_webHost.ContentRootPath, "Prompts"),
+            Path.Combine(AppContext.BaseDirectory, "Prompts")
+        };
+        foreach (var dir in dirs)
+        {
+            var path = Path.Combine(dir, fileName);
+            if (File.Exists(path))
+            {
+                try
+                {
+                    var content = File.ReadAllText(path);
+                    _logger.LogDebug("פרומפט ניתוח מסמכים נטען מקובץ: {Path}", path);
+                    return content;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "כשלון בקריאת קובץ פרומפט {Path}, משתמשים ב-fallback", path);
+                }
+            }
+        }
+        _logger.LogDebug("פרומפט ניתוח מסמכים: שימוש ב-fallback מוטבע");
+        return DocAnalysisPromptFallback;
     }
 
     /// <summary>
@@ -403,7 +443,7 @@ public class GeminiService
             var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions);
             rawText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
 
-            _logger.LogDebug("[Gemini Raw]: {RawText}", rawText);
+            _logger.LogDebug("[Gemini Raw]: {RawText}", TruncateForLog(rawText));
 
             if (string.IsNullOrEmpty(rawText))
             {
@@ -412,12 +452,12 @@ public class GeminiService
             }
 
             _logger.LogDebug("🔍 EXTRACTED_TEXT | Length: {Length} | Content: {Content}",
-                rawText.Length, rawText.Replace("\n", " ").Replace("\r", ""));
+                rawText.Length, TruncateForLog(rawText));
 
             cleanJson = SanitizeJsonResponse(rawText);
 
             _logger.LogDebug("✅ SANITIZED_JSON | Length: {Length} | Content: {Content}",
-                cleanJson.Length, cleanJson.Replace("\n", " ").Replace("\r", ""));
+                cleanJson.Length, TruncateForLog(cleanJson));
 
             var intent = JsonSerializer.Deserialize<SearchIntent>(cleanJson, _jsonOptions);
 
@@ -435,7 +475,7 @@ public class GeminiService
         catch (JsonException ex)
         {
             _logger.LogError(ex, "❌ JSON_PARSE_ERROR | Message: {Message} | Path: {Path} | Line: {Line} | BytePos: {BytePos} | FAILED_JSON: {Json}",
-                ex.Message, ex.Path, ex.LineNumber, ex.BytePositionInLine, cleanJson);
+                ex.Message, ex.Path, ex.LineNumber, ex.BytePositionInLine, TruncateForLog(cleanJson));
             return GeminiResult<SearchIntent>.Failure($"JSON parse error: {ex.Message}");
         }
         catch (Exception ex)
@@ -524,6 +564,14 @@ public class GeminiService
         Log.Debug("🧹 SANITIZE_COMPLETE | Final Length: {Length}", result.Length);
 
         return result;
+    }
+
+    /// <summary>היגיינת לוגים — חיתוך Body/JSON כדי לא לחרוג ממגבלת שורת לוג (Cloud Run).</summary>
+    private static string TruncateForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "(empty)";
+        if (value.Length <= MaxLogPayloadChars) return value;
+        return $"{value.Substring(0, MaxLogPayloadChars)}… [truncated, total {value.Length} chars]";
     }
 }
 
