@@ -212,7 +212,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context,
                   icon: Icons.science,
                   title: 'AI Lab (Admin)',
-                  subtitle: 'Pipeline, Server AI, Local DB, Dictionary',
+                  subtitle: 'Pipeline, Dictionary',
                   onTap: () => Navigator.of(context).pushNamed('/ai-lab'),
                 ),
               ],

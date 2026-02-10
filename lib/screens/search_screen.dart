@@ -22,8 +22,6 @@ import '../services/google_drive_service.dart';
 import '../models/ai_analysis_response.dart';
 import '../services/category_manager_service.dart';
 import '../services/file_processing_service.dart';
-import '../services/text_extraction_service.dart';
-import '../services/ocr_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
 import '../ui/sheets/file_details_sheet.dart';
@@ -1245,17 +1243,13 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  /// ניתוח מחדש: רק filePath (String) עובר לשירותים — אין context/State/Widget
-  /// Timeout 30s; isCanceled — דגל ביטול; שגיאה → זורק ל־FileDetailsSheet (אייקון + נסה שוב)
+  /// ניתוח מחדש סינכרוני: forceReprocessFile (איפוס → OCR → Waterfall → AI). מציג Snackbar עם תוצאה ומרענן.
   Future<void> _reanalyzeFile(
     FileMetadata file, {
     void Function(String)? reportProgress,
     bool Function()? isCanceled,
   }) async {
-    final filePath = file.path;
     final isPro = _settingsService.isPremium;
-
-    _databaseService.resetFileForReanalysis(file);
 
     void report(String msg) {
       if (reportProgress != null) {
@@ -1280,64 +1274,36 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       }
     }
 
-    bool canceled() => isCanceled?.call() ?? false;
-
     try {
-      report('מחלץ טקסט...');
-      final ext = file.extension.toLowerCase();
-      String text;
-      if (TextExtractionService.isTextExtractable(ext)) {
-        text = await TextExtractionService.instance.extractText(filePath).timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => throw TimeoutException('extract'),
-        );
-      } else if (OCRService.isSupportedImage(ext)) {
-        text = await OCRService.instance.extractText(filePath).timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => throw TimeoutException('extract'),
-        );
-      } else {
-        text = file.extractedText ?? '';
-      }
-      if (canceled()) return;
-      file.extractedText = text.isEmpty ? null : text;
-      file.isIndexed = true;
-      _databaseService.saveFile(file);
-      if (!mounted || canceled()) return;
-
-      report('מנתח ב-AI...');
-      final result = await FileProcessingService.instance.processFileByPath(filePath, isPro: isPro, immediate: true).timeout(
-        const Duration(seconds: 60),
-        onTimeout: () => throw TimeoutException('process'),
+      final result = await FileProcessingService.instance.forceReprocessFile(
+        file,
+        isPro: isPro,
+        reportProgress: report,
+        isCanceled: isCanceled,
       );
-      if (!mounted || canceled()) return;
-      if (result != null && result.suggestions.isNotEmpty) {
+      if (!mounted) return;
+      if (result.suggestions.isNotEmpty) {
         setState(() => _pendingSuggestionsByPath[file.path] = result.suggestions);
       }
-      if (reportProgress == null) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ניתוח מחדש הושלם'),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          backgroundColor: result.success ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       setState(() {});
     } catch (e) {
-      if (!mounted || canceled()) return;
-      final msg = 'הניתוח נכשל: $e';
-      if (reportProgress == null) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('הניתוח נכשל: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       rethrow;
     }
   }

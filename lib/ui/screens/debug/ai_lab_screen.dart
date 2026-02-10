@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../../../models/file_metadata.dart';
 import '../../../models/search_synonym.dart';
 import '../../../services/app_check_http_helper.dart';
 import '../../../services/auth_service.dart';
@@ -18,7 +17,7 @@ const String _kBackendBase = 'https://the-hunter-105628026575.me-west1.run.app';
 /// כתובת הבסיס הנוכחית — לתצוגה ובדיקת חיבור אמיתי
 String get currentBaseUrl => _kBackendBase;
 
-/// מסך דיבאג — Pipeline, Local DB, Dictionary. מוגבל למשתמש Admin.
+/// מסך דיבאג — Pipeline, Dictionary. מוגבל למשתמש Admin.
 class AiLabScreen extends StatefulWidget {
   const AiLabScreen({super.key});
 
@@ -56,12 +55,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
   bool _savingInProgress = false;
   static const Duration _suspiciouslyFastThreshold = Duration(milliseconds: 100);
 
-  // Local DB
-  List<FileMetadata> _fileList = [];
-  int _fileTotalCount = 0;
-  int _page = 0;
-  static const int _pageSize = 20;
-
   // Dictionary
   DateTime? _lastSyncTime;
   int _synonymsCount = 0;
@@ -78,7 +71,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
   void initState() {
     super.initState();
     _checkAdmin();
-    _loadFilePage();
     _loadSynonymsStats();
     _dictionarySearchController.addListener(_onDictionarySearchChanged);
   }
@@ -381,34 +373,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
-  void _loadFilePage() {
-    try {
-      final isar = DatabaseService.instance.isar;
-      final q = isar.fileMetadatas.buildQuery<FileMetadata>();
-      final all = q.findAll();
-      q.close();
-      final total = all.length;
-      final start = (_page * _pageSize).clamp(0, total);
-      final end = (start + _pageSize).clamp(0, total);
-      setState(() {
-        _fileTotalCount = total;
-        _fileList = total == 0 ? [] : all.sublist(start, end);
-      });
-    } catch (e) {
-      _labLog('DB load error: $e');
-    }
-  }
-
-  void _deleteFile(FileMetadata file) {
-    try {
-      DatabaseService.instance.deleteFile(file.id);
-      _labLog('Deleted file id=${file.id}');
-      _loadFilePage();
-    } catch (e) {
-      _labLog('Delete error: $e');
-    }
-  }
-
   void _loadSynonymsStats() {
     _runSynonymsQuery(_dictionarySearchController.text.trim());
   }
@@ -428,7 +392,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
               .toList();
       setState(() {
         _synonymsCount = list.length;
-        _synonymsPreview = list.take(50).toList();
+        _synonymsPreview = list;
       });
     } catch (e) {
       _labLog('Synonyms query error: $e');
@@ -452,7 +416,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 2,
       child: Scaffold(
         backgroundColor: Colors.grey[900],
         appBar: AppBar(
@@ -463,26 +427,28 @@ class _AiLabScreenState extends State<AiLabScreen> {
             unselectedLabelColor: Colors.white54,
             indicatorColor: Colors.blueAccent,
             tabs: const [
-              Tab(text: 'Pipeline'),
-              Tab(text: 'Local DB'),
               Tab(text: 'Dictionary'),
+              Tab(text: 'Pipeline'),
             ],
           ),
         ),
         body: Column(
           children: [
             Expanded(
+              flex: 2,
               child: SafeArea(
                 child: TabBarView(
                   children: [
-                    _buildPipelineTab(),
-                    _buildLocalDbTab(),
                     _buildDictionaryTab(),
+                    _buildPipelineTab(),
                   ],
                 ),
               ),
             ),
-            _buildLogConsole(),
+            Expanded(
+              flex: 1,
+              child: _buildLogConsole(),
+            ),
           ],
         ),
       ),
@@ -903,148 +869,143 @@ class _AiLabScreenState extends State<AiLabScreen> {
     );
   }
 
-  Widget _buildLocalDbTab() {
-    final totalPages = _fileTotalCount == 0 ? 1 : (_fileTotalCount / _pageSize).ceil();
-    return ListView(
-      padding: const EdgeInsets.all(16),
+  /// קיבוץ לפי קטגוריה — לתצוגת Dictionary (לאחר סינון חיפוש)
+  Map<String, List<SearchSynonym>> get _synonymsByCategory {
+    final map = <String, List<SearchSynonym>>{};
+    for (final s in _synonymsPreview) {
+      map.putIfAbsent(s.category, () => []).add(s);
+    }
+    return map;
+  }
+
+  Widget _buildDictionaryTab() {
+    final grouped = _synonymsByCategory;
+    final categoryKeys = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'FileMetadata · $_fileTotalCount total · page ${_page + 1} of $totalPages',
-          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            IconButton(
-              onPressed: _page > 0
-                  ? () {
-                      setState(() {
-                        _page--;
-                        _loadFilePage();
-                      });
-                    }
-                  : null,
-              icon: const Icon(Icons.chevron_left, color: Colors.white54),
-            ),
-            IconButton(
-              onPressed: _page < totalPages - 1
-                  ? () {
-                      setState(() {
-                        _page++;
-                        _loadFilePage();
-                      });
-                    }
-                  : null,
-              icon: const Icon(Icons.chevron_right, color: Colors.white54),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ..._fileList.map((f) {
-          final tagCount = f.tags?.length ?? 0;
-          return Card(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Card(
             color: const Color(0xFF161B22),
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ListTile(
-              title: Text(
-                f.name,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                'ID: ${f.id} · ${f.addedAt.toIso8601String().substring(0, 10)} · Tags: $tagCount',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                onPressed: () => _deleteFile(f),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Last Sync: ${_lastSyncTime?.toIso8601String() ?? '—'}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Total Synonyms: $_synonymsCount · ${grouped.length} categories',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _forceSyncFromCloud,
+                    icon: const Icon(Icons.cloud_download, size: 20),
+                    label: const Text('Force Sync from Cloud'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
-          );
-        }),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _dictionarySearchController,
+            decoration: InputDecoration(
+              hintText: 'Search local dictionary (term contains…)',
+              prefixIcon: const Icon(Icons.search, color: Colors.white54),
+              border: const OutlineInputBorder(),
+              filled: true,
+              fillColor: const Color(0xFF0D1117),
+            ),
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            itemCount: categoryKeys.length,
+            itemBuilder: (_, index) {
+              final category = categoryKeys[index];
+              final synonyms = grouped[category]!;
+              final categoryColor = _categoryColor(category.hashCode);
+              return Card(
+                color: const Color(0xFF161B22),
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: categoryColor.withValues(alpha: 0.5)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category,
+                        style: TextStyle(
+                          color: categoryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: synonyms.map((s) {
+                          final label = s.expansions.isEmpty
+                              ? s.term
+                              : '${s.term} (${s.expansions.take(2).join(', ')}${s.expansions.length > 2 ? '…' : ''})';
+                          return Chip(
+                            label: Text(
+                              label,
+                              style: const TextStyle(fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            backgroundColor: categoryColor.withValues(alpha: 0.15),
+                            side: BorderSide(color: categoryColor.withValues(alpha: 0.4)),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildDictionaryTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          color: const Color(0xFF161B22),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Last Sync: ${_lastSyncTime?.toIso8601String() ?? '—'}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Total Synonyms: $_synonymsCount',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _forceSyncFromCloud,
-                  icon: const Icon(Icons.cloud_download, size: 20),
-                  label: const Text('Force Sync from Cloud'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _dictionarySearchController,
-          decoration: InputDecoration(
-            hintText: 'Search local dictionary (term contains…)',
-            prefixIcon: const Icon(Icons.search, color: Colors.white54),
-            border: const OutlineInputBorder(),
-            filled: true,
-            fillColor: const Color(0xFF0D1117),
-          ),
-          style: const TextStyle(color: Colors.white70),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          _dictionarySearchController.text.trim().isEmpty
-              ? 'First 50 Synonyms (preview)'
-              : 'Matches (first 50)',
-          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        ..._synonymsPreview.map((s) {
-          return Card(
-            color: const Color(0xFF161B22),
-            margin: const EdgeInsets.only(bottom: 6),
-            child: ListTile(
-              dense: true,
-              title: Text(
-                s.term,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-              ),
-              subtitle: Text(
-                '${s.category} · ${s.expansions.take(3).join(', ')}${s.expansions.length > 3 ? '…' : ''}',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
-          );
-        }),
-      ],
-    );
+  static Color _categoryColor(int hash) {
+    final colors = [
+      Colors.blueAccent,
+      Colors.amberAccent,
+      Colors.greenAccent,
+      Colors.purpleAccent,
+      Colors.cyanAccent,
+      Colors.orangeAccent,
+    ];
+    return colors[hash.abs() % colors.length];
   }
 
   Widget _buildLogConsole() {
     return Container(
-      height: 120,
       color: const Color(0xFF0D1117),
       padding: const EdgeInsets.all(8),
       child: Column(

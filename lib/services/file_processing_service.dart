@@ -4,7 +4,21 @@ import 'ai_auto_tagger_service.dart';
 import 'category_manager_service.dart';
 import 'database_service.dart';
 import 'log_service.dart';
+import 'ocr_service.dart';
+import 'text_extraction_service.dart';
 import 'utils/file_validator.dart';
+
+/// תוצאת ניתוח מחדש — להצגת Snackbar ב-UI
+class ForceReprocessResult {
+  final bool success;
+  final String message;
+  final List<AiSuggestion> suggestions;
+  const ForceReprocessResult({
+    required this.success,
+    required this.message,
+    this.suggestions = const [],
+  });
+}
 
 /// צינור עיבוד קבצים: ולידציה → Waterfall (מילון/Regex) → AI (רק ל-PRO)
 /// מתאים לעיבוד אלפי קבצים — עוצר בשקט ב-unreadable / dictionaryMatched
@@ -82,5 +96,81 @@ class FileProcessingService {
     appLog('[SCAN] File: $path — 3. DECISION: Adding to AI queue (batch send).');
     await _aiTagger.addToQueue(file, skipLocalHeuristic: true);
     return null;
+  }
+
+  /// ניתוח מחדש סינכרוני לקובץ בודד: איפוס → OCR → Waterfall → AI (ללא תור). מחזיר תוצאה להצגה.
+  Future<ForceReprocessResult> forceReprocessFile(
+    FileMetadata file, {
+    required bool isPro,
+    void Function(String)? reportProgress,
+    bool Function()? isCanceled,
+  }) async {
+    final path = file.path;
+    bool canceled() => isCanceled?.call() ?? false;
+
+    reportProgress?.call('מאפס...');
+    _db.resetFileForReanalysis(file);
+    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
+
+    reportProgress?.call('מחלץ טקסט...');
+    final ext = file.extension.toLowerCase();
+    String text;
+    if (TextExtractionService.isTextExtractable(ext)) {
+      text = await TextExtractionService.instance.extractText(path);
+    } else if (OCRService.isSupportedImage(ext)) {
+      text = await OCRService.instance.extractText(path);
+    } else {
+      text = file.extractedText ?? '';
+    }
+    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
+
+    file.extractedText = text.isEmpty ? null : text;
+    file.isIndexed = true;
+    _db.saveFile(file);
+
+    final status = _validator.validateQuality(text);
+    if (status == AnalysisStatus.unreadable) {
+      file.isAiAnalyzed = false;
+      file.aiStatus = 'unreadable';
+      _db.updateFile(file);
+      appLog('[FORCE] File: $path — UNREADABLE.');
+      return const ForceReprocessResult(success: false, message: 'הטקסט לא קריא');
+    }
+
+    reportProgress?.call('בודק מילון וחוקים...');
+    if (text.isNotEmpty) {
+      final match = await _categoryManager.identifyCategory(text);
+      if (match != null) {
+        file.category = match.category;
+        file.tags = match.tags;
+        file.isAiAnalyzed = true;
+        file.aiStatus = 'local_match';
+        _db.updateFile(file);
+        appLog('[FORCE] File: $path — Local match: ${match.category}');
+        return ForceReprocessResult(success: true, message: 'זוהה מקומית: ${match.category}');
+      }
+    }
+
+    if (!isPro) {
+      return const ForceReprocessResult(success: false, message: 'ניתוח AI זמין למשתמש PRO בלבד');
+    }
+
+    reportProgress?.call('שולח ל-AI...');
+    final result = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
+
+    if (result != null) {
+      final cat = file.category ?? '—';
+      appLog('[FORCE] File: $path — AI: $cat');
+      return ForceReprocessResult(
+        success: true,
+        message: 'נותח ב-AI: $cat',
+        suggestions: result.suggestions,
+      );
+    }
+    return ForceReprocessResult(
+      success: false,
+      message: 'שגיאה בניתוח AI${file.aiStatus != null ? ' (${file.aiStatus})' : ''}',
+    );
   }
 }

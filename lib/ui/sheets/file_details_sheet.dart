@@ -93,10 +93,19 @@ class _FileDetailsSheetState extends State<FileDetailsSheet> {
           ),
           // ניתוח מחדש
           ListTile(
-            leading: Icon(
-              Icons.refresh,
-              color: _isReanalyzing ? theme.disabledColor : theme.colorScheme.primary,
-            ),
+            leading: _isReanalyzing
+                ? SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: theme.colorScheme.primary,
+                    ),
+                  )
+                : Icon(
+                    Icons.refresh,
+                    color: theme.colorScheme.primary,
+                  ),
             title: Text(
               'ניתוח מחדש',
               style: TextStyle(
