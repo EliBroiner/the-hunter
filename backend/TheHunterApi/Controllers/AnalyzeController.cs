@@ -52,6 +52,14 @@ public class AnalyzeController : ControllerBase
                 return StatusCode(403, new ErrorResponse { Error = "Quota Exceeded", Details = "Free tier limit: 1000 scans/month" });
             }
 
+            // Trace: מה הגיע מהלקוח
+            for (var i = 0; i < request.Documents.Count; i++)
+            {
+                var d = request.Documents[i];
+                _logger.LogInformation("➡️ [SERVER_IN] Received Batch Item. ID: {Id}, Filename: {Filename}, Text Length: {TextLength}",
+                    d.Id ?? "(null)", d.Filename ?? "(null)", d.Text?.Length ?? 0);
+            }
+
             // דריסת פרומפט — זמנית: תמיד מאפשרים (לבדיקות בלי הגדרת Admin ב-DB). להחזיר בדיקת Admin כשמוכן.
             string? customPromptOverride = null;
             if (!string.IsNullOrWhiteSpace(request.CustomPromptOverride))

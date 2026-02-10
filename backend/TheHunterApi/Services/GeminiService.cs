@@ -226,29 +226,58 @@ public class GeminiService
         string? userId = null,
         string? customPromptOverride = null)
     {
+        var text = (doc.Text ?? "").Trim();
+        var filename = doc.Filename ?? doc.Id ?? "";
+
+        // CASE A: יש טקסט (OCR) — שולחים רק Text ל-Gemini. לא FileUri / FileData (מונע 404).
+        if (!string.IsNullOrEmpty(text))
+        {
+            _logger.LogInformation("[LOGIC] Item {DocumentId} has text ({TextLength} chars). Using Text Generation only (no FileUri).",
+                doc.Id, text.Length);
+            return await SendTextOnlyToGeminiAsync(doc.Id, filename, text, userId, customPromptOverride);
+        }
+
+        // CASE B: אין טקסט — לא קוראים ל-Gemini (אין fallback ל-FileUri — הלקוח שולח רק טקסט).
+        _logger.LogWarning("[LOGIC] Item {DocumentId} has NO text. Skipping Gemini (returning empty result).", doc.Id);
+        return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+    }
+
+    /// <summary>
+    /// שולח ל-Gemini רק Part מסוג Text. לא מוסיף FileData/FileUri — מונע 404.
+    /// </summary>
+    private async Task<DocumentAnalysisResponse> SendTextOnlyToGeminiAsync(
+        string documentId,
+        string filename,
+        string text,
+        string? userId,
+        string? customPromptOverride)
+    {
         try
         {
-            string systemInstruction = GetDocAnalysisPrompt();
+            string systemInstructions = GetDocAnalysisPrompt();
             if (!string.IsNullOrEmpty(customPromptOverride))
             {
-                _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", doc.Id);
-                systemInstruction = customPromptOverride;
+                _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", documentId);
+                systemInstructions = customPromptOverride;
             }
+
+            // פרומפט אחד — הוראות + תוכן. רק Part.Text, בלי FileData/FileUri.
+            var prompt = $"Analyze this document text.\nFilename: {filename}\nContent:\n{text}\n\n{systemInstructions}";
+            var previewLen = Math.Min(100, prompt.Length);
+            _logger.LogInformation("🤖 [SERVER_TO_AI] Sending prompt to Gemini. Length: {Length}. Preview: {Preview}...",
+                prompt.Length, prompt.Substring(0, previewLen));
 
             var client = _httpClientFactory.CreateClient("GeminiApi");
             var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
 
+            // רק Parts עם Text — אין שום FileData/FileUri
             var request = new GeminiRequest
             {
                 Contents = new List<GeminiContent>
                 {
                     new()
                     {
-                        Parts = new List<GeminiPart>
-                        {
-                            new GeminiPart { Text = systemInstruction },
-                            new GeminiPart { Text = doc.Text }
-                        }
+                        Parts = new List<GeminiPart> { new GeminiPart { Text = prompt } }
                     }
                 },
                 GenerationConfig = new GenerationConfig
@@ -264,10 +293,12 @@ public class GeminiService
             var response = await client.PostAsync(url, httpContent);
             var responseBody = await response.Content.ReadAsStringAsync();
 
+            _logger.LogInformation("⬅️ [AI_TO_SERVER] Raw JSON from Gemini: {Raw}", TruncateForLog(responseBody));
+
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Gemini doc analysis failed: {StatusCode} for doc {Id}", response.StatusCode, doc.Id);
-                return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+                _logger.LogError("Gemini doc analysis failed: {StatusCode} for doc {Id}. Batch continues.", response.StatusCode, documentId);
+                return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
             }
 
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
@@ -275,12 +306,16 @@ public class GeminiService
             var cleanJson = SanitizeJsonResponse(rawText);
             var result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
             await LearnFromDocumentResultAsync(result, userId);
-            return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = result };
+
+            var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = result }, _jsonOptions);
+            _logger.LogInformation("✅ [SERVER_OUT] Sending result to Client: {Final}", TruncateForLog(finalJson));
+
+            return new DocumentAnalysisResponse { DocumentId = documentId, Result = result };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error analyzing document {Id}", doc.Id);
-            return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+            _logger.LogError(ex, "Error analyzing document {Id}. Batch continues.", documentId);
+            return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
         }
     }
 
