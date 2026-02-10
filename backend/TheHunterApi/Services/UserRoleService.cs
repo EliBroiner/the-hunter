@@ -24,6 +24,7 @@ public class UserRoleService
 
     /// <summary>
     /// בודק אם למשתמש יש את התפקיד המבוקש. יוצר/מעדכן מסמך אוטומטית (lazy + Admin bootstrap).
+    /// מיזוג Ghost→Real ו־self-heal של שדה id מתבצעים בטרנזקציה כדי למנוע אובדן נתונים.
     /// </summary>
     public async Task<bool> HasRoleAsync(string userId, string role, string? email = null)
     {
@@ -31,20 +32,92 @@ public class UserRoleService
             return false;
 
         var docRef = _firestore.Collection(ColUsers).Document(userId);
-        var snap = await docRef.GetSnapshotAsync();
+        DocumentReference? ghostRef = null;
+        IReadOnlyDictionary<string, object>? ghostData = null;
 
-        // Check 1: Real User קיים — עדכון lastLogin והמשך
-        if (snap.Exists)
+        if (!string.IsNullOrWhiteSpace(email))
         {
-            try
+            var ghostQuery = await _firestore.Collection(ColUsers)
+                .WhereEqualTo("email", email.Trim())
+                .Limit(1)
+                .GetSnapshotAsync();
+            if (ghostQuery.Documents.Count > 0)
             {
-                await docRef.UpdateAsync(new Dictionary<string, object>
+                var ghostDoc = ghostQuery.Documents[0];
+                if (ghostDoc.Id != userId)
+                {
+                    ghostRef = ghostDoc.Reference;
+                    ghostData = ghostDoc.ToDictionary();
+                }
+            }
+        }
+
+        await _firestore.RunTransactionAsync(async transaction =>
+        {
+            var realSnap = await transaction.GetSnapshotAsync(docRef);
+
+            if (realSnap.Exists)
+            {
+                // Real User קיים — עדכון lastLogin + self-heal id אם חסר
+                var updates = new Dictionary<string, object>
                 {
                     { "lastLogin", FieldValue.ServerTimestamp },
-                });
+                };
+                var current = realSnap.ToDictionary();
+                if (!current.TryGetValue("id", out var idVal) || idVal == null || string.IsNullOrWhiteSpace(idVal.ToString()))
+                {
+                    updates["id"] = userId;
+                    _logger.LogInformation("Self-healing: set id={UserId} on existing user doc", userId);
+                }
+                transaction.Update(docRef, updates);
+                return;
             }
-            catch { /* ignore if lastLogin not in rules */ }
-            var dataExisting = snap.ToDictionary();
+
+            if (ghostRef != null && ghostData != null)
+            {
+                // Ghost קיים ו-Real לא — מיזוג אטומי: קודם יצירת Real (Merge), אחר כך מחיקת Ghost
+                var oldRoles = GetRolesList(ghostData);
+                var oldRole = ghostData.TryGetValue("role", out var r) ? r?.ToString() ?? "User" : "User";
+                var rolesToSet = oldRoles != null && oldRoles.Count > 0
+                    ? oldRoles
+                    : new List<object> { oldRole };
+                var newData = new Dictionary<string, object>
+                {
+                    { "id", userId },
+                    { "email", email!.Trim() },
+                    { "roles", rolesToSet },
+                    { "createdAt", Timestamp.FromDateTime(DateTime.UtcNow) },
+                    { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
+                };
+                transaction.Set(docRef, newData, SetOptions.MergeAll);
+                transaction.Delete(ghostRef);
+                _logger.LogInformation(
+                    "[Auth] Merged ghost user {OldId} into {UserId} (transaction). Preserved Role: {OldRole}.",
+                    ghostRef.Id, userId, oldRole);
+                return;
+            }
+
+            // Fallback: יצירת משתמש חדש
+            var initialRoles = new List<object> { "User" };
+            if (_IsAdminEmail(email))
+                initialRoles.Add("Admin");
+            var data = new Dictionary<string, object>
+            {
+                { "id", userId },
+                { "roles", initialRoles },
+                { "createdAt", Timestamp.FromDateTime(DateTime.UtcNow) },
+            };
+            if (!string.IsNullOrWhiteSpace(email))
+                data["email"] = email;
+            transaction.Set(docRef, data, SetOptions.MergeAll);
+            _logger.LogInformation("Auto-created user {UserId} (Admin: {IsAdmin})", userId, _IsAdminEmail(email));
+        });
+
+        // Admin bootstrap (מחוץ לטרנזקציה — עדכון תפקיד לפי ADMIN_EMAIL)
+        var snapAfter = await docRef.GetSnapshotAsync();
+        if (snapAfter.Exists)
+        {
+            var dataExisting = snapAfter.ToDictionary();
             var rolesList = GetRolesList(dataExisting);
             if (_IsAdminEmail(email) && rolesList != null && !rolesList.Any(r => string.Equals(r?.ToString(), "Admin", StringComparison.OrdinalIgnoreCase)))
             {
@@ -62,58 +135,7 @@ public class UserRoleService
             return CheckHasRoleFromDoc(dataExisting, rolesList, role);
         }
 
-        // Check 2: אין Real User — חיפוש Ghost לפי email ומיזוג
-        if (!string.IsNullOrWhiteSpace(email))
-        {
-            var ghostQuery = await _firestore.Collection(ColUsers)
-                .WhereEqualTo("email", email.Trim())
-                .Limit(1)
-                .GetSnapshotAsync();
-            if (ghostQuery.Documents.Count > 0)
-            {
-                var ghostDoc = ghostQuery.Documents[0];
-                if (ghostDoc.Id != userId)
-                {
-                    var ghostData = ghostDoc.ToDictionary();
-                    var oldRoles = GetRolesList(ghostData);
-                    var oldRole = ghostData.TryGetValue("role", out var r) ? r?.ToString() ?? "User" : "User";
-                    var rolesToSet = oldRoles != null && oldRoles.Count > 0
-                        ? oldRoles
-                        : new List<object> { oldRole };
-                    var newData = new Dictionary<string, object>
-                    {
-                        { "id", userId },
-                        { "email", email.Trim() },
-                        { "roles", rolesToSet },
-                        { "createdAt", Timestamp.FromDateTime(DateTime.UtcNow) },
-                        { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
-                    };
-                    await docRef.SetAsync(newData);
-                    await ghostDoc.Reference.DeleteAsync();
-                    _logger.LogInformation(
-                        "[Auth] Merged ghost user {OldId} into {UserId}. Preserved Role: {OldRole}.",
-                        ghostDoc.Id, userId, oldRole);
-                    return CheckHasRole(rolesToSet, role);
-                }
-            }
-        }
-
-        // Fallback: יצירת משתמש חדש (ברירת מחדל)
-        var initialRoles = new List<object> { "User" };
-        var isAdmin = _IsAdminEmail(email);
-        if (isAdmin)
-            initialRoles.Add("Admin");
-        var data = new Dictionary<string, object>
-        {
-            { "id", userId },
-            { "roles", initialRoles },
-            { "createdAt", Timestamp.FromDateTime(DateTime.UtcNow) },
-        };
-        if (!string.IsNullOrWhiteSpace(email))
-            data["email"] = email;
-        await docRef.SetAsync(data);
-        _logger.LogInformation("Auto-created user {UserId} (Admin: {IsAdmin})", userId, isAdmin);
-        return CheckHasRole(initialRoles, role);
+        return false;
     }
 
     private bool _IsAdminEmail(string? email)

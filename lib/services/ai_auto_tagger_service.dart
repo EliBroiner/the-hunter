@@ -218,8 +218,12 @@ class AiAutoTaggerService {
       }
       if (response == null) throw Exception('No response after $_maxRetries attempts');
 
+      // X-Ray: גוף גולמי לפני כל פרסור — לראות בדיוק מה השרת החזיר
+      print('🔍 [X-RAY] Raw JSON from Server: ${response.body}');
+      // גוף התגובה עם UTF-8 מפורש — עברית קריאה ב-Debug Console
+      print('🚀 [RAW SERVER BODY]: ${utf8.decode(response.bodyBytes)}');
       debugPrint('🚀 [DEBUG] Raw Server Response: ${response.body}');
-      appLog('[DEBUG] Raw Server Response length: ${response.body.length}');
+      appLog('🚀 [DEBUG] Raw Body: ${response.body}');
       debugPrint('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📄 [Client] Response Body: ${bodyForLog(response.body)}');
@@ -227,16 +231,25 @@ class AiAutoTaggerService {
         try {
           final decoded = jsonDecode(response.body);
           debugPrint('🚀 [DEBUG] Decoded JSON type: ${decoded.runtimeType}, value: $decoded');
-          if (decoded is! List<dynamic>) {
+          // תמיכה בתגובה כ־list או כ־object בודד (analyze קובץ יחיד)
+          final List<dynamic> list;
+          if (decoded is List<dynamic>) {
+            list = decoded;
+          } else if (decoded is Map<String, dynamic> &&
+              decoded.containsKey('documentId') &&
+              decoded.containsKey('result')) {
+            appLog('[SCAN] 4. API Response: single object — normalizing to list.');
+            list = [decoded];
+          } else {
             appLog('[SCAN] 4. API Response: 200 but body is not a list (type: ${decoded.runtimeType}). Body: ${response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body}');
             if (decoded is Map<String, dynamic> && decoded.containsKey('error')) {
               appLog('[SCAN] 4. API Response: Server returned error object: ${decoded['error']}');
             }
+            list = const [];
+          }
+          if (list.isEmpty) {
+            appLog('[SCAN] 4. API Response: 200 but empty list []. No results to apply.');
           } else {
-            final list = decoded;
-            if (list.isEmpty) {
-              appLog('[SCAN] 4. API Response: 200 but empty list []. No results to apply.');
-            }
             DevLogger.instance.log('✅ Status: ${response.statusCode}');
             appLog('[SCAN] 4. API Response: Success (batch ${batch.length} files, list length ${list.length}).');
             for (final item in list) {

@@ -300,9 +300,10 @@ class _AiLabScreenState extends State<AiLabScreen> {
         .replaceFirst(RegExp(r'\n?```\s*$'), '')
         .trim();
 
-    Map<String, dynamic> decoded;
+    // ולידציה ופרסור — זורק אם JSON לא תקין
+    final dynamic parsedData;
     try {
-      decoded = jsonDecode(raw) as Map<String, dynamic>;
+      parsedData = jsonDecode(raw);
     } catch (e) {
       _labLog('Save: invalid JSON — $e');
       if (mounted) {
@@ -322,6 +323,25 @@ class _AiLabScreenState extends State<AiLabScreen> {
       return;
     }
 
+    if (parsedData is! Map<String, dynamic>) {
+      _labLog('Save: body must be a JSON object');
+      if (mounted) {
+        setState(() {
+          _saveStatus = 'Error: not an object';
+          _saveSuccess = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('JSON must be an object with "category"'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    final decoded = parsedData;
     final category = decoded['category']?.toString().trim() ?? '';
     if (category.isEmpty) {
       if (mounted) {
@@ -340,24 +360,15 @@ class _AiLabScreenState extends State<AiLabScreen> {
       return;
     }
 
-    final tags = (decoded['tags'] as List<dynamic>?)
-        ?.map((e) => e?.toString().trim() ?? '')
-        .where((s) => s.isNotEmpty)
-        .toList() ?? [];
-    final suggestions = decoded['suggestions'] as List<dynamic>? ?? [];
-    final summary = decoded['summary']?.toString().trim();
-
     setState(() => _savingInProgress = true);
     final uri = Uri.parse('$_kBackendBase/api/smart-categories/save-manual');
     try {
-      final headers = await AppCheckHttpHelper.getBackendHeaders();
-      headers['Content-Type'] = 'application/json';
-      final body = jsonEncode({
-        'category': category,
-        'tags': tags,
-        'suggestions': suggestions,
-        'summary': summary,
-      });
+      // כותרת חובה — מונע מהשרת לפרש body כמחרוזת
+      final headers = await AppCheckHttpHelper.getBackendHeaders(
+        existing: {'Content-Type': 'application/json'},
+      );
+      // שליחה כאובייקט מקודד (לא מחרוזת גולמית) כדי שה־model binder יקבל Object
+      final body = jsonEncode(decoded);
       _labLog('POST $uri');
       final response = await http
           .post(uri, headers: headers, body: body)
