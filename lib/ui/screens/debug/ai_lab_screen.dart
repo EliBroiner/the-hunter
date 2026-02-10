@@ -52,6 +52,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
 
   bool _sendingInProgress = false;
   bool _savingInProgress = false;
+  bool _migrateUsersInProgress = false;
 
   // Dictionary
   DateTime? _lastSyncTime;
@@ -274,7 +275,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
-  /// Save to DB — קורא את ה-JSON מהתיבה, מאמת, שולח ל-/api/analyze-debug/save (Firestore).
+  /// Save to DB — שומר ל-Firestore collection smart_categories (document ID = category).
   Future<void> _saveToServerDb() async {
     String raw = _serverJsonController.text.trim();
     if (raw.isEmpty) {
@@ -321,16 +322,47 @@ class _AiLabScreenState extends State<AiLabScreen> {
       return;
     }
 
+    final category = decoded['category']?.toString().trim() ?? '';
+    if (category.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _saveStatus = 'Error: missing category';
+          _saveSuccess = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('JSON must contain a "category" field'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    final tags = (decoded['tags'] as List<dynamic>?)
+        ?.map((e) => e?.toString().trim() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList() ?? [];
+    final suggestions = decoded['suggestions'] as List<dynamic>? ?? [];
+    final summary = decoded['summary']?.toString().trim();
+
     setState(() => _savingInProgress = true);
-    final uri = Uri.parse('$_kBackendBase/api/analyze-debug/save');
+    final uri = Uri.parse('$_kBackendBase/api/smart-categories/save-manual');
     try {
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
+      final body = jsonEncode({
+        'category': category,
+        'tags': tags,
+        'suggestions': suggestions,
+        'summary': summary,
+      });
       _labLog('POST $uri');
       final response = await http
-          .post(uri, headers: headers, body: jsonEncode(decoded))
+          .post(uri, headers: headers, body: body)
           .timeout(const Duration(seconds: 10));
-      _labLog('analyze-debug/save ${response.statusCode}');
+      _labLog('save-manual ${response.statusCode}');
       if (!mounted) return;
       final success = response.statusCode == 200;
       setState(() {
@@ -339,8 +371,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
       });
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Saved to Server DB!'),
+          SnackBar(
+            content: Text("Category '$category' updated/created!"),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
@@ -711,8 +743,87 @@ class _AiLabScreenState extends State<AiLabScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        // מיגרציה חד-פעמית: הוספת שדה id לכל מסמך users
+        Card(
+          color: const Color(0xFF161B22),
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.5)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Users migration',
+                  style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'מוסיף שדה id (תואם Document ID) לכל מסמך ב-users שחסר.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _migrateUsersInProgress ? null : _runMigrateUsersEnsureId,
+                  icon: _migrateUsersInProgress
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.people_outline, size: 18),
+                  label: Text(_migrateUsersInProgress ? 'Running...' : 'Ensure user docs have id field'),
+                  style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  Future<void> _runMigrateUsersEnsureId() async {
+    setState(() => _migrateUsersInProgress = true);
+    _labLog('Migration: POST api/users/migrate-ensure-id');
+    try {
+      final uri = Uri.parse('$_kBackendBase/api/users/migrate-ensure-id');
+      final headers = await AppCheckHttpHelper.getBackendHeaders();
+      headers['Content-Type'] = 'application/json';
+      final response = await http.post(uri, headers: headers).timeout(const Duration(seconds: 30));
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final total = decoded['total'] as int? ?? 0;
+        final updated = decoded['updated'] as int? ?? 0;
+        _labLog('Migration: total=$total, updated=$updated');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Users: $total total, $updated updated with id field.'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        _labLog('Migration error: ${response.statusCode} ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Migration failed: ${response.statusCode} ${response.body}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      _labLog('Migration error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Migration failed: $e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _migrateUsersInProgress = false);
+    }
   }
 
   Widget _buildStage({

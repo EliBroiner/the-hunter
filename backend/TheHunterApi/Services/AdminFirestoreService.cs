@@ -239,6 +239,7 @@ public class AdminFirestoreService
             {
                 await docRef.UpdateAsync(new Dictionary<string, object>
                 {
+                    { "id", userDocIdOrFirebaseUserId },
                     { "isBanned", isBanned },
                     { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
                 });
@@ -246,8 +247,10 @@ public class AdminFirestoreService
             }
             var query = await _db.Collection(ColUsers).WhereEqualTo("userId", userDocIdOrFirebaseUserId).Limit(1).GetSnapshotAsync();
             if (query.Documents.Count == 0) return false;
-            await query.Documents[0].Reference.UpdateAsync(new Dictionary<string, object>
+            var docRef2 = query.Documents[0].Reference;
+            await docRef2.UpdateAsync(new Dictionary<string, object>
             {
+                { "id", docRef2.Id },
                 { "isBanned", isBanned },
                 { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
             });
@@ -285,15 +288,28 @@ public class AdminFirestoreService
             if (existing.Count > 0)
                 return false;
             var now = Timestamp.FromDateTime(DateTime.UtcNow);
+            DocumentReference docRef;
+            string docId;
+            if (!string.IsNullOrWhiteSpace(userId))
+            {
+                docId = userId.Trim();
+                docRef = col.Document(docId);
+            }
+            else
+            {
+                docRef = col.Document();
+                docId = docRef.Id;
+            }
             var data = new Dictionary<string, object>
             {
+                { "id", docId },
                 { "email", email.Trim() },
                 { "userId", userId ?? "" },
                 { "role", role is "Admin" or "DebugAccess" ? role : "User" },
                 { "createdAt", now },
                 { "updatedAt", now },
             };
-            await col.AddAsync(data);
+            await docRef.SetAsync(data);
             return true;
         }
         catch (Exception ex)
@@ -311,6 +327,7 @@ public class AdminFirestoreService
             LogWriteAttempt(ColUsers, "Update");
             await _db.Collection(ColUsers).Document(documentId).UpdateAsync(new Dictionary<string, object>
             {
+                { "id", documentId },
                 { "role", role is "Admin" or "DebugAccess" ? role : "User" },
                 { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
             });
@@ -335,6 +352,39 @@ public class AdminFirestoreService
         {
             _logger.LogError(ex, "ERROR deleting Firestore user: {Message}", ex.Message);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// מיגרציה חד-פעמית: מעדכן כל מסמך ב-users שאין בו שדה id — מוסיף id = Document ID.
+    /// </summary>
+    /// <returns>(total, updatedCount)</returns>
+    public async Task<(int Total, int Updated)> MigrateUsersEnsureIdFieldAsync()
+    {
+        try
+        {
+            LogWriteAttempt(ColUsers, "Migrate");
+            var snapshot = await _db.Collection(ColUsers).GetSnapshotAsync();
+            var total = snapshot.Documents.Count;
+            var updated = 0;
+            foreach (var doc in snapshot.Documents)
+            {
+                var data = doc.ToDictionary();
+                var existingId = GetField(data, "id")?.ToString()?.Trim();
+                if (string.IsNullOrEmpty(existingId))
+                {
+                    await doc.Reference.UpdateAsync(new Dictionary<string, object> { { "id", doc.Id } });
+                    updated++;
+                    _logger.LogInformation("Users migration: set id={DocId} on document {DocId}", doc.Id, doc.Id);
+                }
+            }
+            _logger.LogInformation("Users migration complete: total={Total}, updated={Updated}", total, updated);
+            return (total, updated);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Users migration failed: {Message}", ex.Message);
+            throw;
         }
     }
 

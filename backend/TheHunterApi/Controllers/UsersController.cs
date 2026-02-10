@@ -8,10 +8,12 @@ namespace TheHunterApi.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly UserRoleService _userRoleService;
+    private readonly AdminFirestoreService _adminFirestore;
 
-    public UsersController(UserRoleService userRoleService)
+    public UsersController(UserRoleService userRoleService, AdminFirestoreService adminFirestore)
     {
         _userRoleService = userRoleService;
+        _adminFirestore = adminFirestore;
     }
 
     /// <summary>
@@ -31,6 +33,25 @@ public class UsersController : ControllerBase
 
         var hasRole = await _userRoleService.HasRoleAsync(userId ?? "", role, email);
         return Ok(new CheckRoleResponse { HasRole = hasRole });
+    }
+
+    /// <summary>
+    /// מיגרציה חד-פעמית: מוסיף שדה id לכל מסמך ב-users שחסר בו (id = Document ID). להרצה מהדיבאגר.
+    /// </summary>
+    [HttpPost("migrate-ensure-id")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> MigrateEnsureId()
+    {
+        try
+        {
+            var (total, updated) = await _adminFirestore.MigrateUsersEnsureIdFieldAsync();
+            return Ok(new { total, updated, message = $"Users: {total} total, {updated} documents updated with id field." });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
     }
 }
 

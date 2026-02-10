@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Google.Cloud.Firestore;
 using TheHunterApi.Models;
 
@@ -10,6 +11,8 @@ public interface ISmartCategoriesService
 {
     Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(CancellationToken ct = default);
     Task<bool> AddRuleAsync(string categoryId, string type, string value, CancellationToken ct = default);
+    /// <summary>יוצר/מעדכן מסמך ב-smart_categories מנתוני Debugger (Manual JSON Save).</summary>
+    Task<string?> SaveManualAsync(string categoryKey, IReadOnlyList<string> tags, IReadOnlyList<object> suggestions, string? summary, CancellationToken ct = default);
 }
 
 public class SmartCategoriesService : ISmartCategoriesService
@@ -82,6 +85,62 @@ public class SmartCategoriesService : ISmartCategoriesService
         {
             _logger.LogError(ex, "AddRule failed for {CategoryId}", categoryId);
             return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> SaveManualAsync(string categoryKey, IReadOnlyList<string> tags, IReadOnlyList<object> suggestions, string? summary, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(categoryKey))
+        {
+            _logger.LogWarning("SaveManual: categoryKey empty");
+            return null;
+        }
+
+        var key = categoryKey.Trim();
+        var keywords = tags?.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t!.Trim()).ToList() ?? new List<string>();
+        var regexStrings = new List<string>();
+        if (suggestions != null)
+        {
+            foreach (var s in suggestions)
+            {
+                if (s == null) continue;
+                if (s is JsonElement je)
+                {
+                    var regex = je.TryGetProperty("suggested_regex", out var r) ? r.GetString()
+                        : je.TryGetProperty("suggestedRegex", out var r2) ? r2.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(regex)) regexStrings.Add(regex.Trim());
+                    else if (!string.IsNullOrWhiteSpace(je.GetRawText())) regexStrings.Add(je.GetRawText().Trim());
+                }
+                else if (s is IDictionary<string, object> dict && dict.TryGetValue("suggested_regex", out var r) && r != null && !string.IsNullOrWhiteSpace(r.ToString()))
+                    regexStrings.Add(r.ToString()!.Trim());
+                else if (s is string str && !string.IsNullOrWhiteSpace(str))
+                    regexStrings.Add(str.Trim());
+                else if (!string.IsNullOrWhiteSpace(s.ToString()))
+                    regexStrings.Add(s.ToString()!.Trim());
+            }
+        }
+
+        try
+        {
+            var col = _firestore.Collection(LearningService.CollectionSmartCategories);
+            var docRef = col.Document(key);
+            var data = new Dictionary<string, object>
+            {
+                { "key", key },
+                { "keywords", keywords },
+                { "regex_patterns", regexStrings },
+                { "display_names", new Dictionary<string, object> { { "he", summary ?? "" } } },
+                { "last_updated", FieldValue.ServerTimestamp },
+            };
+            await docRef.SetAsync(data, SetOptions.MergeAll, ct);
+            _logger.LogInformation("[Server] smart_categories: saved document '{Key}'. Keywords: {Kc}, Regex: {Rc}", key, keywords.Count, regexStrings.Count);
+            return key;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Server] CRITICAL: SaveManual to smart_categories failed. Error: {Message}", ex.Message);
+            throw;
         }
     }
 

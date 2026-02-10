@@ -43,7 +43,33 @@ public class SmartCategoriesController : ControllerBase
         var ok = await _service.AddRuleAsync(categoryId, body.Type, body.Value, ct);
         return ok ? Ok(new { ok = true }) : BadRequest(new { error = "AddRule failed" });
     }
+
+    /// <summary>
+    /// שמירה ידנית מ-Debugger: יוצר/מעדכן מסמך ב-smart_categories (category = document ID).
+    /// </summary>
+    [HttpPost("save-manual")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> SaveManual([FromBody] SaveManualRequest body, CancellationToken ct)
+    {
+        if (body == null || string.IsNullOrWhiteSpace(body.Category))
+            return BadRequest(new { error = "category required" });
+        try
+        {
+            var tags = body.Tags ?? new List<string>();
+            var suggestions = body.Suggestions ?? new List<object>();
+            var docId = await _service.SaveManualAsync(body.Category, tags, suggestions, body.Summary, ct);
+            return docId != null ? Ok(new { ok = true, category = docId }) : BadRequest(new { error = "Save failed" });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
 }
+
+public record SaveManualRequest(string Category, List<string>? Tags, List<object>? Suggestions, string? Summary);
 
 public record SmartCategoryDto(
     string Key,

@@ -91,6 +91,8 @@ class AuthService {
       // בדיקת סטטוס פרימיום מול RevenueCat
       await _checkPremiumStatus(userCredential.user?.uid);
       UserRolesService.instance.clearCache();
+      // טריגר סנכרון עם Firestore (מיזוג ghost user אם קיים לפי email)
+      await UserRolesService.instance.hasRole('User');
       appLog('AUTH: Google Sign-In successful: ${userCredential.user?.email}');
       return AuthResult.success(userCredential.user!);
     } on FirebaseAuthException catch (e) {
