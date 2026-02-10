@@ -18,7 +18,7 @@ public class GeminiService
     private readonly JsonSerializerOptions _jsonOptions;
 
     private const string GeminiModel = "gemini-3-flash-preview";
-    private const string GeminiDocModel = "gemini-1.5-flash";
+    private const string GeminiDocModel = "gemini-2.5-flash";
     private const int MaxLogPayloadChars = 200; // היגיינת לוגים — לא לדפיס Body/JSON מלא (Cloud Run ~256KB limit)
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
