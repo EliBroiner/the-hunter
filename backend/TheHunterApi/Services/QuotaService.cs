@@ -9,7 +9,7 @@ namespace TheHunterApi.Services;
 public class QuotaService
 {
     private const string ColQuotas = "quotas";
-    private const int FreeTierLimitPerDay = 1000;
+    private const int FreeTierLimitPerDay = 100000;
     private readonly FirestoreDb _firestore;
 
     public QuotaService(FirestoreDb firestore)
