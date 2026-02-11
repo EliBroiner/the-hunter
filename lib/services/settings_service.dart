@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,6 +18,8 @@ class SettingsService {
   static const String _keyIsPremium = 'is_premium';
   static const String _keyLocale = 'locale';
   static const String _keyThemeMode = 'theme_mode';
+  static const String _keyDebugBypassPro = 'debug_bypass_pro';
+  static const String _keyAdminKey = 'debug_admin_key';
   
   // Notifiers לשינויים
   final ValueNotifier<bool> isPremiumNotifier = ValueNotifier(false);
@@ -37,8 +40,21 @@ class SettingsService {
     localeNotifier.value = Locale(localeCode, localeCode == 'he' ? 'IL' : 'US');
   }
   
-  /// האם המשתמש פרימיום
-  bool get isPremium => _prefs?.getBool(_keyIsPremium) ?? false;
+  /// האם המשתמש פרימיום. ב־Debug: אם debug_bypass_pro מופעל — מחזיר true (לבדיקת PRO באתר).
+  bool get isPremium {
+    if (kReleaseMode) return _prefs?.getBool(_keyIsPremium) ?? false;
+    if (_prefs?.getBool(_keyDebugBypassPro) ?? false) return true;
+    return _prefs?.getBool(_keyIsPremium) ?? false;
+  }
+  
+  /// דגל עקיפה — רק ב־Debug, מאפשר לבדוק פיצ'רי PRO (Secure Folder, Tags) ללא מנוי.
+  bool get debugBypassPro => kDebugMode && (_prefs?.getBool(_keyDebugBypassPro) ?? false);
+  
+  Future<void> setDebugBypassPro(bool value) async {
+    if (kReleaseMode) return;
+    await _prefs?.setBool(_keyDebugBypassPro, value);
+    isPremiumNotifier.value = isPremium;
+  }
   
   /// מגדיר סטטוס פרימיום
   Future<void> setIsPremium(bool value) async {
@@ -66,4 +82,16 @@ class SettingsService {
   
   /// מצב כהה מופעל (תאימות לאחור)
   bool get isDarkMode => themeMode == ThemeMode.dark;
+
+  /// מפתח Admin — רק ב־Debug, ל־PromptAdminService (X-Admin-Key)
+  String? get adminKey => kDebugMode ? _prefs?.getString(_keyAdminKey) : null;
+
+  Future<void> setAdminKey(String? value) async {
+    if (kReleaseMode) return;
+    if (value == null || value.isEmpty) {
+      await _prefs?.remove(_keyAdminKey);
+    } else {
+      await _prefs?.setString(_keyAdminKey, value);
+    }
+  }
 }

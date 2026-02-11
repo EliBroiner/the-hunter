@@ -1,0 +1,231 @@
+@{
+    ViewData["Title"] = "AI Lab Debugger";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var defaultSystemPrompt = "Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).\nReturn ONLY raw JSON - no markdown, no code blocks. Format: {\"category\":\"...\",\"date\":\"yyyy-MM-dd or null\",\"tags\":[\"...\"],\"summary\":\"...\"}";
+}
+
+<h1 class="mb-4"><i class="bi bi-robot me-2"></i>AI Lab Debugger</h1>
+
+<div class="row g-4">
+    @* Relevance Scorer *@
+    <div class="col-12 col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart me-1"></i>Relevance Scorer</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">שאילתה + מסמך → פירוט ציון (Filename: 200, Content: 120, Metadata: 80)</p>
+                <div class="mb-2">
+                    <label class="form-label">שאילתה</label>
+                    <input type="text" id="scoreQuery" class="form-control" placeholder="חוזה עבודה" value="חוזה">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">שם קובץ</label>
+                    <input type="text" id="scoreFilename" class="form-control" placeholder="חוזה_עבודה_2024.pdf" value="חוזה_עבודה_2024.pdf">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">תוכן</label>
+                    <textarea id="scoreContent" class="form-control" rows="3" placeholder="טקסט מתוך המסמך...">חוזה העסקה בין החברה לעובד. תאריך: 2024-01-15.</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">מטאדאטה (נתיב / קטגוריה)</label>
+                    <input type="text" id="scoreMetadata" class="form-control" placeholder="Documents/Contracts" value="Documents/Contracts">
+                </div>
+                <button type="button" id="scoreBtn" class="btn btn-primary w-100">
+                    <span class="scoreSpinner spinner-border spinner-border-sm d-none me-1"></span>חשב ציון
+                </button>
+                <div id="scoreResult" class="mt-3 p-3 bg-light rounded d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    @* OCR Testing Lab *@
+    <div class="col-12 col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>OCR Testing Lab</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">העלאת PDF/תמונה — חילוץ ישיר + fallback ל-Gemini (כשג'יבריש > 30%)</p>
+                <form id="ocrForm">
+                    <div class="mb-3">
+                        <label class="form-label">קובץ (PDF, JPG, PNG, WebP)</label>
+                        <input type="file" id="ocrFile" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                    </div>
+                    <button type="submit" id="ocrBtn" class="btn btn-info w-100">
+                        <span class="ocrSpinner spinner-border spinner-border-sm d-none me-1"></span>בדוק חילוץ
+                    </button>
+                </form>
+                <div id="ocrResult" class="mt-3 p-3 bg-light rounded d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    @* Garbage Filter *@
+    <div class="col-12 col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0"><i class="bi bi-funnel me-1"></i>Garbage Filter Simulator</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">יחס ג'יבריש — סף 30%. מעליו הטקסט לא נשלח ל-AI.</p>
+                <div class="mb-3">
+                    <label class="form-label">טקסט לבדיקה</label>
+                    <textarea id="garbageText" class="form-control font-monospace" rows="5" placeholder="הדבק טקסט מחולץ מ-PDF/OCR...">שלום, זהו מסמך בעברית. 123 ו-English letters. תווים תקינים עוברים.</textarea>
+                </div>
+                <button type="button" id="garbageBtn" class="btn btn-warning w-100">
+                    <span class="garbageSpinner spinner-border spinner-border-sm d-none me-1"></span>בדוק ג'יבריש
+                </button>
+                <div id="garbageResult" class="mt-3 p-3 bg-light rounded d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    @* Prompt Playground *@
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-chat-dots me-1"></i>Prompt Playground</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">הרצת Prompts מול Gemini מהשרת. מפתחות API לא נחשפים ל-Client.</p>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label">System Prompt</label>
+                        <textarea id="playgroundSystem" class="form-control font-monospace" rows="6">@defaultSystemPrompt</textarea>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label">User Query / תוכן</label>
+                        <textarea id="playgroundUser" class="form-control font-monospace" rows="6" placeholder="הדבק תוכן מסמך או שאילתה...">חשבונית מס' 12345. תאריך: 2024-02-10. ספק: חברת ABC.</textarea>
+                    </div>
+                </div>
+                <button type="button" id="playgroundBtn" class="btn btn-success mt-3 w-100">
+                    <span class="playgroundSpinner spinner-border spinner-border-sm d-none me-1"></span>הרץ ברקע
+                </button>
+                <div id="playgroundResult" class="mt-3 p-3 bg-dark text-light rounded font-monospace small d-none" style="max-height:400px;overflow:auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function() {
+    const base = '/admin/debug';
+    function escapeHtml(s) { return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    async function post(endpoint, body) {
+        const r = await fetch(base + endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            credentials: 'same-origin'
+        });
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return r.json();
+    }
+
+    // Relevance Scorer
+    document.getElementById('scoreBtn').addEventListener('click', async function() {
+        const btn = this, spinner = btn.querySelector('.scoreSpinner'), out = document.getElementById('scoreResult');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        out.classList.add('d-none');
+        try {
+            const r = await post('/score', {
+                query: document.getElementById('scoreQuery').value,
+                filename: document.getElementById('scoreFilename').value,
+                content: document.getElementById('scoreContent').value,
+                metadata: document.getElementById('scoreMetadata').value
+            });
+            out.innerHTML = '<strong>מונחים:</strong> ' + (r.terms || []).join(', ') + '<br>' +
+                '<strong>פירוט:</strong> ' + r.breakdown + '<br>' +
+                '<strong>סה"כ ציון:</strong> ' + r.totalScore;
+            out.classList.remove('d-none');
+        } catch (e) {
+            out.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            out.classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    // OCR Test
+    document.getElementById('ocrForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const fileInput = document.getElementById('ocrFile');
+        if (!fileInput.files?.length) return;
+        const btn = document.getElementById('ocrBtn'), spinner = btn.querySelector('.ocrSpinner'), out = document.getElementById('ocrResult');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        out.classList.add('d-none');
+        try {
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            const r = await fetch(base + '/ocr-test', {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin'
+            });
+            const data = await r.json();
+            if (!r.ok) {
+                out.innerHTML = '<span class="text-danger">' + (data.error || r.status) + '</span>';
+            } else {
+                let html = '<strong>קובץ:</strong> ' + data.filename + ' (' + (data.fileSizeBytes/1024).toFixed(1) + ' KB)<br>';
+                if (data.directGarbageRatioPercent != null) {
+                    html += '<strong>חילוץ ישיר (PdfPig):</strong> ' + data.directGarbageRatioPercent + '% ג\'יבריש — ' + (data.directPassesThreshold ? '<span class="text-success">עובר</span>' : '<span class="text-danger">נכשל</span>') + '<br>';
+                    html += '<details><summary>טקסט ישיר</summary><pre class="small mt-1 mb-0" style="max-height:150px;overflow:auto">' + escapeHtml((data.directExtractText || '(ריק)').substring(0,800)) + '</pre></details>';
+                }
+                if (data.fallbackUsed) {
+                    html += '<strong>Fallback (Gemini):</strong> ' + (data.fallbackError ? '<span class="text-danger">' + escapeHtml(data.fallbackError) + '</span>' : '<span class="text-success">הצלחה</span>') + '<br>';
+                    if (data.fallbackText) html += '<details><summary>טקסט מ-Gemini</summary><pre class="small mt-1 mb-0" style="max-height:150px;overflow:auto">' + escapeHtml(data.fallbackText.substring(0,800)) + '</pre></details>';
+                }
+                out.innerHTML = html;
+            }
+            out.classList.remove('d-none');
+        } catch (e) {
+            out.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            out.classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    // Garbage Filter
+    document.getElementById('garbageBtn').addEventListener('click', async function() {
+        const btn = this, spinner = btn.querySelector('.garbageSpinner'), out = document.getElementById('garbageResult');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        out.classList.add('d-none');
+        try {
+            const r = await post('/garbage-filter', { text: document.getElementById('garbageText').value });
+            const pass = r.passesThreshold ? '<span class="text-success">עובר</span>' : '<span class="text-danger">נכשל</span>';
+            out.innerHTML = 'אורך: ' + r.textLength + ' תווים | ג\'יבריש: ' + r.garbageCount + ' (' + r.garbageRatioPercent + '%) | סף: ' + r.thresholdPercent + '% | ' + pass;
+            out.classList.remove('d-none');
+        } catch (e) {
+            out.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            out.classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    // Playground
+    document.getElementById('playgroundBtn').addEventListener('click', async function() {
+        const btn = this, spinner = btn.querySelector('.playgroundSpinner'), out = document.getElementById('playgroundResult');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        out.classList.add('d-none');
+        try {
+            const r = await post('/playground', {
+                systemPrompt: document.getElementById('playgroundSystem').value,
+                userQuery: document.getElementById('playgroundUser').value
+            });
+            if (r.success) {
+                out.textContent = r.rawJson || '(ריק)';
+            } else {
+                out.innerHTML = '<span class="text-danger">שגיאה: ' + (r.error || 'Unknown') + '</span>';
+            }
+            out.classList.remove('d-none');
+        } catch (e) {
+            out.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            out.classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+})();
+</script>
+}

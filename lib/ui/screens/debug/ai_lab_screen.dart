@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../../models/search_synonym.dart';
+import '../../../services/settings_service.dart';
 import '../../../services/app_check_http_helper.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/database_service.dart';
 import '../../../services/knowledge_base_service.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
+import '../../../services/prompt_admin_service.dart';
+import '../../../services/settings_service.dart';
 
 /// בסיס כתובת הבקאנד — AI Lab (חשוף ל־UI לצורכי Deep Network Tracing)
 const String _kBackendBase = 'https://the-hunter-105628026575.me-west1.run.app';
@@ -59,6 +63,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   int _synonymsCount = 0;
   List<SearchSynonym> _synonymsPreview = [];
   final TextEditingController _dictionarySearchController = TextEditingController();
+  final TextEditingController _adminKeyController = TextEditingController();
   Timer? _dictionarySearchDebounce;
   static const Duration _searchDebounceDuration = Duration(milliseconds: 300);
 
@@ -69,9 +74,20 @@ class _AiLabScreenState extends State<AiLabScreen> {
   @override
   void initState() {
     super.initState();
+    _adminKeyController.text = SettingsService.instance.adminKey ?? '';
+    _adminKeyController.addListener(_onAdminKeyChanged);
     _checkAdmin();
     _loadSynonymsStats();
     _dictionarySearchController.addListener(_onDictionarySearchChanged);
+  }
+
+  void _onAdminKeyChanged() {
+    final t = _adminKeyController.text.trim();
+    if (t.isEmpty) {
+      SettingsService.instance.setAdminKey(null);
+    } else {
+      SettingsService.instance.setAdminKey(t);
+    }
   }
 
   void _onDictionarySearchChanged() {
@@ -86,6 +102,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
   void dispose() {
     _dictionarySearchController.removeListener(_onDictionarySearchChanged);
     _dictionarySearchDebounce?.cancel();
+    _adminKeyController.removeListener(_onAdminKeyChanged);
+    _adminKeyController.dispose();
     _ocrDisplayController.dispose();
     _serverJsonController.dispose();
     _dictionarySearchController.dispose();
@@ -471,6 +489,17 @@ class _AiLabScreenState extends State<AiLabScreen> {
         appBar: AppBar(
           backgroundColor: Colors.grey[850],
           title: const Text('AI Lab Debugger', style: TextStyle(color: Colors.white)),
+          actions: [
+            if (_isAdmin)
+              IconButton(
+                icon: const Icon(Icons.psychology, color: Colors.white70),
+                tooltip: 'Manage Prompts',
+                onPressed: () {
+                  PromptAdminService.setAdminKey(SettingsService.instance.adminKey);
+                  Navigator.of(context).pushNamed('/prompts');
+                },
+              ),
+          ],
           bottom: TabBar(
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,
@@ -533,6 +562,63 @@ class _AiLabScreenState extends State<AiLabScreen> {
             ],
           ),
         ),
+        if (kDebugMode) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Bypass PRO (דיבאג): מאפשר לחלץ Secure Folder, Tags ללא מנוי',
+                    style: TextStyle(fontSize: 12, color: Colors.amber[200]),
+                  ),
+                ),
+                Switch(
+                  value: SettingsService.instance.debugBypassPro,
+                  onChanged: (v) async {
+                    await SettingsService.instance.setDebugBypassPro(v);
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blueGrey),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.key, color: Colors.white70, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _adminKeyController,
+                    obscureText: true,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText: 'Admin Key (X-Admin-Key)',
+                      hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         _buildStage(
           stageIndex: 1,

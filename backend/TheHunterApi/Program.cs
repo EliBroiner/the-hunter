@@ -1,5 +1,7 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
+using TheHunterApi.Data;
 using TheHunterApi.Middleware;
 using TheHunterApi.Services;
 
@@ -66,6 +68,11 @@ builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
 builder.Services.AddScoped<ISmartCategoriesService, SmartCategoriesService>();
 builder.Services.AddScoped<AdminFirestoreService>();
+builder.Services.AddScoped<ISystemPromptService, SystemPromptService>();
+// EF Core — SQLite ל-SystemPrompts
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=thehunter.db"));
+
 // Firestore — ל-LearningService (suggestions). אותו ProjectId כמו AdminFirestoreService
 builder.Services.AddSingleton<FirestoreDb>(sp =>
 {
@@ -85,6 +92,13 @@ builder.Services.AddHostedService<DailySummaryHostedService>();
 builder.Services.AddScoped<TheHunterApi.Filters.AdminKeyAuthorizationFilter>();
 
 var app = builder.Build();
+
+// החלת migrations על SQLite (יצירת DB אם לא קיים)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
 
 // לוג הפעלה — בודק טעינת Telegram מ-IConfiguration (ללא הדפסת הסוד)
 var telegramToken = builder.Configuration["TELEGRAM_BOT_TOKEN"];

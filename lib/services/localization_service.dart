@@ -382,6 +382,24 @@ class LocalizationService {
     'logs_title': 'לוגים',
     'share_logs': 'שתף לוגים',
     'logs_copied': 'לוגים הועתקו',
+
+    // ניהול פרומפטים
+    'prompts_title': 'ניהול פרומפטים',
+    'prompts_create': 'פרומפט חדש',
+    'prompts_active': 'פעיל',
+    'prompts_empty': 'אין פרומפטים',
+    'prompts_empty_desc': 'צור פרומפט חדש כדי להתחיל',
+    'prompts_error': 'שגיאה בטעינת הפרומפטים',
+    'prompts_retry': 'נסה שוב',
+    'prompts_saved': 'הפרומפט נשמר בהצלחה',
+    'prompts_save_error': 'שגיאה בשמירת הפרומפט',
+    'prompts_activated': 'הפרומפט הופעל',
+    'prompts_activate_error': 'שגיאה בהפעלת הפרומפט',
+    'prompts_feature_label': 'תכונה (Feature)',
+    'prompts_version_label': 'גרסה',
+    'prompts_content_label': 'תוכן הפרומפט',
+    'prompts_content_hint': 'הזן את תוכן הפרומפט כאן...',
+    'prompts_fill_required': 'יש למלא את כל השדות',
   };
 
   // --- מילון אנגלית ---
@@ -745,6 +763,24 @@ class LocalizationService {
     'logs_title': 'Logs',
     'share_logs': 'Share logs',
     'logs_copied': 'Logs copied',
+
+    // Prompt management
+    'prompts_title': 'Prompt Management',
+    'prompts_create': 'New Prompt',
+    'prompts_active': 'Active',
+    'prompts_empty': 'No prompts',
+    'prompts_empty_desc': 'Create a new prompt to get started',
+    'prompts_error': 'Error loading prompts',
+    'prompts_retry': 'Retry',
+    'prompts_saved': 'Prompt saved successfully',
+    'prompts_save_error': 'Error saving prompt',
+    'prompts_activated': 'Prompt activated',
+    'prompts_activate_error': 'Error activating prompt',
+    'prompts_feature_label': 'Feature',
+    'prompts_version_label': 'Version',
+    'prompts_content_label': 'Prompt content',
+    'prompts_content_hint': 'Enter prompt content here...',
+    'prompts_fill_required': 'All fields are required',
   };
 }
 

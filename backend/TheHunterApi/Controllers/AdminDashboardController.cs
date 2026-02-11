@@ -114,6 +114,10 @@ public class AdminDashboardController : Controller
     }
 
     [HttpGet]
+    [Route("ai-lab")]
+    public IActionResult AiLab() => View("AiLab");
+
+    [HttpGet]
     [Route("term/edit/{id}")]
     public async Task<IActionResult> EditTerm(string id)
     {

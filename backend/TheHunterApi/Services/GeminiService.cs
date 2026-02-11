@@ -462,6 +462,116 @@ public class GeminiService
     }
 
     /// <summary>
+    /// OCR Fallback — שולח PDF/תמונה ל-Gemini עם פרומפט לחילוץ טקסט. לשימוש ב-AI Lab.
+    /// </summary>
+    public async Task<(string ExtractedText, bool Success, string? Error)> ExtractTextFromFileAsync(byte[] fileBytes, string mimeType, string prompt)
+    {
+        if (!IsConfigured)
+            return ("", false, "Gemini API not configured");
+
+        try
+        {
+            var b64 = Convert.ToBase64String(fileBytes);
+            var client = _httpClientFactory.CreateClient("GeminiApi");
+            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var request = new GeminiRequest
+            {
+                Contents = new List<GeminiContent>
+                {
+                    new()
+                    {
+                        Parts =
+                        [
+                            new GeminiPart { InlineData = new GeminiInlineData { MimeType = mimeType, Data = b64 } },
+                            new GeminiPart { Text = prompt }
+                        ]
+                    }
+                },
+                GenerationConfig = new GenerationConfig
+                {
+                    Temperature = 0.1,
+                    MaxOutputTokens = 2048
+                }
+            };
+            var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+
+            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(url, httpContent);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("[GEMINI_OCR] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
+                return ("", false, $"HTTP {(int)response.StatusCode}");
+            }
+
+            var parts = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
+                ?.Candidates?.FirstOrDefault()?.Content?.Parts ?? [];
+            var rawText = parts.FirstOrDefault(p => !string.IsNullOrEmpty(p?.Text))?.Text ?? "";
+            return (rawText, true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ExtractTextFromFileAsync failed");
+            return ("", false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Playground — שולח System + User ל-Gemini, מחזיר תשובה גולמית (לשימוש Admin Debug).
+    /// </summary>
+    public async Task<(string RawText, bool Success, string? Error)> GenerateContentRawAsync(string systemPrompt, string userQuery)
+    {
+        if (!IsConfigured)
+            return ("", false, "Gemini API not configured");
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("GeminiApi");
+            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var request = new GeminiRequest
+            {
+                Contents = new List<GeminiContent>
+                {
+                    new()
+                    {
+                        Parts = new List<GeminiPart>
+                        {
+                            new GeminiPart { Text = systemPrompt },
+                            new GeminiPart { Text = userQuery }
+                        }
+                    }
+                },
+                GenerationConfig = new GenerationConfig
+                {
+                    Temperature = 0.1,
+                    MaxOutputTokens = 4096
+                }
+            };
+            var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+
+            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(url, httpContent);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("[GEMINI_PLAYGROUND] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
+                return (responseBody, false, $"HTTP {(int)response.StatusCode}");
+            }
+
+            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
+                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+            return (rawText, true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GenerateContentRawAsync failed");
+            return ("", false, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// טוען פרומפט ניתוח מסמכים מקובץ. קובץ נבחר לפי DOC_ANALYSIS_PROMPT_FILE (למשל doc_analysis_learning.txt).
     /// ברירת מחדל: doc_analysis_default.txt. אם הקובץ חסר — משתמשים ב-fallback מוטבע (לא מוחקים את הקודם).
     /// </summary>
@@ -743,7 +853,14 @@ public class GeminiContent
 
 public class GeminiPart
 {
-    public string Text { get; set; } = string.Empty;
+    public string? Text { get; set; }
+    public GeminiInlineData? InlineData { get; set; }
+}
+
+public class GeminiInlineData
+{
+    public string MimeType { get; set; } = "";
+    public string Data { get; set; } = ""; // base64
 }
 
 public class GenerationConfig
