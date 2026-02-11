@@ -28,6 +28,7 @@ if (string.IsNullOrEmpty(geminiApiKey))
 
 // הגדרת Services
 builder.Services.AddControllersWithViews();
+builder.Services.AddMemoryCache();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -68,7 +69,9 @@ builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
 builder.Services.AddScoped<ISmartCategoriesService, SmartCategoriesService>();
 builder.Services.AddScoped<AdminFirestoreService>();
+builder.Services.AddScoped<IScannerSettingsService, ScannerSettingsService>();
 builder.Services.AddScoped<ISystemPromptService, SystemPromptService>();
+builder.Services.AddScoped<OcrService>();
 // EF Core — SQLite ל-SystemPrompts
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=thehunter.db"));

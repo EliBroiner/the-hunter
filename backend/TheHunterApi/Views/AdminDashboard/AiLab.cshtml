@@ -6,6 +6,30 @@
 
 <h1 class="mb-4"><i class="bi bi-robot me-2"></i>AI Lab Debugger</h1>
 
+<div id="scanStatsCard" class="alert alert-secondary mb-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span><strong>Images Skipped (No Text Detected):</strong> <span id="scanStatsCount">—</span></span>
+    <small class="text-muted">כסף שנחסך — תמונות שלא נשלחו ל-Google Cloud / Gemini</small>
+</div>
+
+<div id="chainLookupCard" class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-diagram-3 me-1"></i>Chain of Processing</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">צפייה בשרשרת עיבוד: [Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]</p>
+        <div class="d-flex gap-2 flex-wrap align-items-end">
+            <div class="flex-grow-1" style="min-width:200px">
+                <label class="form-label small">Document ID</label>
+                <input type="text" id="chainDocId" class="form-control" placeholder="מזהה מסמך (Isar ID)">
+            </div>
+            <button type="button" id="chainFetchBtn" class="btn btn-dark">
+                <span class="chainSpinner spinner-border spinner-border-sm d-none me-1"></span>טען
+            </button>
+        </div>
+        <div id="chainResult" class="mt-3 p-3 bg-light rounded font-monospace small d-none"></div>
+    </div>
+</div>
+
 <div class="row g-4">
     @* Relevance Scorer *@
     <div class="col-12 col-lg-6">
@@ -56,7 +80,36 @@
                         <span class="ocrSpinner spinner-border spinner-border-sm d-none me-1"></span>בדוק חילוץ
                     </button>
                 </form>
-                <div id="ocrResult" class="mt-3 p-3 bg-light rounded d-none"></div>
+                <div id="ocrResult" class="mt-3 d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="ocrShowComparison" checked>
+                            <label class="form-check-label" for="ocrShowComparison">השוואה: גולמי ⟷ מנוקה</label>
+                        </div>
+                        <span id="ocrCleanupBadge" class="badge bg-secondary d-none" title="אחוז רעש שהוסר">רעש: 0%</span>
+                    </div>
+                    <div id="ocrReasonRow" class="mb-2 d-none">
+                        <strong>Reason for Upload:</strong> <span id="ocrReasonValue"></span>
+                    </div>
+                    <div id="ocrThumbnailRow" class="mb-2 d-none">
+                        <strong>B&W Sent to Server:</strong>
+                        <img id="ocrBwThumbnail" src="" alt="B&W thumbnail" class="img-thumbnail ms-2" style="max-width:200px;max-height:150px;">
+                    </div>
+                    <div id="ocrProcessedOnly" class="p-3 bg-light rounded d-none">
+                        <pre class="small mb-0 font-monospace" style="max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl"></pre>
+                    </div>
+                    <div id="ocrComparison" class="row g-2 d-none">
+                        <div class="col-6">
+                            <label class="form-label small text-muted">גולמי (לפני TextCleaner)</label>
+                            <pre class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:250px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl" id="ocrRawText"></pre>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-muted">מנוקה</label>
+                            <pre class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:250px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl" id="ocrCleanedText"></pre>
+                        </div>
+                    </div>
+                    <div id="ocrMeta" class="mt-2 small text-muted"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -89,6 +142,11 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small">הרצת Prompts מול Gemini מהשרת. מפתחות API לא נחשפים ל-Client.</p>
+                <div id="manualOverrideBanner" class="alert alert-info alert-dismissible fade show d-none mb-3" role="alert">
+                    <strong>Manual Override:</strong> <span id="manualOverrideFilename"></span>
+                    <span id="manualOverrideReason" class="ms-2 text-muted small"></span>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
                         <label class="form-label">System Prompt</label>
@@ -113,6 +171,60 @@
 (function() {
     const base = '/admin/debug';
     function escapeHtml(s) { return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    // טעינת Scan Stats
+    fetch(base + '/scan-stats', { credentials: 'same-origin' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+            if (d && d.imagesSkippedNoText != null) {
+                document.getElementById('scanStatsCount').textContent = d.imagesSkippedNoText.toLocaleString();
+            }
+        })
+        .catch(function() { });
+
+    // Chain of Processing
+    document.getElementById('chainFetchBtn').addEventListener('click', async function() {
+        var docId = document.getElementById('chainDocId').value.trim();
+        if (!docId) return;
+        var btn = this, spinner = btn.querySelector('.chainSpinner'), out = document.getElementById('chainResult');
+        btn.disabled = true; spinner.classList.remove('d-none'); out.classList.add('d-none');
+        try {
+            var r = await fetch(base + '/processing-chain/' + encodeURIComponent(docId), { credentials: 'same-origin' });
+            if (!r.ok) {
+                out.textContent = r.status === 404 ? 'לא נמצא' : 'שגיאה: ' + r.status;
+            } else {
+                var d = await r.json();
+                out.textContent = d.chain || '(ריק)';
+            }
+            out.classList.remove('d-none');
+        } catch (e) {
+            out.textContent = 'שגיאה: ' + e.message;
+            out.classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    // טעינת failureId מ-URL — pre-fill Playground עם טקסט נכשל (Manual Override)
+    (function loadFailureFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const failureId = params.get('failureId');
+        if (!failureId) return;
+        fetch(base + '/scan-failure/' + encodeURIComponent(failureId), { credentials: 'same-origin' })
+            .then(function(r) {
+                if (!r.ok) throw new Error('לא נמצא');
+                return r.json();
+            })
+            .then(function(f) {
+                document.getElementById('playgroundUser').value = f.rawText || '';
+                document.getElementById('manualOverrideFilename').textContent = f.filename || '(ללא שם)';
+                var reasonEl = document.getElementById('manualOverrideReason');
+                reasonEl.textContent = f.reasonForUpload ? '— Reason: ' + f.reasonForUpload : '';
+                reasonEl.style.display = f.reasonForUpload ? 'inline' : 'none';
+                document.getElementById('manualOverrideBanner').classList.remove('d-none');
+                document.querySelector('.card-header.bg-success')?.scrollIntoView({ behavior: 'smooth' });
+            })
+            .catch(function() { });
+    })();
 
     async function post(endpoint, body) {
         const r = await fetch(base + endpoint, {
@@ -149,6 +261,21 @@
     });
 
     // OCR Test
+    const ocrProcessedOnly = document.getElementById('ocrProcessedOnly');
+    const ocrComparison = document.getElementById('ocrComparison');
+    const ocrRawText = document.getElementById('ocrRawText');
+    const ocrCleanedText = document.getElementById('ocrCleanedText');
+    const ocrCleanupBadge = document.getElementById('ocrCleanupBadge');
+    const ocrMeta = document.getElementById('ocrMeta');
+    const ocrShowComparison = document.getElementById('ocrShowComparison');
+
+    function toggleOcrView() {
+        const isComparison = ocrShowComparison.checked;
+        ocrComparison.classList.toggle('d-none', !isComparison);
+        ocrProcessedOnly.classList.toggle('d-none', isComparison);
+    }
+    ocrShowComparison.addEventListener('change', toggleOcrView);
+
     document.getElementById('ocrForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const fileInput = document.getElementById('ocrFile');
@@ -166,22 +293,59 @@
             });
             const data = await r.json();
             if (!r.ok) {
-                out.innerHTML = '<span class="text-danger">' + (data.error || r.status) + '</span>';
+                ocrRawText.textContent = ocrCleanedText.textContent = '';
+                ocrProcessedOnly.querySelector('pre').textContent = '';
+                ocrCleanupBadge.classList.add('d-none');
+                ocrComparison.classList.add('d-none');
+                ocrProcessedOnly.classList.add('d-none');
+                document.getElementById('ocrReasonRow').classList.add('d-none');
+                document.getElementById('ocrThumbnailRow').classList.add('d-none');
+                ocrMeta.innerHTML = '<span class="text-danger">' + (data.error || r.status) + '</span>';
+                ocrMeta.classList.remove('d-none');
             } else {
-                let html = '<strong>קובץ:</strong> ' + data.filename + ' (' + (data.fileSizeBytes/1024).toFixed(1) + ' KB)<br>';
+                const raw = data.rawExtractText || '';
+                const cleaned = data.cleanedExtractText || '';
+                ocrRawText.textContent = raw || '(ריק)';
+                ocrCleanedText.textContent = cleaned || '(ריק)';
+                ocrProcessedOnly.querySelector('pre').textContent = cleaned || '(ריק)';
+                if (data.cleanupRatioPercent != null) {
+                    ocrCleanupBadge.textContent = 'רעש: ' + data.cleanupRatioPercent + '%';
+                    ocrCleanupBadge.className = 'badge ' + (data.cleanupRatioPercent > 30 ? 'bg-danger' : 'bg-success');
+                    ocrCleanupBadge.classList.remove('d-none');
+                } else {
+                    ocrCleanupBadge.classList.add('d-none');
+                }
+                var reasonRow = document.getElementById('ocrReasonRow');
+                var reasonVal = document.getElementById('ocrReasonValue');
+                if (data.reasonForUpload) {
+                    reasonVal.textContent = data.reasonForUpload;
+                    reasonRow.classList.remove('d-none');
+                } else {
+                    reasonRow.classList.add('d-none');
+                }
+                var thumbRow = document.getElementById('ocrThumbnailRow');
+                var thumbImg = document.getElementById('ocrBwThumbnail');
+                if (data.bwThumbnailDataUrl) {
+                    thumbImg.src = data.bwThumbnailDataUrl;
+                    thumbRow.classList.remove('d-none');
+                } else {
+                    thumbRow.classList.add('d-none');
+                }
+                let meta = '<strong>קובץ:</strong> ' + data.filename + ' (' + (data.fileSizeBytes/1024).toFixed(1) + ' KB)';
                 if (data.directGarbageRatioPercent != null) {
-                    html += '<strong>חילוץ ישיר (PdfPig):</strong> ' + data.directGarbageRatioPercent + '% ג\'יבריש — ' + (data.directPassesThreshold ? '<span class="text-success">עובר</span>' : '<span class="text-danger">נכשל</span>') + '<br>';
-                    html += '<details><summary>טקסט ישיר</summary><pre class="small mt-1 mb-0" style="max-height:150px;overflow:auto">' + escapeHtml((data.directExtractText || '(ריק)').substring(0,800)) + '</pre></details>';
+                    meta += ' | <strong>חילוץ ישיר:</strong> ' + data.directGarbageRatioPercent + '% ג\'יבריש — ' + (data.directPassesThreshold ? '<span class="text-success">עובר</span>' : '<span class="text-danger">נכשל</span>');
                 }
                 if (data.fallbackUsed) {
-                    html += '<strong>Fallback (Gemini):</strong> ' + (data.fallbackError ? '<span class="text-danger">' + escapeHtml(data.fallbackError) + '</span>' : '<span class="text-success">הצלחה</span>') + '<br>';
-                    if (data.fallbackText) html += '<details><summary>טקסט מ-Gemini</summary><pre class="small mt-1 mb-0" style="max-height:150px;overflow:auto">' + escapeHtml(data.fallbackText.substring(0,800)) + '</pre></details>';
+                    meta += ' | <strong>Fallback:</strong> ' + (data.fallbackError ? '<span class="text-danger">' + escapeHtml(data.fallbackError) + '</span>' : '<span class="text-success">הצלחה</span>');
                 }
-                out.innerHTML = html;
+                ocrMeta.innerHTML = meta;
+                ocrMeta.classList.remove('d-none');
+                toggleOcrView();
             }
             out.classList.remove('d-none');
         } catch (e) {
-            out.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            ocrMeta.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
+            ocrMeta.classList.remove('d-none');
             out.classList.remove('d-none');
         }
         btn.disabled = false; spinner.classList.add('d-none');

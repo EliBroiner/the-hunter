@@ -1,11 +1,18 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 import '../models/ai_analysis_response.dart';
 import '../models/file_metadata.dart';
 import 'ai_auto_tagger_service.dart';
+import 'app_check_http_helper.dart';
+import 'auth_service.dart';
 import 'category_manager_service.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'text_extraction_service.dart';
+import '../utils/extracted_text_quality.dart';
 import 'utils/file_validator.dart';
 
 /// תוצאת ניתוח מחדש — להצגת Snackbar ב-UI
@@ -31,10 +38,80 @@ class FileProcessingService {
 
   FileProcessingService._();
 
+  static const String _backendBase = 'https://the-hunter-105628026575.me-west1.run.app';
+
   final _db = DatabaseService.instance;
   final _validator = FileValidator.instance;
   final _aiTagger = AiAutoTaggerService.instance;
   final _categoryManager = CategoryManagerService.instance;
+
+  /// OCR Fallback — העלאת תמונה B&W ל-Backend (Cloud Vision + Gemini). מחזיר (text, isPureImageNoText, geminiResult).
+  Future<({String? text, bool isPureImageNoText, DocumentAnalysisResult? geminiResult})> _callOcrExtract(String imagePath, {String? documentId, String? filename}) async {
+    try {
+      final compressed = await OCRService.instance.getCompressedBwImageForUpload(imagePath);
+      if (compressed.bytes.isEmpty) return (text: null, isPureImageNoText: false, geminiResult: null);
+      final uri = Uri.parse('$_backendBase/api/ocr-extract');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(http.MultipartFile.fromBytes('file', compressed.bytes, filename: filename ?? 'image.jpg'));
+      if (documentId != null) request.fields['documentId'] = documentId;
+      if (filename != null) request.fields['filename'] = filename;
+      final uid = AuthService.instance.currentUser?.uid;
+      if (uid != null) request.fields['userId'] = uid;
+      request.headers.addAll(await AppCheckHttpHelper.getBackendHeaders());
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode != 200) return (text: null, isPureImageNoText: false, geminiResult: null);
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final text = decoded?['text'] as String? ?? '';
+      final isPure = decoded?['isPureImageNoText'] as bool? ?? false;
+      DocumentAnalysisResult? geminiResult;
+      final gr = decoded?['geminiResult'] as Map<String, dynamic>?;
+      if (gr != null) {
+        final cat = gr['category'] as String? ?? '';
+        final tagsList = gr['tags'];
+        final tags = tagsList is List
+            ? tagsList.map((e) => (e?.toString() ?? '').trim()).where((s) => s.isNotEmpty).toList()
+            : <String>[];
+        final sugg = gr['suggestions'];
+        final suggestions = sugg is List
+            ? sugg.map((e) => AiSuggestion.fromJson(e is Map ? Map<String, dynamic>.from(e as Map) : null)).whereType<AiSuggestion>().toList()
+            : <AiSuggestion>[];
+        geminiResult = DocumentAnalysisResult(category: cat, tags: tags, suggestions: suggestions);
+      }
+      return (text: text.isEmpty ? null : text, isPureImageNoText: isPure, geminiResult: geminiResult);
+    } catch (e) {
+      appLog('OCR fallback (forceReprocess): $e');
+      return (text: null, isPureImageNoText: false, geminiResult: null);
+    }
+  }
+
+  /// דיווח תמונה שדולגה (No Text Detected) — fire-and-forget לסטטיסטיקת חיסכון
+  static void reportNoTextDetected() {
+    final uri = Uri.parse('$_backendBase/api/report-no-text-detected');
+    http.post(uri, headers: {'Content-Type': 'application/json'}, body: '{}').then((r) {
+      if (r.statusCode != 200) appLog('reportNoTextDetected failed: ${r.statusCode}');
+    }).catchError((e) {
+      appLog('reportNoTextDetected error: $e');
+    });
+  }
+
+  /// דיווח כשלון ל-Scanning Health — fire-and-forget
+  void _reportScanFailure(FileMetadata file, String rawText) {
+    final uri = Uri.parse('$_backendBase/api/report-scan-failure');
+    final body = jsonEncode({
+      'documentId': file.id.toString(),
+      'filename': file.name,
+      'rawText': rawText.length > 50000 ? rawText.substring(0, 50000) : rawText,
+      'garbageRatioPercent': getGarbageRatio(rawText) * 100,
+      'userId': AuthService.instance.currentUser?.uid,
+      'reasonForUpload': 'Local OCR Low Confidence',
+    });
+    http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).then((r) {
+      if (r.statusCode != 200) appLog('ScanFailure report failed: ${r.statusCode}');
+    }).catchError((e) {
+      appLog('ScanFailure report error: $e');
+    });
+  }
 
   /// מריץ צינור עיבוד לפי נתיב. מחזיר תוצאת AI (כולל suggestions) אם immediate ו-PRO ונשלח לשרת.
   Future<DocumentAnalysisResult?> processFileByPath(String filePath, {required bool isPro, bool immediate = false}) async {
@@ -60,6 +137,7 @@ class FileProcessingService {
       file.isAiAnalyzed = false;
       file.aiStatus = 'unreadable';
       _db.updateFile(file);
+      _reportScanFailure(file, text);
       appLog('[SCAN] File: $path — 2. Quality: UNREADABLE (low confidence / too short). 3. DECISION: Skipping AI (file dropped, not sent to Gemini).');
       return null;
     }
@@ -118,7 +196,44 @@ class FileProcessingService {
     if (TextExtractionService.isTextExtractable(ext)) {
       text = await TextExtractionService.instance.extractText(path);
     } else if (OCRService.isSupportedImage(ext)) {
-      text = await OCRService.instance.extractText(path);
+      final ocrResult = await OCRService.instance.extractTextWithStatus(path);
+      if (ocrResult.isNoText) {
+        file.aiStatus = 'no_text_detected';
+        file.extractedText = null;
+        file.isIndexed = true;
+        _db.updateFile(file);
+        FileProcessingService.reportNoTextDetected();
+        return const ForceReprocessResult(success: false, message: 'לא נמצא טקסט בתמונה');
+      }
+      if (ocrResult.needsBackendFallback) {
+        reportProgress?.call('מעלה לשרת...');
+        final fallback = await _callOcrExtract(path, documentId: file.id.toString(), filename: file.name);
+        if (fallback.isPureImageNoText && fallback.text == null) {
+          file.aiStatus = 'no_text_detected';
+          file.extractedText = null;
+          file.isIndexed = true;
+          _db.updateFile(file);
+          FileProcessingService.reportNoTextDetected();
+          return const ForceReprocessResult(success: false, message: 'לא נמצא טקסט בתמונה');
+        }
+        text = fallback.text?.trim().isNotEmpty == true ? fallback.text! : ocrResult.text;
+        file.extractedText = text.isEmpty ? null : text;
+        file.isIndexed = true;
+        if (fallback.geminiResult != null) {
+          file.category = fallback.geminiResult!.category;
+          file.tags = fallback.geminiResult!.tags;
+          file.isAiAnalyzed = true;
+          file.aiStatus = null;
+          _db.updateFile(file);
+          return ForceReprocessResult(
+            success: true,
+            message: 'עובד ב-Cloud Vision + Gemini: ${fallback.geminiResult!.category}',
+            suggestions: fallback.geminiResult!.suggestions,
+          );
+        }
+      } else {
+        text = ocrResult.text;
+      }
     } else {
       text = file.extractedText ?? '';
     }
@@ -133,6 +248,7 @@ class FileProcessingService {
       file.isAiAnalyzed = false;
       file.aiStatus = 'unreadable';
       _db.updateFile(file);
+      _reportScanFailure(file, text);
       appLog('[FORCE] File: $path — UNREADABLE.');
       return const ForceReprocessResult(success: false, message: 'הטקסט לא קריא');
     }

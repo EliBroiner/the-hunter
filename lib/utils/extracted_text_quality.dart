@@ -31,3 +31,14 @@ bool isExtractedTextAcceptableForAi(String text) {
   if (text.isEmpty) return false;
   return getGarbageRatio(text) <= (garbageThresholdPercent / 100.0);
 }
+
+/// בודק אם הטקסט משמעותי — לפחות X% תווים תקינים (עברית/אנגלית) ואורך מינימלי.
+/// משמש להחלטה על "Higher Quality Scan" כשהתוצאה ג'יבריש.
+const int _minMeaningfulLength = 5;
+const double _minValidCharRatio = 0.70; // 70% תווים תקינים
+
+bool isTextMeaningful(String text) {
+  if (text.isEmpty || text.length < _minMeaningfulLength) return false;
+  final validRatio = 1.0 - getGarbageRatio(text);
+  return validRatio >= _minValidCharRatio;
+}

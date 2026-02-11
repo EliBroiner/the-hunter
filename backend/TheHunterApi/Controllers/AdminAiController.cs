@@ -1,6 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using UglyToad.PdfPig;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using TheHunterApi.Filters;
+using TheHunterApi.Models;
 using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
@@ -15,6 +20,9 @@ namespace TheHunterApi.Controllers;
 public class AdminAiController : ControllerBase
 {
     private readonly GeminiService _geminiService;
+    private readonly ISystemPromptService _systemPromptService;
+    private readonly AdminFirestoreService _firestore;
+    private readonly IScannerSettingsService _scannerSettings;
     private readonly ILogger<AdminAiController> _logger;
 
     private const int MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB
@@ -24,13 +32,51 @@ public class AdminAiController : ControllerBase
     private const double ContentWeight = 120;
     private const double MetadataWeight = 80;
 
-    // סף ג'יבריש — 30% (כמו extracted_text_quality.dart)
-    private const double GarbageThresholdPercent = 30;
+    private const string OcrExtractionFallback = "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
 
-    public AdminAiController(GeminiService geminiService, ILogger<AdminAiController> logger)
+    public AdminAiController(GeminiService geminiService, ISystemPromptService systemPromptService, AdminFirestoreService firestore, IScannerSettingsService scannerSettings, ILogger<AdminAiController> logger)
     {
         _geminiService = geminiService;
+        _systemPromptService = systemPromptService;
+        _firestore = firestore;
+        _scannerSettings = scannerSettings;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// GET /admin/debug/processing-chain/{documentId} — שרשרת עיבוד למסמך (Cloud Vision + Gemini).
+    /// </summary>
+    [HttpGet("processing-chain/{documentId}")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetProcessingChain(string documentId)
+    {
+        var chain = await _firestore.GetProcessingChainAsync(documentId);
+        if (chain == null) return NotFound();
+        return Ok(new { documentId, chain });
+    }
+
+    /// <summary>
+    /// GET /admin/debug/scan-stats — סטטיסטיקות סריקה (תמונות שדולגו, חיסכון).
+    /// </summary>
+    [HttpGet("scan-stats")]
+    [ProducesResponseType(typeof(ScanStatsResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetScanStats()
+    {
+        var imagesSkippedNoText = await _firestore.GetImagesSkippedNoTextCountAsync();
+        return Ok(new ScanStatsResponse { ImagesSkippedNoText = imagesSkippedNoText });
+    }
+
+    /// <summary>
+    /// GET /admin/debug/scan-failure/{id} — מחזיר כשלון ל-Debug ב-AI Lab (Manual Override).
+    /// </summary>
+    [HttpGet("scan-failure/{id}")]
+    [ProducesResponseType(typeof(ScanFailure), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetScanFailure(string id)
+    {
+        var failure = await _firestore.GetScanFailureByIdAsync(id);
+        return failure != null ? Ok(failure) : NotFound();
     }
 
     /// <summary>
@@ -99,13 +145,14 @@ public class AdminAiController : ControllerBase
 
     /// <summary>
     /// POST /admin/debug/garbage-filter — מחשב יחס ג'יבריש לפי הלוגיקה של extracted_text_quality.dart.
-    /// תווים תקינים: עברית, לטינית, ספרות, רווחים, פיסוק בסיסי. מעל 30% = נכשל.
+    /// סף ג'יבריש — מ-scanner_settings (garbageThresholdPercent).
     /// </summary>
     [HttpPost("garbage-filter")]
     [ProducesResponseType(typeof(GarbageFilterResponse), StatusCodes.Status200OK)]
-    public IActionResult GarbageFilter([FromBody] GarbageFilterRequest request)
+    public async Task<IActionResult> GarbageFilter([FromBody] GarbageFilterRequest request)
     {
         var text = request?.Text ?? "";
+        var thresholdPercent = await _scannerSettings.GetGarbageThresholdPercentAsync();
 
         if (text.Length == 0)
             return Ok(new GarbageFilterResponse
@@ -114,16 +161,16 @@ public class AdminAiController : ControllerBase
                 GarbageCount = 0,
                 GarbageRatioPercent = 100,
                 PassesThreshold = false,
-                ThresholdPercent = GarbageThresholdPercent
+                ThresholdPercent = thresholdPercent
             });
 
         var ratio = GetGarbageRatio(text);
         var percent = ratio * 100;
-        var passes = ratio <= (GarbageThresholdPercent / 100.0);
+        var passes = ratio <= (thresholdPercent / 100.0);
         var garbageCount = (int)Math.Round(ratio * text.Length);
 
-        _logger.LogInformation("[Debug] Garbage filter: textLen={Len}, garbage={Garbage}, ratio={Ratio:P1}, passes={Passes}",
-            text.Length, garbageCount, ratio, passes);
+        _logger.LogInformation("[Debug] Garbage filter: textLen={Len}, garbage={Garbage}, ratio={Ratio:P1}, passes={Passes}, threshold={Threshold}%",
+            text.Length, garbageCount, ratio, passes, thresholdPercent);
 
         return Ok(new GarbageFilterResponse
         {
@@ -131,7 +178,7 @@ public class AdminAiController : ControllerBase
             GarbageCount = garbageCount,
             GarbageRatioPercent = Math.Round(percent, 2),
             PassesThreshold = passes,
-            ThresholdPercent = GarbageThresholdPercent
+            ThresholdPercent = thresholdPercent
         });
     }
 
@@ -224,19 +271,49 @@ public class AdminAiController : ControllerBase
             garbageRatio = GetGarbageRatio(directText);
         }
 
-        var needsFallback = directText == null || string.IsNullOrEmpty(directText) ||
-            garbageRatio > (GarbageThresholdPercent / 100.0);
+        var minLength = await _scannerSettings.GetMinMeaningfulLengthAsync();
+        var minValidRatio = await _scannerSettings.GetMinValidCharRatioPercentAsync();
+        var needsFallback = directText == null || !IsTextMeaningful(directText ?? "", minLength, minValidRatio / 100.0);
 
         string? fallbackText = null;
         string? fallbackError = null;
+        string? bwThumbnailDataUrl = null;
+        byte[] bytesForGemini = bytes;
+
+        // לתמונות — עיבוד B&W כמו באפליקציה, ויצירת thumbnail
+        var isImage = ext is "jpg" or "jpeg" or "png" or "webp";
+        if (isImage)
+        {
+            try
+            {
+                var (bwBytes, thumbDataUrl) = CreateBwAndThumbnail(bytes);
+                if (bwBytes != null)
+                {
+                    bytesForGemini = bwBytes;
+                    bwThumbnailDataUrl = thumbDataUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "B&W processing failed, using original");
+            }
+        }
 
         if (needsFallback && _geminiService.IsConfigured)
         {
-            var prompt = "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
-            var (extracted, success, err) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, prompt);
+            var prompt = await GetOcrExtractionPromptAsync();
+            var (extracted, success, err) = await _geminiService.ExtractTextFromFileAsync(bytesForGemini, mimeType, prompt);
             fallbackText = success ? extracted : null;
             fallbackError = err;
         }
+
+        // Raw = מקור ראשי (Direct או Fallback). Cleaned = אחרי TextCleaner
+        var rawText = !string.IsNullOrEmpty(fallbackText) ? fallbackText : (directText ?? "");
+        if (string.IsNullOrEmpty(rawText) && directText != null)
+            rawText = directText;
+        var cleanedText = CleanText(rawText);
+        var cleanupRatioPercent = string.IsNullOrEmpty(rawText) ? (double?)null : Math.Round(GetGarbageRatio(rawText) * 100, 2);
+        var thresholdPercent = await _scannerSettings.GetGarbageThresholdPercentAsync();
 
         return Ok(new OcrTestResponse
         {
@@ -244,12 +321,62 @@ public class AdminAiController : ControllerBase
             FileSizeBytes = (int)file.Length,
             DirectExtractText = directText ?? "",
             DirectGarbageRatioPercent = directText != null ? Math.Round(garbageRatio * 100, 2) : null,
-            DirectPassesThreshold = directText != null && garbageRatio <= (GarbageThresholdPercent / 100.0),
+            DirectPassesThreshold = directText != null && garbageRatio <= (thresholdPercent / 100.0),
             FallbackUsed = needsFallback,
             FallbackText = fallbackText,
             FallbackError = fallbackError,
-            ThresholdPercent = GarbageThresholdPercent
+            ThresholdPercent = thresholdPercent,
+            RawExtractText = rawText,
+            CleanedExtractText = cleanedText,
+            CleanupRatioPercent = cleanupRatioPercent,
+            ReasonForUpload = "Manual Admin Request",
+            BwThumbnailDataUrl = bwThumbnailDataUrl
         });
+    }
+
+    /// <summary>עיבוד B&W + thumbnail — כמו Flutter OCRService. מחזיר (bytes לשליחה, data URL ל-thumbnail).</summary>
+    private static (byte[]? BwBytes, string? ThumbnailDataUrl) CreateBwAndThumbnail(byte[] input)
+    {
+        using var image = Image.Load<Rgb24>(input);
+        image.Mutate(x =>
+        {
+            x.Grayscale();
+            x.BinaryThreshold(128f);
+        });
+        var encoder = new JpegEncoder { Quality = 70 };
+        var bwBytes = new MemoryStream();
+        image.SaveAsJpeg(bwBytes, encoder);
+        bwBytes.Position = 0;
+
+        // thumbnail — max 200px
+        const int maxThumb = 200;
+        using var thumb = image.Clone(x =>
+        {
+            if (image.Width > maxThumb || image.Height > maxThumb)
+                x.Resize(new ResizeOptions { Size = new Size(maxThumb, maxThumb), Mode = ResizeMode.Max });
+        });
+        var thumbMs = new MemoryStream();
+        thumb.SaveAsJpeg(thumbMs, new JpegEncoder { Quality = 75 });
+        var base64 = Convert.ToBase64String(thumbMs.ToArray());
+        return (bwBytes.ToArray(), "data:image/jpeg;base64," + base64);
+    }
+
+    private async Task<string> GetOcrExtractionPromptAsync()
+    {
+        try
+        {
+            var dbPrompt = await _systemPromptService.GetActivePromptAsync("OcrExtraction");
+            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
+            {
+                _logger.LogDebug("OCR prompt: using DB (Version={Version})", dbPrompt.Version);
+                return dbPrompt.Content;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get OcrExtraction prompt from DB, using fallback");
+        }
+        return OcrExtractionFallback;
     }
 
     private static string Normalize(string s)
@@ -286,6 +413,28 @@ public class AdminAiController : ControllerBase
         if (codePoint >= 0x0590 && codePoint <= 0x05FF) return true; // עברית + ניקוד
         var punct = new[] { 0x2C, 0x2E, 0x3A, 0x3B, 0x21, 0x3F, 0x2D, 0x5F, 0x27, 0x22, 0x28, 0x29 };
         return punct.Contains(codePoint);
+    }
+
+    /// <summary>
+    /// בודק אם הטקסט משמעותי — minValidRatio תווים תקינים ואורך מינימלי minLength.
+    /// </summary>
+    private static bool IsTextMeaningful(string text, int minLength, double minValidRatio)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length < minLength) return false;
+        var validRatio = 1.0 - GetGarbageRatio(text);
+        return validRatio >= minValidRatio;
+    }
+
+    /// <summary>
+    /// TextCleaner — ניקוי טקסט: רווחים, תווים לא רצויים (תואם ל-Flutter _cleanupText).
+    /// </summary>
+    private static string CleanText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(text, @"\n{3,}", "\n\n");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[ \t]+", " ");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[\x00-\x08\x0B\x0C\x0E-\x1F]", "");
+        return cleaned.Trim();
     }
 }
 
@@ -343,6 +492,11 @@ public class ErrorResponse
     public string? Details { get; set; }
 }
 
+public class ScanStatsResponse
+{
+    public long ImagesSkippedNoText { get; set; }
+}
+
 public class OcrTestResponse
 {
     public string Filename { get; set; } = "";
@@ -354,6 +508,16 @@ public class OcrTestResponse
     public string? FallbackText { get; set; }
     public string? FallbackError { get; set; }
     public double ThresholdPercent { get; set; }
+    /// <summary>טקסט גולמי לפני TextCleaner (מקור ראשי: Direct או Fallback)</summary>
+    public string RawExtractText { get; set; } = "";
+    /// <summary>טקסט אחרי TextCleaner</summary>
+    public string CleanedExtractText { get; set; } = "";
+    /// <summary>אחוז רעש שהוסר (ג'יבריש)</summary>
+    public double? CleanupRatioPercent { get; set; }
+    /// <summary>סיבת העלאה — Manual Admin Request, Local OCR Low Confidence</summary>
+    public string ReasonForUpload { get; set; } = "Manual Admin Request";
+    /// <summary>תמונת B&W שנשלחה לשרת (base64 data URL) — לתמונות בלבד</summary>
+    public string? BwThumbnailDataUrl { get; set; }
 }
 
 #endregion

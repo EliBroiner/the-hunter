@@ -15,6 +15,7 @@ public class AdminDashboardController : Controller
 {
     private readonly AdminFirestoreService _firestore;
     private readonly INotificationService _notification;
+    private readonly IScannerSettingsService _scannerSettings;
     private readonly ILogger<AdminDashboardController> _logger;
     private readonly IConfiguration _config;
     private readonly QuotaService _quotaService;
@@ -22,12 +23,14 @@ public class AdminDashboardController : Controller
     public AdminDashboardController(
         AdminFirestoreService firestore,
         INotificationService notification,
+        IScannerSettingsService scannerSettings,
         ILogger<AdminDashboardController> logger,
         IConfiguration config,
         QuotaService quotaService)
     {
         _firestore = firestore;
         _notification = notification;
+        _scannerSettings = scannerSettings;
         _logger = logger;
         _config = config;
         _quotaService = quotaService;
@@ -61,6 +64,14 @@ public class AdminDashboardController : Controller
             var pendingCount = await _firestore.GetPendingTermsCountAsync();
             var approvedCount = await _firestore.GetApprovedTermsCountAsync();
             var newTermsPerDay = await _firestore.GetNewTermsPerDayAsync(30);
+            var (scanFailures, _) = await _firestore.GetScanFailuresAsync(10);
+            var scannerSettings = new ScannerSettingsViewModel
+            {
+                GarbageThresholdPercent = await _scannerSettings.GetGarbageThresholdPercentAsync(),
+                MinMeaningfulLength = await _scannerSettings.GetMinMeaningfulLengthAsync(),
+                MinValidCharRatioPercent = await _scannerSettings.GetMinValidCharRatioPercentAsync(),
+                CloudVisionFallbackEnabled = await _scannerSettings.GetCloudVisionFallbackEnabledAsync()
+            };
 
             await _notification.NotifyIfPendingThresholdAsync(pendingCount, terms.FirstOrDefault());
             var threshold = _config.GetValue("Admin:Notification:PendingThreshold", 10);
@@ -87,7 +98,9 @@ public class AdminDashboardController : Controller
                 TotalUsers = totalUsers,
                 PendingTermsCount = pendingCount,
                 ApprovedTermsCount = approvedCount,
-                NewTermsPerDay = newTermsPerDay
+                NewTermsPerDay = newTermsPerDay,
+                ScanFailures = scanFailures,
+                ScannerSettings = scannerSettings
             });
         }
         catch (Exception ex)
@@ -108,7 +121,9 @@ public class AdminDashboardController : Controller
                 TotalUsers = 0,
                 PendingTermsCount = 0,
                 ApprovedTermsCount = 0,
-                NewTermsPerDay = new Dictionary<string, int>()
+                NewTermsPerDay = new Dictionary<string, int>(),
+                ScanFailures = new List<ScanFailure>(),
+                ScannerSettings = new ScannerSettingsViewModel()
             });
         }
     }
@@ -146,6 +161,23 @@ public class AdminDashboardController : Controller
     public IActionResult ClearErrors()
     {
         AdminErrorTracker.ClearErrors();
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [Route("scanner-settings")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateScannerSettings([FromForm] double? garbageThresholdPercent, [FromForm] int? minMeaningfulLength, [FromForm] double? minValidCharRatioPercent, [FromForm] bool cloudVisionFallbackEnabled = false)
+    {
+        if (garbageThresholdPercent.HasValue)
+            await _scannerSettings.SetGarbageThresholdPercentAsync(garbageThresholdPercent.Value);
+        if (minMeaningfulLength.HasValue)
+            await _scannerSettings.SetMinMeaningfulLengthAsync(minMeaningfulLength.Value);
+        if (minValidCharRatioPercent.HasValue)
+            await _scannerSettings.SetMinValidCharRatioPercentAsync(minValidCharRatioPercent.Value);
+        await _scannerSettings.SetCloudVisionFallbackEnabledAsync(cloudVisionFallbackEnabled);
+        TempData["WeightsMessage"] = "הגדרות הסריקה עודכנו. השינויים יוחלו מיד.";
+        TempData["WeightsMessageSuccess"] = true;
         return RedirectToAction(nameof(Index));
     }
 

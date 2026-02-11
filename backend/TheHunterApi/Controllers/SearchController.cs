@@ -9,13 +9,16 @@ namespace TheHunterApi.Controllers;
 public class SearchController : ControllerBase
 {
     private readonly GeminiService _geminiService;
+    private readonly UserRoleService _userRoleService;
     private readonly ILogger<SearchController> _logger;
 
     public SearchController(
         GeminiService geminiService,
+        UserRoleService userRoleService,
         ILogger<SearchController> logger)
     {
         _geminiService = geminiService;
+        _userRoleService = userRoleService;
         _logger = logger;
     }
 
@@ -47,7 +50,19 @@ public class SearchController : ControllerBase
 
         _logger.LogInformation("Received search intent request: {Query}", request.Query);
 
-        var result = await _geminiService.ParseSearchIntentAsync(request.Query);
+        string? promptOverride = null;
+        var userId = request.UserId?.Trim();
+        if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
+        {
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            if (isAdmin)
+            {
+                promptOverride = request.AdminPromptOverride.Trim();
+                _logger.LogWarning("[AUDIT] AdminPromptOverride used for search/intent | UserId={UserId} | PromptLength={Len}", userId, promptOverride.Length);
+            }
+        }
+
+        var result = await _geminiService.ParseSearchIntentAsync(request.Query, promptOverride);
 
         if (!result.IsSuccess)
         {

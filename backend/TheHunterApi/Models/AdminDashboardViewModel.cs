@@ -16,4 +16,16 @@ public class AdminDashboardViewModel
     public int PendingTermsCount { get; set; }
     public int ApprovedTermsCount { get; set; }
     public Dictionary<string, int> NewTermsPerDay { get; set; } = new();
+    /// <summary>כשלונות Meaningful Text — 10 אחרונים לדיבאג ב-AI Lab.</summary>
+    public List<ScanFailure> ScanFailures { get; set; } = new();
+    /// <summary>הגדרות סריקה — garbageThresholdPercent, minMeaningfulLength, minValidCharRatioPercent.</summary>
+    public ScannerSettingsViewModel? ScannerSettings { get; set; }
+}
+
+public class ScannerSettingsViewModel
+{
+    public double GarbageThresholdPercent { get; set; } = 30;
+    public int MinMeaningfulLength { get; set; } = 5;
+    public double MinValidCharRatioPercent { get; set; } = 70;
+    public bool CloudVisionFallbackEnabled { get; set; }
 }

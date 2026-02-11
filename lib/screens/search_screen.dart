@@ -958,7 +958,11 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final String label;
     final IconData icon;
     final Color color;
-    if (file.aiStatus == 'local_match') {
+    if (file.aiStatus == 'no_text_detected') {
+      label = '📷 No Text Detected';
+      icon = Icons.image_not_supported;
+      color = Colors.grey;
+    } else if (file.aiStatus == 'local_match') {
       label = '⚡ Auto-Tagged (Dictionary)';
       icon = Icons.bolt;
       color = const Color(0xFF26A69A); // Green/Teal

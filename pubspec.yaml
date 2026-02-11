@@ -78,6 +78,7 @@ dependencies:
   # Google APIs (תואם ל-google_sign_in 6)
   googleapis: ^13.1.0
   googleapis_auth: ^1.6.0
+  image: 4.0.0
 
 dev_dependencies:
   flutter_test:

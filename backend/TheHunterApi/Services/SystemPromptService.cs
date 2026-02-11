@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using TheHunterApi.Data;
 using TheHunterApi.Models;
 
@@ -6,15 +7,21 @@ namespace TheHunterApi.Services;
 
 /// <summary>
 /// מימוש ניהול פרומפטים — שליפה, טיוטה, והחלפת פעיל בטרנזקציה.
+/// GetActivePromptAsync — ממומן 5 דקות להפחתת עומס על ה-DB.
 /// </summary>
 public class SystemPromptService : ISystemPromptService
 {
     private readonly AppDbContext _db;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<SystemPromptService> _logger;
 
-    public SystemPromptService(AppDbContext db, ILogger<SystemPromptService> logger)
+    private const string CacheKeyPrefix = "SystemPrompt:";
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    public SystemPromptService(AppDbContext db, IMemoryCache cache, ILogger<SystemPromptService> logger)
     {
         _db = db;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -24,9 +31,17 @@ public class SystemPromptService : ISystemPromptService
         if (string.IsNullOrWhiteSpace(feature))
             return null;
 
-        return await _db.SystemPrompts
-            .Where(p => p.Feature == feature && p.IsActive)
-            .FirstOrDefaultAsync();
+        var cacheKey = $"{CacheKeyPrefix}{feature}";
+        return await _cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            var prompt = await _db.SystemPrompts
+                .AsNoTracking()
+                .Where(p => p.Feature == feature && p.IsActive)
+                .FirstOrDefaultAsync();
+            _logger.LogDebug("SystemPrompt cache miss: Feature={Feature}, Cached={Cached}", feature, prompt != null);
+            return prompt;
+        });
     }
 
     /// <inheritdoc />
@@ -86,6 +101,9 @@ public class SystemPromptService : ISystemPromptService
 
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
+
+            // ביטול cache — הפרומפט הפעיל השתנה
+            _cache.Remove($"{CacheKeyPrefix}{prompt.Feature}");
 
             _logger.LogInformation("SystemPrompt activated: Id={Id}, Feature={Feature}, Version={Version}",
                 prompt.Id, prompt.Feature, prompt.Version);

@@ -1,19 +1,29 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/ai_analysis_response.dart';
 import '../models/file_metadata.dart';
+import '../utils/log_sanitization.dart';
+import 'app_check_http_helper.dart';
+import 'auth_service.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
 import 'file_processing_service.dart';
-import 'settings_service.dart';
 import 'log_service.dart';
-import '../utils/log_sanitization.dart';
 import 'ocr_service.dart';
 import 'permission_service.dart';
+import 'settings_service.dart';
 import 'text_extraction_service.dart';
 import 'user_activity_service.dart';
 
 /// מפתח לשמירת תיקיות נבחרות
 const String _selectedFoldersKey = 'selected_scan_folders';
+
+/// כתובת Backend ל-OCR Fallback (תמונה → Gemini)
+const String _backendOcrExtract = 'https://the-hunter-105628026575.me-west1.run.app/api/ocr-extract';
 
 /// מקור סריקה - מייצג תיקייה לסריקה
 class ScanSource {
@@ -581,14 +591,37 @@ class FileScannerService {
       // שמירה למסד
       _databaseService.saveFile(metadata);
 
-      // הרצת OCR אם זו תמונה
+      // הרצת OCR אם זו תמונה — כולל בדיקת element count ו-fallback ל-Backend
       if (imageExtensions.contains(extension)) {
-        final extractedText = await _ocrService.extractText(filePath);
-        metadata.extractedText = extractedText;
+        final ocrResult = await _ocrService.extractTextWithStatus(filePath);
+
+        if (ocrResult.isNoText) {
+          metadata.aiStatus = 'no_text_detected';
+          metadata.extractedText = null;
+          FileProcessingService.reportNoTextDetected();
+        } else if (ocrResult.needsBackendFallback) {
+          final fallback = await _callOcrExtractBackend(filePath, documentId: metadata.id.toString(), filename: fileName);
+          if (fallback.isPureImageNoText && fallback.text == null) {
+            metadata.aiStatus = 'no_text_detected';
+            metadata.extractedText = null;
+            FileProcessingService.reportNoTextDetected();
+          } else {
+            metadata.extractedText = fallback.text?.trim().isNotEmpty == true ? fallback.text : ocrResult.text;
+            if (fallback.geminiResult != null) {
+              metadata.category = fallback.geminiResult!.category;
+              metadata.tags = fallback.geminiResult!.tags;
+              metadata.isAiAnalyzed = true;
+              metadata.aiStatus = null;
+              appLog('_scanAndSaveImageFile: Applied GeminiResult from Cloud Vision pipeline (doc ${metadata.id})');
+            }
+          }
+        } else {
+          metadata.extractedText = ocrResult.text.isEmpty ? null : ocrResult.text;
+        }
         metadata.isIndexed = true;
-        
+
         // תיוג אוטומטי מתקדם (לפי תוכן)
-        final contentTags = _generateAutoTags(fileName, extension, extractedText);
+        final contentTags = _generateAutoTags(fileName, extension, metadata.extractedText);
         if (contentTags.isNotEmpty) {
           final currentTags = metadata.tags ?? [];
           final newTags = contentTags.where((t) => !currentTags.contains(t)).toList();
@@ -596,13 +629,77 @@ class FileScannerService {
             metadata.tags = [...currentTags, ...newTags];
           }
         }
-        
+
         _databaseService.updateFile(metadata);
       }
 
       return metadata;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// OCR Fallback — העלאת תמונה B&W ל-Backend. מחזיר טקסט + אופציונלית GeminiResult (לדריסת קטגוריה מקומית).
+  Future<({String? text, bool isPureImageNoText, DocumentAnalysisResult? geminiResult})> _callOcrExtractBackend(
+    String imagePath, {
+    String? documentId,
+    String? filename,
+  }) async {
+    try {
+      final compressed = await OCRService.instance.getCompressedBwImageForUpload(imagePath);
+      if (compressed.bytes.isEmpty) return (text: null, isPureImageNoText: false, geminiResult: null);
+
+      final uri = Uri.parse(_backendOcrExtract);
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        compressed.bytes,
+        filename: filename ?? 'image.jpg',
+      ));
+      if (documentId != null) request.fields['documentId'] = documentId;
+      if (filename != null) request.fields['filename'] = filename;
+      final uid = AuthService.instance.currentUser?.uid;
+      if (uid != null) request.fields['userId'] = uid;
+      request.headers.addAll(await AppCheckHttpHelper.getBackendHeaders());
+
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+
+      if (response.statusCode != 200) {
+        appLog('OCR fallback: HTTP ${response.statusCode}');
+        return (text: null, isPureImageNoText: false, geminiResult: null);
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final text = decoded?['text'] as String? ?? '';
+      final isPureImageNoText = decoded?['isPureImageNoText'] as bool? ?? false;
+      if ((decoded?['error'] as String?) != null) {
+        appLog('OCR fallback: server error — ${decoded!['error']}');
+      }
+      if (isPureImageNoText && text.isEmpty) {
+        appLog('OCR fallback: Pure Image - No Text Found (avoid retries)');
+      }
+
+      DocumentAnalysisResult? geminiResult;
+      final gr = decoded?['geminiResult'] as Map<String, dynamic>?;
+      if (gr != null) {
+        final cat = gr['category'] as String? ?? '';
+        final tagsList = gr['tags'];
+        final tags = tagsList is List
+            ? tagsList.map((e) => (e?.toString() ?? '').trim()).where((s) => s.isNotEmpty).toList()
+            : <String>[];
+        final sugg = gr['suggestions'];
+        final suggestions = sugg is List
+            ? sugg.map((e) => AiSuggestion.fromJson(e is Map ? Map<String, dynamic>.from(e as Map) : null)).whereType<AiSuggestion>().toList()
+            : <AiSuggestion>[];
+        geminiResult = DocumentAnalysisResult(category: cat, tags: tags, suggestions: suggestions);
+        appLog('OCR fallback: GeminiResult received — category=$cat, tags=${tags.length}');
+      }
+
+      return (text: text.isEmpty ? null : text, isPureImageNoText: isPureImageNoText, geminiResult: geminiResult);
+    } catch (e) {
+      appLog('OCR fallback failed — $e');
+      return (text: null, isPureImageNoText: false, geminiResult: null);
     }
   }
 
@@ -791,11 +888,38 @@ class FileScannerService {
         onProgress?.call(filesProcessed + 1, totalPending);
 
         try {
-          final extractedText = await _ocrService.extractText(file.path);
+          final ocrResult = await _ocrService.extractTextWithStatus(file.path);
 
-          file.extractedText = extractedText;
+          String? extractedText;
+          if (ocrResult.isNoText) {
+            file.aiStatus = 'no_text_detected';
+            file.extractedText = null;
+            extractedText = null;
+            FileProcessingService.reportNoTextDetected();
+          } else if (ocrResult.needsBackendFallback) {
+            final fallback = await _callOcrExtractBackend(file.path, documentId: file.id.toString(), filename: file.name);
+            if (fallback.isPureImageNoText && fallback.text == null) {
+              file.aiStatus = 'no_text_detected';
+              file.extractedText = null;
+              extractedText = null;
+              FileProcessingService.reportNoTextDetected();
+            } else {
+              extractedText = fallback.text?.trim().isNotEmpty == true ? fallback.text : ocrResult.text;
+              file.extractedText = extractedText;
+              if (fallback.geminiResult != null) {
+                file.category = fallback.geminiResult!.category;
+                file.tags = fallback.geminiResult!.tags;
+                file.isAiAnalyzed = true;
+                file.aiStatus = null;
+                appLog('Process pipeline: Applied GeminiResult from Cloud Vision (doc ${file.id})');
+              }
+            }
+          } else {
+            extractedText = ocrResult.text.isEmpty ? null : ocrResult.text;
+            file.extractedText = extractedText;
+          }
           file.isIndexed = true;
-          
+
           // עדכון תגיות אוטומטיות עם התוכן החדש
           final contentTags = _generateAutoTags(file.name, file.extension, extractedText);
           if (contentTags.isNotEmpty) {
@@ -805,17 +929,19 @@ class FileScannerService {
               file.tags = [...currentTags, ...newTags];
             }
           }
-          
-          // צינור עיבוד: ולידציה → מילון → AI (רק PRO)
-          await FileProcessingService.instance.processFile(
-            file,
-            isPro: SettingsService.instance.isPremium,
-          );
+
+          // צינור עיבוד: ולידציה → מילון → AI (רק PRO) — דילוג אם no_text_detected
+          if (!ocrResult.isNoText) {
+            await FileProcessingService.instance.processFile(
+              file,
+              isPro: SettingsService.instance.isPremium,
+            );
+          }
           _databaseService.updateFile(file);
           appLog('✅ Done processing: ${file.path}');
 
           filesProcessed++;
-          if (extractedText.isNotEmpty) filesWithText++;
+          if ((extractedText ?? '').isNotEmpty) filesWithText++;
           
           _checkAndTriggerBackup(filesProcessed);
           

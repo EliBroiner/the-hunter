@@ -18,6 +18,10 @@ public class AdminFirestoreService
     private const string ColUsers = "users";
     private const string ColLogs = "logs";
     private const string ColRankingSettings = "ranking_settings";
+    private const string ColScanFailures = "scan_failures";
+    private const string ColScannerSettings = "scanner_settings";
+    private const string ColScanStats = "scan_stats";
+    private const string ColProcessingChains = "processing_chains";
 
     private readonly FirestoreDb _db;
     private readonly ILogger<AdminFirestoreService> _logger;
@@ -37,7 +41,7 @@ public class AdminFirestoreService
                 "[AdminFirestore] Connected to project {ProjectId}. Collections: {Cols}. " +
                 "Cloud Run: ודא שה-Service Account יש לו Cloud Datastore User / Firestore permissions.",
                 EffectiveProjectId,
-                string.Join(", ", ColKnowledgeBase, ColUsers, ColLogs, ColRankingSettings));
+                string.Join(", ", ColKnowledgeBase, ColUsers, ColLogs, ColRankingSettings, ColScanFailures, ColScannerSettings, ColScanStats, ColProcessingChains));
         }
         catch (Exception ex)
         {
@@ -193,6 +197,101 @@ public class AdminFirestoreService
             Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new Dictionary<string, double>(), false);
         }
+    }
+
+    /// <summary>
+    /// כשלונות Meaningful Text Check — אחרונים 10. לקריאה ב-Scanning Health.
+    /// </summary>
+    public async Task<(List<ScanFailure> Failures, bool Ok)> GetScanFailuresAsync(int limit = 10)
+    {
+        try
+        {
+            var query = _db.Collection(ColScanFailures)
+                .OrderByDescending("timestamp")
+                .Limit(limit);
+            var snapshot = await query.GetSnapshotAsync();
+            var list = new List<ScanFailure>();
+            foreach (var doc in snapshot.Documents)
+            {
+                var f = MapDocToScanFailure(doc.Id, doc.ToDictionary());
+                if (f != null) list.Add(f);
+            }
+            return (list, true);
+        }
+        catch (Exception ex)
+        {
+            LogIfPermissionDenied(ex, "GetScanFailures");
+            _logger.LogError(ex, "ERROR fetching scan_failures: {Message}", ex.Message);
+            return (new List<ScanFailure>(), false);
+        }
+    }
+
+    /// <summary>מחזיר כשלון בודד לפי Id — ל-Debug ב-AI Lab.</summary>
+    public async Task<ScanFailure?> GetScanFailureByIdAsync(string id)
+    {
+        try
+        {
+            var snap = await _db.Collection(ColScanFailures).Document(id).GetSnapshotAsync();
+            if (!snap.Exists) return null;
+            return MapDocToScanFailure(snap.Id, snap.ToDictionary());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetScanFailureById {Id}: {Message}", id, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>דיווח כשלון מהאפליקציה — נכתב ל-scan_failures.</summary>
+    public async Task<string?> AddScanFailureAsync(string documentId, string filename, string rawText, double? garbageRatioPercent, string? userId, string? reasonForUpload = null)
+    {
+        try
+        {
+            LogWriteAttempt(ColScanFailures, "Add");
+            var col = _db.Collection(ColScanFailures);
+            var data = new Dictionary<string, object>
+            {
+                { "documentId", documentId ?? "" },
+                { "filename", filename ?? "" },
+                { "rawText", (rawText ?? "").Length > 50000 ? (rawText ?? "").Substring(0, 50000) + "…" : (rawText ?? "") },
+                { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) },
+                { "userId", userId ?? "" }
+            };
+            if (garbageRatioPercent.HasValue)
+                data["garbageRatioPercent"] = garbageRatioPercent.Value;
+            if (!string.IsNullOrWhiteSpace(reasonForUpload))
+                data["reasonForUpload"] = reasonForUpload.Trim();
+            var docRef = await col.AddAsync(data);
+            _logger.LogInformation("[ScanFailure] Reported: docId={DocId}, filename={Fn}", documentId, filename);
+            return docRef.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AddScanFailure failed: {Message}", ex.Message);
+            return null;
+        }
+    }
+
+    private static ScanFailure? MapDocToScanFailure(string id, IReadOnlyDictionary<string, object> data)
+    {
+        try
+        {
+            DateTime dt = DateTime.UtcNow;
+            if (data.TryGetValue("timestamp", out var ts) && ts is Timestamp t)
+                dt = t.ToDateTime().ToUniversalTime();
+            return new ScanFailure
+            {
+                Id = id,
+                DocumentId = data.TryGetValue("documentId", out var di) ? (di?.ToString() ?? "") : "",
+                Filename = data.TryGetValue("filename", out var fn) ? (fn?.ToString() ?? "") : "",
+                RawText = data.TryGetValue("rawText", out var rt) ? (rt?.ToString() ?? "") : "",
+                GarbageRatioPercent = data.TryGetValue("garbageRatioPercent", out var gr) && gr is double d ? d : null,
+                UserId = data.TryGetValue("userId", out var uid) ? uid?.ToString() : null,
+                Timestamp = dt,
+                ReasonForUpload = data.TryGetValue("reasonForUpload", out var rfu) ? rfu?.ToString() : null
+            };
+        }
+        catch { return null; }
     }
 
     public async Task<bool> ApproveTermAsync(string documentId)
@@ -396,6 +495,131 @@ public class AdminFirestoreService
         foreach (var kvp in weights)
         {
             await col.Document(kvp.Key).SetAsync(new Dictionary<string, object> { { "value", kvp.Value } }, SetOptions.MergeAll);
+        }
+    }
+
+    /// <summary>
+    /// הגדרות סריקה — garbageThresholdPercent, minMeaningfulLength, minValidCharRatioPercent.
+    /// מפתח = key, שדה value. ברירת מחדל אם חסר.
+    /// </summary>
+    public async Task<Dictionary<string, double>> GetScannerSettingsAsync()
+    {
+        try
+        {
+            var snapshot = await _db.Collection(ColScannerSettings).GetSnapshotAsync();
+            var dict = new Dictionary<string, double>();
+            foreach (var doc in snapshot.Documents)
+            {
+                var v = doc.GetValue<double?>("value");
+                if (v.HasValue)
+                    dict[doc.Id] = v.Value;
+            }
+            return dict;
+        }
+        catch (Exception ex)
+        {
+            LogIfPermissionDenied(ex, "GetScannerSettings");
+            _logger.LogError(ex, "GetScannerSettings: {Message}", ex.Message);
+            return new Dictionary<string, double>();
+        }
+    }
+
+    public async Task SetScannerSettingAsync(string key, double value)
+    {
+        try
+        {
+            LogWriteAttempt(ColScannerSettings, "Set");
+            await _db.Collection(ColScannerSettings).Document(key).SetAsync(
+                new Dictionary<string, object> { { "value", value } }, SetOptions.MergeAll);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SetScannerSetting {Key}: {Message}", key, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>מגדיל מונה תמונות שדולגו (No Text Detected) — חוסך קריאות ל-Cloud/Gemini.</summary>
+    public async Task IncrementImagesSkippedNoTextAsync()
+    {
+        try
+        {
+            var docRef = _db.Collection(ColScanStats).Document("counters");
+            await _db.RunTransactionAsync(async transaction =>
+            {
+                var snap = await transaction.GetSnapshotAsync(docRef);
+                if (!snap.Exists)
+                {
+                    transaction.Set(docRef, new Dictionary<string, object>
+                    {
+                        { "imagesSkippedNoText", 1L },
+                        { "lastUpdated", Timestamp.FromDateTime(DateTime.UtcNow) }
+                    });
+                }
+                else
+                {
+                    transaction.Update(docRef, new Dictionary<string, object>
+                    {
+                        { "imagesSkippedNoText", FieldValue.Increment(1) },
+                        { "lastUpdated", Timestamp.FromDateTime(DateTime.UtcNow) }
+                    });
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "IncrementImagesSkippedNoText failed");
+        }
+    }
+
+    /// <summary>מחזיר כמות תמונות שדולגו (No Text Detected) — כסף שנחסך.</summary>
+    public async Task<long> GetImagesSkippedNoTextCountAsync()
+    {
+        try
+        {
+            var snap = await _db.Collection(ColScanStats).Document("counters").GetSnapshotAsync();
+            if (!snap.Exists) return 0;
+            var data = snap.ToDictionary();
+            if (!data.TryGetValue("imagesSkippedNoText", out var val) || val == null) return 0;
+            return Convert.ToInt64(val);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetImagesSkippedNoTextCount failed");
+            return 0;
+        }
+    }
+
+    /// <summary>שומר שרשרת עיבוד למסמך — [Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done].</summary>
+    public async Task SaveProcessingChainAsync(string documentId, string chain, string? filename = null)
+    {
+        try
+        {
+            await _db.Collection(ColProcessingChains).Document(documentId).SetAsync(new Dictionary<string, object>
+            {
+                { "chain", chain },
+                { "filename", filename ?? "" },
+                { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) }
+            }, SetOptions.MergeAll);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SaveProcessingChain failed for doc {DocId}", documentId);
+        }
+    }
+
+    /// <summary>מחזיר שרשרת עיבוד לפי documentId.</summary>
+    public async Task<string?> GetProcessingChainAsync(string documentId)
+    {
+        try
+        {
+            var snap = await _db.Collection(ColProcessingChains).Document(documentId).GetSnapshotAsync();
+            if (!snap.Exists) return null;
+            return snap.GetValue<string>("chain");
+        }
+        catch
+        {
+            return null;
         }
     }
 

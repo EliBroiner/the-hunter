@@ -27,17 +27,16 @@ public class DocumentPayload
 }
 
 /// <summary>
-/// בקשת אצווה לניתוח מסמכים
+/// בקשת אצווה לניתוח מסמכים.
+/// פרומפט: DB (DocAnalysis) או adminPromptOverride אם Admin.
 /// </summary>
 public class BatchRequest
 {
     public string UserId { get; set; } = string.Empty;
     public List<DocumentPayload> Documents { get; set; } = new();
 
-    /// <summary>
-    /// דריסת פרומפט לניתוח — רק למשתמשי Admin (מתעלמים אם המשתמש לא Admin).
-    /// </summary>
-    public string? CustomPromptOverride { get; set; }
+    /// <summary>דריסת פרומפט — משתמש רק אם המשתמש Admin. מבוקש ללוג.</summary>
+    public string? AdminPromptOverride { get; set; }
 }
 
 /// <summary>
@@ -50,10 +49,43 @@ public class DocumentAnalysisResponse
 }
 
 /// <summary>
-/// בקשת ניתוח דיבאג — טקסט + פרומפט מותאם (AI Lab)
+/// בקשת ניתוח דיבאג (AI Lab). פרומפט: DB (DocAnalysis) או adminPromptOverride אם Admin.
 /// </summary>
 public class DebugAnalyzeRequest
 {
     public string Text { get; set; } = string.Empty;
-    public string? CustomPrompt { get; set; }
+    public string? UserId { get; set; }
+    public string? AdminPromptOverride { get; set; }
+}
+
+/// <summary>
+/// דיווח כשלון Meaningful Text Check מהאפליקציה — נשמר ל-scan_failures.
+/// </summary>
+public class ReportScanFailureRequest
+{
+    public string DocumentId { get; set; } = "";
+    public string Filename { get; set; } = "";
+    public string RawText { get; set; } = "";
+    public double? GarbageRatioPercent { get; set; }
+    public string? UserId { get; set; }
+    /// <summary>סיבת העלאה — Local OCR Low Confidence, Manual Admin Request.</summary>
+    public string? ReasonForUpload { get; set; }
+}
+
+/// <summary>
+/// תשובת OCR Fallback — טקסט מחולץ מתמונה (Cloud Vision או Gemini).
+/// כשמורץ Gemini Tagging — כולל Result מלא (קטגוריה, תגיות) והחלפת קטגוריה מקומית כושלת.
+/// </summary>
+public class OcrExtractResponse
+{
+    public string Text { get; set; } = "";
+    public string? Error { get; set; }
+    /// <summary>true = Cloud Vision/Gemini החזירו תמונה נקייה מטקסט — למנוע retries.</summary>
+    public bool IsPureImageNoText { get; set; }
+    /// <summary>מקור OCR — GoogleCloud | Gemini. null אם לא הוחל.</summary>
+    public string? OcrSource { get; set; }
+    /// <summary>תוצאת Gemini (קטגוריה, תגיות, סיכום) — כשהריצה הושלמה. לדריסת קטגוריה מקומית כושלת.</summary>
+    public DocumentAnalysisResult? GeminiResult { get; set; }
+    /// <summary>שרשרת עיבוד לדיבאג: [Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]</summary>
+    public string? ProcessingChain { get; set; }
 }

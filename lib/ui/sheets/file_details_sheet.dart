@@ -3,6 +3,7 @@ import '../../models/file_metadata.dart';
 
 /// מחזיר תיאור סטטוס הקובץ בעברית — לתצוגה עדינה בגיליון פרטים
 String fileAnalysisStatusLabel(FileMetadata file) {
+  if (file.aiStatus == 'no_text_detected') return 'נסרק — לא זוהה טקסט';
   if (file.aiStatus == 'unreadable') return 'נסרק — טקסט לא קריא';
   if (file.aiStatus == 'local_match') return 'זוהה במילון';
   if (file.isAiAnalyzed && file.aiStatus == null) return 'נותח ב-AI';

@@ -38,14 +38,14 @@ public class DateRange
 }
 
 /// <summary>
-/// בקשת חיפוש מהלקוח
+/// בקשת חיפוש מהלקוח.
+/// פרומפט: DB (Search) או adminPromptOverride אם Admin.
 /// </summary>
 public class SearchRequest
 {
-    /// <summary>
-    /// שאילתת החיפוש בשפה טבעית
-    /// </summary>
     public string Query { get; set; } = string.Empty;
+    public string? UserId { get; set; }
+    public string? AdminPromptOverride { get; set; }
 }
 
 /// <summary>

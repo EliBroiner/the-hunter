@@ -12,6 +12,9 @@ public class AnalyzeController : ControllerBase
     private readonly QuotaService _quotaService;
     private readonly ILearningService _learningService;
     private readonly UserRoleService _userRoleService;
+    private readonly AdminFirestoreService _firestore;
+    private readonly OcrService _ocrService;
+    private readonly IScannerSettingsService _scannerSettings;
     private readonly ILogger<AnalyzeController> _logger;
 
     public AnalyzeController(
@@ -19,12 +22,18 @@ public class AnalyzeController : ControllerBase
         QuotaService quotaService,
         ILearningService learningService,
         UserRoleService userRoleService,
+        AdminFirestoreService firestore,
+        OcrService ocrService,
+        IScannerSettingsService scannerSettings,
         ILogger<AnalyzeController> logger)
     {
         _geminiService = geminiService;
         _quotaService = quotaService;
         _learningService = learningService;
         _userRoleService = userRoleService;
+        _firestore = firestore;
+        _ocrService = ocrService;
+        _scannerSettings = scannerSettings;
         _logger = logger;
     }
 
@@ -64,15 +73,11 @@ public class AnalyzeController : ControllerBase
                     d.Id ?? "(null)", d.Filename ?? "(null)", d.Text?.Length ?? 0);
             }
 
-            // דריסת פרומפט — זמנית: תמיד מאפשרים (לבדיקות בלי הגדרת Admin ב-DB). להחזיר בדיקת Admin כשמוכן.
             string? customPromptOverride = null;
-            if (!string.IsNullOrWhiteSpace(request.CustomPromptOverride))
+            if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && isAdmin)
             {
-                customPromptOverride = request.CustomPromptOverride!.Trim();
-                // if (await _userRoleService.HasRoleAsync(userId, "Admin"))
-                //     customPromptOverride = request.CustomPromptOverride!.Trim();
-                // else
-                //     customPromptOverride = null;
+                customPromptOverride = request.AdminPromptOverride.Trim();
+                _logger.LogWarning("[AUDIT] AdminPromptOverride used for analyze-batch | UserId={UserId} | PromptLength={Len}", userId, customPromptOverride.Length);
             }
 
             var results = await _geminiService.AnalyzeDocumentsBatchAsync(request.Documents, userId, customPromptOverride);
@@ -105,7 +110,19 @@ public class AnalyzeController : ControllerBase
         if (!_geminiService.IsConfigured)
             return StatusCode(503, new ErrorResponse { Error = "AI service not configured" });
 
-        var result = await _geminiService.ParseSearchIntentAsync(request.Query);
+        string? promptOverride = null;
+        var userId = request.UserId?.Trim();
+        if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
+        {
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            if (isAdmin)
+            {
+                promptOverride = request.AdminPromptOverride.Trim();
+                _logger.LogWarning("[AUDIT] AdminPromptOverride used for semantic-search | UserId={UserId} | PromptLength={Len}", userId, promptOverride.Length);
+            }
+        }
+
+        var result = await _geminiService.ParseSearchIntentAsync(request.Query, promptOverride);
         if (!result.IsSuccess)
             return StatusCode(500, new ErrorResponse { Error = "Search parsing failed", Details = result.Error });
 
@@ -132,7 +149,19 @@ public class AnalyzeController : ControllerBase
         if (!_geminiService.IsConfigured)
             return StatusCode(503, new ErrorResponse { Error = "AI service not configured" });
 
-        var result = await _geminiService.AnalyzeDocumentWithCustomPromptAsync(request.Text ?? "", request.CustomPrompt);
+        string? customPrompt = null;
+        var userId = request.UserId?.Trim();
+        if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
+        {
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            if (isAdmin)
+            {
+                customPrompt = request.AdminPromptOverride.Trim();
+                _logger.LogWarning("[AUDIT] AdminPromptOverride used for analyze-debug | UserId={UserId} | PromptLength={Len}", userId, customPrompt.Length);
+            }
+        }
+
+        var result = await _geminiService.AnalyzeDocumentWithCustomPromptAsync(request.Text ?? "", customPrompt);
         return Ok(result);
     }
 
@@ -170,6 +199,145 @@ public class AnalyzeController : ControllerBase
             _logger.LogError(ex, "[Server] CRITICAL: Failed to save analyze-debug/save to DB. Error: {Message}", ex.Message);
             return StatusCode(500, new ErrorResponse { Error = "Save to DB failed", Details = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// OCR Fallback — העלאת תמונה מקומפוסת (B&W) לחילוץ טקסט. משמש כשמ-ML Kit נכשל.
+    /// Cloud Vision → Gemini Tagging (קטגוריה, תגיות) — דריסת קטגוריה מקומית כושלת.
+    /// </summary>
+    [HttpPost("ocr-extract")]
+    [RequestSizeLimit(5 * 1024 * 1024)] // 5MB
+    [ProducesResponseType(typeof(OcrExtractResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> OcrExtract(IFormFile? file, [FromForm] string? documentId, [FromForm] string? filename, [FromForm] string? userId)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new ErrorResponse { Error = "Image file required for OCR" });
+
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+
+        try
+        {
+            var docId = documentId ?? "(unknown)";
+            var fn = filename ?? file.FileName ?? "image.jpg";
+
+            if (!OcrService.AppearsPreprocessedBw(bytes))
+            {
+                _logger.LogWarning("OCR-extract: Image may not be preprocessed (Grayscale/B&W). DocumentId={DocumentId}, Filename={Filename}",
+                    docId, fn);
+            }
+
+            var googleCloudVisionEnabled = await _scannerSettings.GetCloudVisionFallbackEnabledAsync();
+            string text;
+            bool isPureImageNoText;
+            string? ocrSource = null;
+            DocumentAnalysisResult? geminiResult = null;
+            string? processingChain = null;
+
+            if (googleCloudVisionEnabled)
+            {
+                _logger.LogInformation("Processing B&W image via Google Cloud Vision for Document {DocumentId}", docId);
+                var (t, success, pure) = await _ocrService.ExtractTextFromImageAsync(bytes);
+                if (!success)
+                {
+                _logger.LogWarning("OCR-extract Cloud Vision failed for DocumentId={DocumentId}, falling back to Gemini", docId);
+                (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
+                    ocrSource = "Gemini";
+                }
+                else
+                {
+                    text = t;
+                    isPureImageNoText = pure;
+                    ocrSource = "GoogleCloud";
+                }
+
+                // Phase B: שליחת הטקסט החדש ל-Gemini — חילוץ קטגוריה, תגיות, תאריך. דריסת קטגוריה מקומית כושלת.
+                if (!isPureImageNoText && !string.IsNullOrWhiteSpace(text) && text.Trim().Length >= 5 && _geminiService.IsConfigured)
+                {
+                    _logger.LogInformation("OCR-extract: Triggering Gemini tagging for Document {DocumentId} (Cloud Vision text length={Len})", docId, text.Length);
+                    var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
+                    geminiResult = geminiResponse.Result;
+                    processingChain = "[Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]";
+                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn);
+                }
+            }
+            else
+            {
+                if (!_geminiService.IsConfigured)
+                {
+                    _logger.LogWarning("OCR-extract: Cloud Vision disabled and Gemini not configured");
+                    return StatusCode(503, new ErrorResponse { Error = "Cloud Vision Fallback is disabled. Enable in Admin Portal, or configure Gemini API." });
+                }
+                _logger.LogDebug("Cloud Vision Fallback disabled, using Gemini");
+                (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
+                ocrSource = "Gemini";
+            }
+
+            return Ok(new OcrExtractResponse
+            {
+                Text = text,
+                IsPureImageNoText = isPureImageNoText,
+                OcrSource = ocrSource,
+                GeminiResult = geminiResult,
+                ProcessingChain = processingChain
+            });
+        }
+        finally
+        {
+            Array.Clear(bytes, 0, bytes.Length);
+            _logger.LogInformation("Temporary OCR buffer cleared successfully");
+        }
+    }
+
+    private async Task<(string Text, bool IsPureImageNoText)> _extractViaGeminiAsync(byte[] bytes, string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant().TrimStart('.');
+        var mimeType = ext switch { "png" => "image/png", "webp" => "image/webp", _ => "image/jpeg" };
+        const string prompt = "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
+        var (extracted, success, _) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, prompt);
+        var text = success ? (extracted ?? "") : "";
+        return (text, string.IsNullOrWhiteSpace(text));
+    }
+
+    /// <summary>
+    /// דיווח כשלון Meaningful Text Check מהאפליקציה — נשמר ל-scan_failures לדיבאג ב-AI Lab.
+    /// </summary>
+    [HttpPost("report-scan-failure")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ReportScanFailure([FromBody] ReportScanFailureRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Filename))
+            return BadRequest(new ErrorResponse { Error = "Filename required" });
+
+        var docId = await _firestore.AddScanFailureAsync(
+            request.DocumentId ?? "",
+            request.Filename.Trim(),
+            request.RawText ?? "",
+            request.GarbageRatioPercent,
+            request.UserId?.Trim(),
+            request.ReasonForUpload?.Trim());
+
+        return docId != null
+            ? Ok(new { success = true, id = docId })
+            : StatusCode(500, new ErrorResponse { Error = "Failed to save scan failure" });
+    }
+
+    /// <summary>
+    /// דיווח תמונה שדולגה — No Text Detected (ML Kit / Gemini). מגדיל מונה ב-scan_stats לסטטיסטיקת חיסכון.
+    /// </summary>
+    [HttpPost("report-no-text-detected")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ReportNoTextDetected()
+    {
+        await _firestore.IncrementImagesSkippedNoTextAsync();
+        return Ok(new { success = true });
     }
 
     /// <summary>

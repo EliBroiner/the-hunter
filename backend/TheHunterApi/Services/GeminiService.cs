@@ -117,6 +117,7 @@ public class GeminiService
     private readonly ILearningService _learningService;
     private readonly ISearchActivityService _searchActivityService;
     private readonly IWebHostEnvironment _webHost;
+    private readonly ISystemPromptService _systemPromptService;
 
     public GeminiService(
         IHttpClientFactory httpClientFactory,
@@ -124,7 +125,8 @@ public class GeminiService
         ILogger<GeminiService> logger,
         ILearningService learningService,
         ISearchActivityService searchActivityService,
-        IWebHostEnvironment webHost)
+        IWebHostEnvironment webHost,
+        ISystemPromptService systemPromptService)
     {
         _httpClientFactory = httpClientFactory;
         _geminiConfig = geminiConfig;
@@ -132,6 +134,7 @@ public class GeminiService
         _learningService = learningService;
         _searchActivityService = searchActivityService;
         _webHost = webHost;
+        _systemPromptService = systemPromptService;
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -145,9 +148,10 @@ public class GeminiService
     public bool IsConfigured => !string.IsNullOrEmpty(_geminiConfig.ApiKey);
 
     /// <summary>
-    /// מפענח שאילתת חיפוש בשפה טבעית ל-SearchIntent מובנה
+    /// מפענח שאילתת חיפוש בשפה טבעית ל-SearchIntent מובנה.
+    /// systemPromptOverride — רק Admin (מאומת ב-Controller).
     /// </summary>
-    public async Task<GeminiResult<SearchIntent>> ParseSearchIntentAsync(string query)
+    public async Task<GeminiResult<SearchIntent>> ParseSearchIntentAsync(string query, string? systemPromptOverride = null)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -166,7 +170,7 @@ public class GeminiService
             var client = _httpClientFactory.CreateClient("GeminiApi");
             var url = $"v1beta/models/{GeminiModel}:generateContent?key={_geminiConfig.ApiKey}";
 
-            var geminiRequest = BuildGeminiRequest(query);
+            var geminiRequest = await BuildGeminiRequestAsync(query, systemPromptOverride);
             var jsonContent = JsonSerializer.Serialize(geminiRequest, _jsonOptions);
 
             HttpResponseMessage? response = null;
@@ -219,6 +223,16 @@ public class GeminiService
             _logger.LogError(ex, "Unexpected error parsing search intent");
             return GeminiResult<SearchIntent>.Failure($"Unexpected error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// ניתוח טקסט OCR בודד (מ-Cloud Vision) — חילוץ קטגוריה, תגיות, תאריך, סיכום. לדריסת קטגוריה מקומית כושלת.
+    /// </summary>
+    public async Task<DocumentAnalysisResponse> AnalyzeOcrTextAsync(string documentId, string filename, string text, string? userId = null)
+    {
+        var doc = new DocumentPayload { Id = documentId, Filename = filename, Text = text };
+        var list = await AnalyzeDocumentsBatchAsync([doc], userId, null);
+        return list.FirstOrDefault() ?? new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
     }
 
     /// <summary>
@@ -276,7 +290,7 @@ public class GeminiService
     {
         try
         {
-            string systemInstructions = GetDocAnalysisPrompt();
+            string systemInstructions = await GetDocAnalysisPromptAsync();
             if (!string.IsNullOrEmpty(customPromptOverride))
             {
                 _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", documentId);
@@ -383,7 +397,7 @@ public class GeminiService
         if (!IsConfigured)
             return new DocumentAnalysisResult();
 
-        var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? GetDocAnalysisPrompt() : customPrompt.Trim();
+        var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? await GetDocAnalysisPromptAsync() : customPrompt.Trim();
         try
         {
             var client = _httpClientFactory.CreateClient("GeminiApi");
@@ -572,11 +586,24 @@ public class GeminiService
     }
 
     /// <summary>
-    /// טוען פרומפט ניתוח מסמכים מקובץ. קובץ נבחר לפי DOC_ANALYSIS_PROMPT_FILE (למשל doc_analysis_learning.txt).
-    /// ברירת מחדל: doc_analysis_default.txt. אם הקובץ חסר — משתמשים ב-fallback מוטבע (לא מוחקים את הקודם).
+    /// מקור פרומפט ניתוח מסמכים: DB (DocAnalysis) → קובץ DOC_ANALYSIS_PROMPT_FILE → fallback מוטבע.
     /// </summary>
-    private string GetDocAnalysisPrompt()
+    private async Task<string> GetDocAnalysisPromptAsync()
     {
+        try
+        {
+            var dbPrompt = await _systemPromptService.GetActivePromptAsync("DocAnalysis");
+            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
+            {
+                _logger.LogDebug("פרומפט DocAnalysis: שימוש ב-DB (Version={Version})", dbPrompt.Version);
+                return dbPrompt.Content;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "כשלון בשליפת פרומפט DocAnalysis מ-DB, מעבר ל-fallback");
+        }
+
         var fileName = Environment.GetEnvironmentVariable("DOC_ANALYSIS_PROMPT_FILE")?.Trim()
             ?? "doc_analysis_default.txt";
         var dirs = new[]
@@ -591,7 +618,7 @@ public class GeminiService
             {
                 try
                 {
-                    var content = File.ReadAllText(path);
+                    var content = await File.ReadAllTextAsync(path);
                     _logger.LogDebug("פרומפט ניתוח מסמכים נטען מקובץ: {Path}", path);
                     return content;
                 }
@@ -608,9 +635,18 @@ public class GeminiService
     /// <summary>
     /// בונה את הבקשה ל-Gemini API עם הפרומפט הדינמי
     /// </summary>
-    private GeminiRequest BuildGeminiRequest(string userQuery)
+    private async Task<GeminiRequest> BuildGeminiRequestAsync(string userQuery, string? systemPromptOverride = null)
     {
-        var systemPrompt = BuildSystemPrompt();
+        string systemPrompt;
+        if (!string.IsNullOrWhiteSpace(systemPromptOverride))
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            systemPrompt = systemPromptOverride.Replace("{CurrentDate}", today);
+        }
+        else
+        {
+            systemPrompt = await BuildSystemPromptAsync();
+        }
         
         return new GeminiRequest
         {
@@ -635,29 +671,39 @@ public class GeminiService
     }
 
     /// <summary>
-    /// בונה את הפרומפט המערכתי עם התאריך הנוכחי
-    /// תומך בדריסה דרך SYSTEM_PROMPT environment variable
+    /// בונה את הפרומפט המערכתי. מקור: DB (Search) → env SYSTEM_PROMPT → ברירת מחדל.
     /// </summary>
-    private static string BuildSystemPrompt()
+    private async Task<string> BuildSystemPromptAsync()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        
-        // בדיקה אם יש פרומפט מותאם אישית ב-environment variable
+
+        try
+        {
+            var dbPrompt = await _systemPromptService.GetActivePromptAsync("Search");
+            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
+            {
+                _logger.LogDebug("פרומפט Search: שימוש ב-DB (Version={Version})", dbPrompt.Version);
+                return dbPrompt.Content.Replace("{CurrentDate}", today);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "כשלון בשליפת פרומפט Search מ-DB, מעבר ל-fallback");
+        }
+
         var customPrompt = Environment.GetEnvironmentVariable("SYSTEM_PROMPT");
-        
         string promptTemplate;
         if (!string.IsNullOrEmpty(customPrompt))
         {
-            Log.Information("📝 Using Custom Prompt from SYSTEM_PROMPT environment variable");
+            _logger.LogInformation("📝 Using Custom Prompt from SYSTEM_PROMPT environment variable");
             promptTemplate = customPrompt;
         }
         else
         {
-            Log.Debug("📝 Using Default Prompt");
+            _logger.LogDebug("📝 Using Default Prompt");
             promptTemplate = DefaultPrompt;
         }
-        
-        // החלפת placeholder של תאריך - תמיד מתבצעת
+
         return promptTemplate.Replace("{CurrentDate}", today);
     }
 

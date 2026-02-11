@@ -113,12 +113,13 @@
     <span class="badge bg-warning text-dark">מונחים לאישור: @Model.PendingTerms.Count</span>
 </div>
 
-@* הגדרות דירוג *@
+@* הגדרות — דירוג + אופטימיזציה לסריקה *@
 <section class="card mb-4">
     <div class="card-header">
-        <h2 class="card-title mb-0 h5">הגדרות דירוג</h2>
+        <h2 class="card-title mb-0 h5"><i class="bi bi-gear me-1"></i>הגדרות</h2>
     </div>
     <div class="card-body">
+        <h3 class="h6 text-muted mb-3">הגדרות דירוג</h3>
         <form asp-action="UpdateWeights" method="post" class="row g-3">
             @Html.AntiForgeryToken()
             @foreach (var kvp in Model.RankingWeights.OrderBy(x => x.Key))
@@ -137,6 +138,46 @@
         </form>
         <form id="resetWeightsForm" asp-action="ResetWeights" method="post" class="d-none">
             @Html.AntiForgeryToken()
+        </form>
+
+        <hr class="my-4" />
+        <h3 class="h6 text-muted mb-3">אופטימיזציה לסריקה</h3>
+        <p class="text-muted small mb-3">מוגדר ב-Firestore scanner_settings. שינויים מיושמים מיד ב-OcrTest, GarbageFilter ו-AI Lab.</p>
+        <div id="scannerSettingsLoadErr" class="alert alert-warning d-none mb-2" role="alert">טוען מהשרת...</div>
+        <form asp-action="UpdateScannerSettings" method="post" class="row g-3" id="scannerSettingsForm">
+            @Html.AntiForgeryToken()
+            <div class="col-md-6 col-lg-4" data-param="garbageThresholdPercent">
+                <label for="garbageThresholdPercent" class="form-label">סף ג'יבריש (%)</label>
+                <input type="number" step="0.1" min="0" max="100" class="form-control" id="garbageThresholdPercent"
+                       name="garbageThresholdPercent" value="@(Model.ScannerSettings?.GarbageThresholdPercent ?? 30)" />
+                <small class="text-muted">מעליו הטקסט נכשל — ברירת מחדל 30</small>
+                <div class="scanner-readonly-note text-muted small d-none mt-1"></div>
+            </div>
+            <div class="col-md-6 col-lg-4" data-param="minMeaningfulLength">
+                <label for="minMeaningfulLength" class="form-label">אורך מינימלי (תווים)</label>
+                <input type="number" step="1" min="1" max="100" class="form-control" id="minMeaningfulLength"
+                       name="minMeaningfulLength" value="@(Model.ScannerSettings?.MinMeaningfulLength ?? 5)" />
+                <small class="text-muted">לטקסט משמעותי — ברירת מחדל 5</small>
+                <div class="scanner-readonly-note text-muted small d-none mt-1"></div>
+            </div>
+            <div class="col-md-6 col-lg-4" data-param="minValidCharRatioPercent">
+                <label for="minValidCharRatioPercent" class="form-label">אחוז תווים תקינים מינימלי (%)</label>
+                <input type="number" step="0.1" min="0" max="100" class="form-control" id="minValidCharRatioPercent"
+                       name="minValidCharRatioPercent" value="@(Model.ScannerSettings?.MinValidCharRatioPercent ?? 70)" />
+                <small class="text-muted">לבדיקת IsTextMeaningful — ברירת מחדל 70</small>
+                <div class="scanner-readonly-note text-muted small d-none mt-1"></div>
+            </div>
+            <div class="col-md-6 col-lg-4" data-param="cloudVisionFallbackEnabled">
+                <div class="form-check mt-4">
+                    <input type="checkbox" class="form-check-input" id="cloudVisionFallbackEnabled" name="cloudVisionFallbackEnabled" value="true"
+                           @(Model.ScannerSettings?.CloudVisionFallbackEnabled == true ? "checked" : "") />
+                    <label for="cloudVisionFallbackEnabled" class="form-check-label">Cloud Vision Fallback</label>
+                    <small class="text-muted d-block">כש־ML Kit נכשל — העלאת תמונה ל-Google Cloud Vision</small>
+                </div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary" id="scannerSettingsSubmit">שמירת הגדרות סריקה</button>
+            </div>
         </form>
     </div>
 </section>
@@ -328,6 +369,57 @@
             }
         });
     }
+    // טעינת הגדרות סריקה מהשרת — מוודא שהערכים משקפים את המצב האמיתי
+    (function loadScannerSettings() {
+        var errEl = document.getElementById('scannerSettingsLoadErr');
+        var form = document.getElementById('scannerSettingsForm');
+        if (!form) return;
+        errEl.textContent = 'טוען מהשרת...';
+        errEl.classList.remove('d-none');
+        fetch('/admin/scanner-settings', { credentials: 'same-origin' })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                errEl.classList.add('d-none');
+                var map = {
+                    garbageThresholdPercent: { input: 'garbageThresholdPercent', item: data.garbageThresholdPercent },
+                    minMeaningfulLength: { input: 'minMeaningfulLength', item: data.minMeaningfulLength },
+                    minValidCharRatioPercent: { input: 'minValidCharRatioPercent', item: data.minValidCharRatioPercent },
+                    cloudVisionFallbackEnabled: { input: 'cloudVisionFallbackEnabled', item: data.cloudVisionFallbackEnabled }
+                };
+                for (var key in map) {
+                    var cfg = map[key];
+                    if (!cfg.item) continue;
+                    var inp = document.getElementById(cfg.input);
+                    var wrap = form.querySelector('[data-param="' + key + '"]');
+                    var noteEl = wrap ? wrap.querySelector('.scanner-readonly-note') : null;
+                    if (inp) {
+                        var v = cfg.item.value;
+                        if (inp.type === 'checkbox') {
+                            inp.checked = v >= 0.5;
+                        } else {
+                            inp.value = (v === Math.floor(v)) ? v : Math.round(v * 100) / 100;
+                        }
+                        if (cfg.item.editable === false) {
+                            inp.disabled = true;
+                            inp.readOnly = true;
+                            inp.classList.add('bg-light');
+                            if (noteEl) {
+                                noteEl.textContent = 'מוגדר בקוד / קובץ תצורה';
+                                noteEl.classList.remove('d-none');
+                            }
+                        }
+                    }
+                }
+            })
+            .catch(function(e) {
+                errEl.textContent = 'לא ניתן לטעון הגדרות סריקה: ' + e.message;
+                errEl.classList.remove('d-none');
+            });
+    })();
+
     var toastEl = document.getElementById('term-approved-toast');
     var toast = toastEl ? new bootstrap.Toast(toastEl, { delay: 4000 }) : null;
     document.querySelectorAll('.approve-term-form').forEach(function(form) {
@@ -354,6 +446,60 @@
 })();
 </script>
 }
+
+@* Scanning Health — כשלונות Meaningful Text *@
+<section class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="card-title mb-0 h5"><i class="bi bi-heart-pulse me-1"></i>Scanning Health</h2>
+        <a href="/admin/ai-lab" class="btn btn-outline-info btn-sm">AI Lab</a>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">מסמכים שנכשלו בבדיקת Meaningful Text (ג'יבריש > 30%). Debug פותח את הטקסט ב-AI Lab עם Manual Override.</p>
+        @if (Model.ScanFailures.Count == 0)
+        {
+            <p class="text-muted mb-0">לא נמצאו כשלונות — אין מסמכים שדווחו.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover" id="scanFailuresTable">
+                    <thead>
+                        <tr>
+                            <th>שם קובץ</th>
+                            <th>תאריך</th>
+                            <th>רעש</th>
+                            <th>פעולות</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var f in Model.ScanFailures)
+                        {
+                            <tr>
+                                <td dir="rtl" class="text-end">@(f.Filename ?? "—")</td>
+                                <td>@f.Timestamp.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    @if (f.GarbageRatioPercent.HasValue)
+                                    {
+                                        <span class="badge @(f.GarbageRatioPercent > 30 ? "bg-danger" : "bg-warning text-dark")">@(f.GarbageRatioPercent.Value.ToString("F1"))%</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    <a href="/admin/ai-lab?failureId=@f.Id" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">
+                                        <i class="bi bi-bug"></i> Debug
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>
 
 @* שגיאות שרת אחרונות *@
 <section class="card mb-4">

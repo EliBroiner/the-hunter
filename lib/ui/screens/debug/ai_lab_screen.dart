@@ -47,8 +47,10 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // Pipeline: שלב 2 — Server AI
   final TextEditingController _serverJsonController = TextEditingController();
   String _customPrompt = '';
+  String _promptTargetFeature = 'DocAnalysis';
   String _sendStatus = ''; // תוצאת שלב 2 (Send to Server) — Success / Error: ...
   bool _sendSuccess = false;
+  bool _saveAsNewVersionInProgress = false;
 
   // Pipeline: שלב 3 — Save to DB
   String _saveStatus = ''; // Success / Error
@@ -217,9 +219,11 @@ class _AiLabScreenState extends State<AiLabScreen> {
 
     final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
     try {
+      final userId = AuthService.instance.currentUser?.uid;
       final body = jsonEncode({
         'text': text,
-        'customPrompt': _customPrompt.isEmpty ? null : _customPrompt,
+        if (userId != null) 'userId': userId,
+        if (_isAdmin && _customPrompt.isNotEmpty) 'adminPromptOverride': _customPrompt,
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
@@ -715,15 +719,41 @@ class _AiLabScreenState extends State<AiLabScreen> {
                     color: _isAdmin ? Colors.green : Colors.grey,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    _isAdmin
-                        ? 'Admin Access: Granted (Custom Prompts Active)'
-                        : 'Standard User (Custom Prompts Ignored)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _isAdmin ? Colors.greenAccent : Colors.white54,
+                  Expanded(
+                    child: Text(
+                      _isAdmin
+                          ? 'Admin Access: Granted (Custom Prompts Active)'
+                          : 'Standard User (Custom Prompts Ignored)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _isAdmin ? Colors.greenAccent : Colors.white54,
+                      ),
                     ),
                   ),
+                  if (_isAdmin && _customPrompt.trim().isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.science, size: 14, color: Colors.amber[700]),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Live Testing',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.amber[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -739,13 +769,13 @@ class _AiLabScreenState extends State<AiLabScreen> {
                     fontSize: 12,
                     fontFamily: 'monospace',
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'JSON response (editable — fix before Save to DB)…',
                     alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.all(8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.all(12),
                     filled: true,
-                    fillColor: Color(0xFFE8E8E8),
+                    fillColor: const Color(0xFFE8E8E8),
                   ),
                 ),
               ),
@@ -761,12 +791,31 @@ class _AiLabScreenState extends State<AiLabScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.send, size: 20),
-                    label: Text(_sendingInProgress ? 'Sending...' : 'Send to Server'),
+                    label: Text(
+                      _sendingInProgress ? 'Sending...' : 'Send to Server',
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.blue.shade700,
                       foregroundColor: Colors.white,
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  if (_isAdmin)
+                    FilledButton.icon(
+                      onPressed: _saveAsNewVersionInProgress ? null : _savePromptAsNewVersion,
+                      icon: _saveAsNewVersionInProgress
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.save_as, size: 18),
+                      label: Text(_saveAsNewVersionInProgress ? 'Saving...' : 'Save as New Version'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
                   const SizedBox(width: 16),
                   if (_sendStatus.isNotEmpty)
                     Icon(
@@ -1046,25 +1095,162 @@ class _AiLabScreenState extends State<AiLabScreen> {
 
   void _showCustomPromptSettings(BuildContext context) {
     final controller = TextEditingController(text: _customPrompt);
+    var feature = _promptTargetFeature;
     showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF161B22),
+          title: const Text('Custom System Prompt', style: TextStyle(color: Colors.white)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: feature,
+                    dropdownColor: const Color(0xFF161B22),
+                    decoration: const InputDecoration(
+                      labelText: 'Target Feature',
+                      filled: true,
+                      fillColor: Color(0xFFE8E8E8),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'DocAnalysis', child: Text('DocAnalysis')),
+                      DropdownMenuItem(value: 'Search', child: Text('Search')),
+                      DropdownMenuItem(value: 'OcrExtraction', child: Text('OcrExtraction')),
+                    ],
+                    onChanged: (v) => setDialogState(() => feature = v ?? feature),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    maxLines: 10,
+                    style: const TextStyle(color: Colors.black87, fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText: 'Sent as adminPromptOverride when Admin. Empty = use versioned prompt from DB.',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                      filled: true,
+                      fillColor: Color(0xFFE8E8E8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  _customPrompt = controller.text;
+                  _promptTargetFeature = feature;
+                });
+                Navigator.pop(ctx);
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _savePromptAsNewVersion() async {
+    if (_customPrompt.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('System Prompt is empty. Add text in Custom System Prompt (gear) first.'),
+          backgroundColor: Colors.amber,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final version = await _showSaveVersionDialog();
+    if (version == null || version.isEmpty) return;
+    setState(() => _saveAsNewVersionInProgress = true);
+    try {
+      PromptAdminService.setAdminKey(SettingsService.instance.adminKey);
+      final created = await PromptAdminService.instance.savePrompt(
+        feature: _promptTargetFeature,
+        content: _customPrompt.trim(),
+        version: version.trim(),
+      );
+      if (!mounted) return;
+      if (created != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Prompt saved as ${created.version} (${created.targetFeature})'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'View',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.of(context).pushNamed('/prompts');
+              },
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Save failed. Check Admin Key in Pipeline tab.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saveAsNewVersionInProgress = false);
+    }
+  }
+
+  Future<String?> _showSaveVersionDialog() async {
+    final controller = TextEditingController(text: '1.0');
+    String? result;
+    await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF161B22),
-        title: const Text('Custom System Prompt', style: TextStyle(color: Colors.white)),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: TextField(
-            controller: controller,
-            maxLines: 12,
-            style: const TextStyle(color: Colors.black87, fontSize: 12),
-            decoration: const InputDecoration(
-              hintText: 'Override server prompt for this request…',
-              border: OutlineInputBorder(),
-              alignLabelWithHint: true,
-              filled: true,
-              fillColor: Color(0xFFE8E8E8),
+        title: const Text('Save as New Version', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Feature: $_promptTargetFeature',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
             ),
-          ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Version',
+                hintText: '1.0',
+                filled: true,
+                fillColor: Color(0xFFE8E8E8),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1073,14 +1259,15 @@ class _AiLabScreenState extends State<AiLabScreen> {
           ),
           FilledButton(
             onPressed: () {
-              setState(() => _customPrompt = controller.text);
+              result = controller.text.trim();
               Navigator.pop(ctx);
             },
-            child: const Text('OK'),
+            child: const Text('Save'),
           ),
         ],
       ),
     );
+    return result;
   }
 
   /// קיבוץ לפי קטגוריה — לתצוגת Dictionary (לאחר סינון חיפוש)
