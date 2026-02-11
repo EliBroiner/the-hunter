@@ -300,7 +300,7 @@ public class GeminiService
                 GenerationConfig = new GenerationConfig
                 {
                     Temperature = 0.1,
-                    MaxOutputTokens = 512,
+                    MaxOutputTokens = 2048,
                     ResponseMimeType = "application/json"
                 }
             };
@@ -347,7 +347,16 @@ public class GeminiService
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
             var cleanJson = SanitizeJsonResponse(rawText);
-            var result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            DocumentAnalysisResult result;
+            try
+            {
+                result = JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse Gemini JSON for doc {Id}. Raw length: {Len}. Using empty result.", documentId, cleanJson.Length);
+                result = new DocumentAnalysisResult();
+            }
 
             _logger.LogInformation("[GEMINI_PARSED] Doc {Id} — Category={Category} | Tags count={TagCount} | Raw text length={RawLen}",
                 documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
@@ -395,7 +404,7 @@ public class GeminiService
                 GenerationConfig = new GenerationConfig
                 {
                     Temperature = 0.1,
-                    MaxOutputTokens = 512,
+                    MaxOutputTokens = 2048,
                     ResponseMimeType = "application/json"
                 }
             };
@@ -435,7 +444,15 @@ public class GeminiService
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
             var cleanJson = SanitizeJsonResponse(rawText);
-            return JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            try
+            {
+                return JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse Gemini JSON (analyze-debug). Raw length: {Len}.", cleanJson.Length);
+                return new DocumentAnalysisResult();
+            }
         }
         catch (Exception ex)
         {
