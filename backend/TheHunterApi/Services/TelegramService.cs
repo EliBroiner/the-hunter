@@ -135,16 +135,38 @@ public class TelegramService : ITelegramService
 
     internal async Task SendTelegramPayloadAsync(string method, object payload, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(BotToken))
+        {
+            _logger.LogWarning("Telegram SendTelegramPayloadAsync skipped: BotToken empty.");
+            return;
+        }
         var url = $"https://api.telegram.org/bot{BotToken}/{method}";
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
         var http = _httpClientFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(12);
         var json = JsonConvert.SerializeObject(payload, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await http.PostAsync(url, content, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.PostAsync(url, content, cts.Token);
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Telegram API timeout: {Method}", method);
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Telegram API request failed: {Method}", method);
+            return;
+        }
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogWarning("Telegram API error: {StatusCode} {Body}", response.StatusCode, body);
-            response.EnsureSuccessStatusCode();
+            _logger.LogWarning("Telegram API error: {Method} {StatusCode} {Body}", method, response.StatusCode, body);
+            // לא זורקים — כדי שדוח יומי/התראות לא יפילו את האפליקציה
         }
     }
 

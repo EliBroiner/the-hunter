@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/ai_analysis_response.dart';
@@ -46,6 +47,8 @@ class AiAutoTaggerService {
   bool _backfillScheduled = false;
   /// אצווה בהעלאה — לא לבטל גם אם המשתמש פעיל
   bool _isUploading = false;
+  /// ניתוח מחדש מפורש לקובץ בודד — לא לשלוח את התור במקביל
+  bool _singleFileReanalyzeInProgress = false;
 
   bool get isUploading => _isUploading;
 
@@ -139,6 +142,7 @@ class AiAutoTaggerService {
       return;
     }
 
+    if (_singleFileReanalyzeInProgress) return; // לא לשלוח תור בזמן ניתוח מחדש לקובץ בודד
     final batch = List<FileMetadata>.from(_queue);
     _queue.clear();
     _flushTimer?.cancel();
@@ -159,17 +163,24 @@ class AiAutoTaggerService {
     final results = <String, DocumentAnalysisResult>{};
     _isUploading = true;
     try {
-      // שולחים טקסט חולץ (extractedText) + filename — לא path — כדי שהשרת לא ינסה לפתוח נתיב מקומי (404)
+      // מזהה ייחודי לכל קובץ — int אקראי, מפת id->קובץ להתאמת תשובות
+      final rnd = Random();
+      final idToFile = <String, FileMetadata>{};
       final documents = <Map<String, dynamic>>[];
       for (var i = 0; i < batch.length; i++) {
         final file = batch[i];
+        int docId;
+        do {
+          docId = rnd.nextInt(0x7FFFFFFF);
+        } while (idToFile.containsKey(docId.toString()));
+        idToFile[docId.toString()] = file;
         String text = file.extractedText ?? '';
         if (text.isEmpty) text = await _extractTextAsync(file);
         if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = '';
         if (text.isEmpty) text = file.name;
         final truncated = text.length > _maxTextLength ? text.substring(0, _maxTextLength) : text;
         documents.add({
-          'id': i.toString(),
+          'id': docId.toString(),
           'filename': file.name,
           'text': truncated,
         });
@@ -264,9 +275,8 @@ class AiAutoTaggerService {
               final result = map['result'] as Map<String, dynamic>?;
               if (docId == null || result == null) continue;
 
-              // id נשלח כאינדקס באצווה — התאמה לפי מיקום
-              final idx = int.tryParse(docId);
-              final file = (idx != null && idx >= 0 && idx < batch.length) ? batch[idx] : null;
+              // התאמה לפי מזהה ייחודי — השרת מחזיר את ה-id ששלחנו (int string)
+              final file = idToFile[docId];
               if (file == null) continue;
 
               file.category = result['category'] as String?;
@@ -376,9 +386,16 @@ class AiAutoTaggerService {
   Future<DocumentAnalysisResult?> processSingleFileImmediately(FileMetadata file, {required bool isPro}) async {
     if (_disposed || _isInAuthCooldown) return null;
     if (!isPro) return null;
-    final batch = [file];
-    final results = await _sendBatch(batch);
-    return results[file.path];
+    // מוציאים את הקובץ מהתור כדי שלא יישלח שוב באצווה
+    _queue.removeWhere((f) => f.path == file.path);
+    _singleFileReanalyzeInProgress = true;
+    try {
+      final batch = [file];
+      final results = await _sendBatch(batch);
+      return results[file.path];
+    } finally {
+      _singleFileReanalyzeInProgress = false;
+    }
   }
 
   /// מנקה ומפנה את התור — שולח את כל הקבצים הנותרים

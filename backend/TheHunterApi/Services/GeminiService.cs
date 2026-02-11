@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Serilog;
 using TheHunterApi.Models;
@@ -20,6 +21,8 @@ public class GeminiService
     private const string GeminiModel = "gemini-3-flash-preview";
     private const string GeminiDocModel = "gemini-2.5-flash";
     private const int MaxLogPayloadChars = 200; // היגיינת לוגים — לא לדפיס Body/JSON מלא (Cloud Run ~256KB limit)
+    private const int MaxRetriesOn429 = 2; // ניסיונות חוזרים על 429 (סה"כ עד 3 קריאות)
+    private const int DefaultRetryAfterSeconds = 45; // אם Gemini לא החזיר "retry in Xs"
 
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
@@ -165,19 +168,38 @@ public class GeminiService
 
             var geminiRequest = BuildGeminiRequest(query);
             var jsonContent = JsonSerializer.Serialize(geminiRequest, _jsonOptions);
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-            var response = await client.PostAsync(url, httpContent);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            _logger.LogDebug("📡 GEMINI_RAW_RESPONSE | Status: {StatusCode} | Body: {Body}",
-                response.StatusCode, TruncateForLog(responseBody));
-
-            if (!response.IsSuccessStatusCode)
+            HttpResponseMessage? response = null;
+            string responseBody = "";
+            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
             {
-                _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, TruncateForLog(responseBody));
-                return GeminiResult<SearchIntent>.Failure($"Gemini API error: {response.StatusCode}");
+                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                response = await client.PostAsync(url, httpContent);
+                responseBody = await response.Content.ReadAsStringAsync();
+
+                _logger.LogDebug("📡 GEMINI_RAW_RESPONSE | Status: {StatusCode} | Body: {Body}",
+                    response.StatusCode, TruncateForLog(responseBody));
+
+                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
+                {
+                    var waitSec = TryParseRetryAfterSeconds(responseBody);
+                    _logger.LogWarning("[GEMINI_429] ParseSearchIntent — retry {Attempt}/{Max} after {Sec}s.", attempt + 1, MaxRetriesOn429, waitSec);
+                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, TruncateForLog(responseBody));
+                    if ((int)response.StatusCode == 429)
+                        return GeminiResult<SearchIntent>.Failure("Gemini quota exceeded (429). Try again in a minute.");
+                    return GeminiResult<SearchIntent>.Failure($"Gemini API error: {response.StatusCode}");
+                }
+                break;
             }
+
+            if (response == null || !response.IsSuccessStatusCode)
+                return GeminiResult<SearchIntent>.Failure("Gemini API error or quota exceeded. Try again later.");
 
             var result = ParseGeminiResponse(responseBody);
             if (result.IsSuccess && result.Data != null)
@@ -289,20 +311,38 @@ public class GeminiService
             _logger.LogInformation("[GEMINI_REQUEST] Model={Model} | URL=v1beta/models/{Model}:generateContent | Request body length={Len} chars | Prompt preview: {Preview}",
                 GeminiDocModel, GeminiDocModel, jsonContent.Length, TruncateForLog(prompt));
 
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(url, httpContent);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            // —— לוג: מה קיבלנו בחזרה ——
-            _logger.LogInformation("[GEMINI_RESPONSE] Status={Status} | Body length={Len} | Body: {Body}",
-                (int)response.StatusCode, responseBody.Length, TruncateForLog(responseBody));
-
-            if (!response.IsSuccessStatusCode)
+            HttpResponseMessage? response = null;
+            string responseBody = "";
+            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
             {
-                _logger.LogError("[GEMINI_FAIL] Doc {Id} — HTTP {Status}. Full body: {Body}. Batch continues.",
-                    documentId, response.StatusCode, responseBody.Length > 1000 ? responseBody.Substring(0, 1000) + "…" : responseBody);
-                return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
+                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                response = await client.PostAsync(url, httpContent);
+                responseBody = await response.Content.ReadAsStringAsync();
+
+                _logger.LogInformation("[GEMINI_RESPONSE] Status={Status} | Body length={Len} | Body: {Body}",
+                    (int)response.StatusCode, responseBody.Length, TruncateForLog(responseBody));
+
+                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
+                {
+                    var waitSec = TryParseRetryAfterSeconds(responseBody);
+                    _logger.LogWarning("[GEMINI_429] Doc {Id} — quota exceeded. Retry {Attempt}/{Max} after {Sec}s.",
+                        documentId, attempt + 1, MaxRetriesOn429, waitSec);
+                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("[GEMINI_FAIL] Doc {Id} — HTTP {Status}. Full body: {Body}. Batch continues.",
+                        documentId, response.StatusCode, responseBody.Length > 1000 ? responseBody.Substring(0, 1000) + "…" : responseBody);
+                    return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
+                }
+
+                break;
             }
+
+            if (response == null || !response.IsSuccessStatusCode)
+                return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
 
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
@@ -362,17 +402,36 @@ public class GeminiService
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
             _logger.LogInformation("[GEMINI_REQUEST] analyze-debug | Model={Model} | Request length={Len} | Text preview: {Preview}",
                 GeminiDocModel, jsonContent.Length, TruncateForLog(text));
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(url, httpContent);
-            var responseBody = await response.Content.ReadAsStringAsync();
-            _logger.LogInformation("[GEMINI_RESPONSE] analyze-debug | Status={Status} | Body: {Body}",
-                (int)response.StatusCode, TruncateForLog(responseBody));
 
-            if (!response.IsSuccessStatusCode)
+            HttpResponseMessage? response = null;
+            string responseBody = "";
+            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
             {
-                _logger.LogError("[GEMINI_FAIL] analyze-debug — HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
-                return new DocumentAnalysisResult();
+                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                response = await client.PostAsync(url, httpContent);
+                responseBody = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation("[GEMINI_RESPONSE] analyze-debug | Status={Status} | Body: {Body}",
+                    (int)response.StatusCode, TruncateForLog(responseBody));
+
+                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
+                {
+                    var waitSec = TryParseRetryAfterSeconds(responseBody);
+                    _logger.LogWarning("[GEMINI_429] analyze-debug — retry {Attempt}/{Max} after {Sec}s.", attempt + 1, MaxRetriesOn429, waitSec);
+                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("[GEMINI_FAIL] analyze-debug — HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
+                    return new DocumentAnalysisResult();
+                }
+                break;
             }
+
+            if (response == null || !response.IsSuccessStatusCode)
+                return new DocumentAnalysisResult();
+
             var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
                 ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
             var cleanJson = SanitizeJsonResponse(rawText);
@@ -615,6 +674,15 @@ public class GeminiService
         Log.Debug("🧹 SANITIZE_COMPLETE | Final Length: {Length}", result.Length);
 
         return result;
+    }
+
+    /// <summary>מחלץ מ-Gemini 429 body את "Please retry in Xs" — מחזיר שניות להמתנה.</summary>
+    private static int TryParseRetryAfterSeconds(string responseBody)
+    {
+        var match = Regex.Match(responseBody, @"retry\s+in\s+([\d.]+)\s*s", RegexOptions.IgnoreCase);
+        if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var sec))
+            return (int)Math.Ceiling(Math.Clamp(sec, 5, 120)); // בין 5 ל-120 שניות
+        return DefaultRetryAfterSeconds;
     }
 
     /// <summary>היגיינת לוגים — חיתוך Body/JSON כדי לא לחרוג ממגבלת שורת לוג (Cloud Run).</summary>

@@ -72,3 +72,28 @@ Invoke-RestMethod -Method POST -Uri "https://api.telegram.org/botYOUR_BOT_TOKEN/
 - נשלח אוטומטית כל יום בשעה 09:00 (אזור: Israel / Asia/Jerusalem, ניתן לשינוי ב-`Admin:Notification:DailySummaryTimeZone` ו-`DailySummaryHour`).
 - טריגר ידני: POST ל-`/admin/send-daily-summary` (דורש התחברות אדמין).
 - התוכן (Sparkline): 👤 New Users, 📝 Terms Pending/Approved, ⚡ Top Search — בפורמט HTML עם אימוג'ים.
+
+---
+
+## מה השירות עושה (תרשים זרימה)
+
+| רכיב | תפקיד |
+|------|--------|
+| **TelegramService** | שולח ל-`https://api.telegram.org/bot{token}/{method}`: `sendMessage` (התראות, דוח יומי), `answerCallbackQuery` (תשובה על לחיצת כפתור). |
+| **NotificationService** | כשמספר מונחים ממתינים ≥ 10: קורא ל-`SendPendingTermsAlertAsync` (עם cooldown 30 דק'). |
+| **DailySummaryHostedService** | כל יום ב-09:00: קורא ל-Firestore (משתמשים חדשים, מונחים, לוגים) ואז `SendDailySummaryAsync`. |
+| **TelegramWebhookController** | `POST /api/telegram/webhook` — מקבל עדכונים מ-Telegram, בודק ש-`from.id` == `TELEGRAM_CHAT_ID`, ומעבד "Approve All" / "Approve" / "Ban" / "Reject". |
+
+---
+
+## תקלות נפוצות ובדיקות
+
+| שגיאה / סימפטום | סיבה אפשרית | מה לבדוק |
+|------------------|-------------|-----------|
+| **Telegram not configured** (בלוג) | טוקן או Chat ID חסרים | `TELEGRAM_BOT_TOKEN` ו-`TELEGRAM_CHAT_ID` ב-Cloud Run / GitHub Secrets. ב-Program.cs נבדק רק Token; אם חסר — השירות רץ אבל לא שולח. |
+| **401 Unauthorized** מתגובת Telegram API | טוקן לא תקין או בוט נמחק | טוקן חדש מ-@BotFather, עדכון ב-Secrets. |
+| **400 Bad Request** + "chat not found" | ה-Chat ID לא תואם לצ'אט שאליו הבוט שולח | `TELEGRAM_CHAT_ID` חייב להיות מזהה המשתמש (או הקבוצה). לשלוח `/start` לבוט, לבדוק ב-updates את `message.chat.id` או להשתמש ב-@userinfobot. |
+| **400 Bad Request** + "message is too long" | הודעת הדוח/התראה חורגת ממגבלת Telegram (~4096 תווים) | לקצר טקסטים (למשל דוח יומי, רשימת מונחים). |
+| **Webhook: 401 Unauthorized** | מישהו לוחץ כפתור מחשבון שלא מוגדר כאדמין | `TELEGRAM_CHAT_ID` חייב להיות **מזהה המשתמש** (לא שם משתמש). בעדכון מ-Telegram: `callback_query.from.id` — מספר. להגדיר בדיוק את המספר הזה. |
+| **Daily summary / Alert לא מגיעים** | Firestore נכשל או Telegram נכשל | לוגים: "Daily summary send failed" / "Telegram notification failed" / "Telegram API error: ...". לבדוק חיבור Firestore ו-Secrets. |
+| **Timeout / אין תשובה** | חסימת רשת או Telegram איטי | ב-TelegramService יש timeout (10s). אם עדיין נתקע — לבדוק חוקי רשת (Cloud Run יוצא ל-internet). |
