@@ -133,6 +133,10 @@ public class AdminDashboardController : Controller
     public IActionResult AiLab() => View("AiLab");
 
     [HttpGet]
+    [Route("file-xray")]
+    public IActionResult FileXRay() => View("FileXRay");
+
+    [HttpGet]
     [Route("term/edit/{id}")]
     public async Task<IActionResult> EditTerm(string id)
     {

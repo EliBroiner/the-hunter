@@ -109,9 +109,16 @@ public class GeminiService
         """;
 
     /// <summary>פרומפט ניתוח מסמכים — fallback אם הקובץ לא נטען.</summary>
+    /// <remarks>כלל אבטחה: אין לכלול PII ב-tags — רק קטגוריות כלליות (Receipt, Flight) ולא שמות/תאריכים מדויקים.</remarks>
     private const string DocAnalysisPromptFallback = """
         Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
         Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
+
+        === STRICT RULE: NO PII IN TAGS ===
+        Do NOT include PII (Personally Identifiable Information) or specific record data in the tags array.
+        - Specific names (e.g., Ariel Broyner), IDs, exact dates, and specific locations must NOT be tags.
+        - Tags must ONLY represent general categories or document types (e.g., Ticket, Receipt, Flight, Travel, Invoice, Contract).
+        - Put specific data like names or booking codes into a separate "metadata" or "extracted_entities" field if available, or just keep them in the summary/OCR text for searchability.
         """;
 
     private readonly ILearningService _learningService;

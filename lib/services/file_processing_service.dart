@@ -85,19 +85,32 @@ class FileProcessingService {
     }
   }
 
-  /// דיווח תמונה שדולגה (No Text Detected) — fire-and-forget לסטטיסטיקת חיסכון
+  /// דיווח תמונה שדולגה (No Text Detected) — fire-and-forget לסטטיסטיקת חיסכון. משתמש ב-Headers מאומתים (App Check).
   static void reportNoTextDetected() {
-    final uri = Uri.parse('$_backendBase/api/report-no-text-detected');
-    http.post(uri, headers: {'Content-Type': 'application/json'}, body: '{}').then((r) {
-      if (r.statusCode != 200) appLog('reportNoTextDetected failed: ${r.statusCode}');
-    }).catchError((e) {
+    _reportNoTextDetectedAsync().catchError((e) {
       appLog('reportNoTextDetected error: $e');
     });
   }
 
-  /// דיווח כשלון ל-Scanning Health — fire-and-forget
+  static Future<void> _reportNoTextDetectedAsync() async {
+    final uri = Uri.parse('$_backendBase/api/report-no-text-detected');
+    final headers = await AppCheckHttpHelper.getBackendHeaders();
+    headers['Content-Type'] = 'application/json';
+    final r = await http.post(uri, headers: headers, body: '{}');
+    if (r.statusCode != 200) appLog('reportNoTextDetected failed: ${r.statusCode}');
+  }
+
+  /// דיווח כשלון ל-Scanning Health — fire-and-forget. משתמש ב-Headers מאומתים (App Check).
   void _reportScanFailure(FileMetadata file, String rawText) {
+    _reportScanFailureAsync(file, rawText).catchError((e) {
+      appLog('ScanFailure report error: $e');
+    });
+  }
+
+  Future<void> _reportScanFailureAsync(FileMetadata file, String rawText) async {
     final uri = Uri.parse('$_backendBase/api/report-scan-failure');
+    final headers = await AppCheckHttpHelper.getBackendHeaders();
+    headers['Content-Type'] = 'application/json';
     final body = jsonEncode({
       'documentId': file.id.toString(),
       'filename': file.name,
@@ -106,11 +119,8 @@ class FileProcessingService {
       'userId': AuthService.instance.currentUser?.uid,
       'reasonForUpload': 'Local OCR Low Confidence',
     });
-    http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).then((r) {
-      if (r.statusCode != 200) appLog('ScanFailure report failed: ${r.statusCode}');
-    }).catchError((e) {
-      appLog('ScanFailure report error: $e');
-    });
+    final r = await http.post(uri, headers: headers, body: body);
+    if (r.statusCode != 200) appLog('ScanFailure report failed: ${r.statusCode}');
   }
 
   /// מריץ צינור עיבוד לפי נתיב. מחזיר תוצאת AI (כולל suggestions) אם immediate ו-PRO ונשלח לשרת.

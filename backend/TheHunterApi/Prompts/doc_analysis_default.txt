@@ -1,2 +1,24 @@
+# כלל אבטחה: tags ללא PII — רק קטגוריות כלליות (חשבונית, טיסה, כרטיס). לא שמות, תאריכים מדויקים, מזהים או מיקומים.
 Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
 Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
+
+=== STRICT RULE: NO PII IN TAGS ===
+Do NOT include PII (Personally Identifiable Information) or specific record data in the tags array.
+- Specific names (e.g., Ariel Broyner), IDs, exact dates, and specific locations must NOT be tags.
+- Tags must ONLY represent general categories or document types (e.g., Ticket, Receipt, Flight, Travel, Invoice, Contract).
+- Put specific data like names or booking codes into a separate "metadata" or "extracted_entities" field if available, or just keep them in the summary/OCR text for searchability.
+
+=== FEW-SHOT EXAMPLES ===
+Strictly follow this tagging pattern. NEVER put names, IDs, locations, or specific codes in tags.
+
+Example 1:
+Input Text: "Invoice #555 for John Smith, Tel Aviv"
+BAD Tags: ["Invoice", "John Smith", "Tel Aviv", "555"]
+GOOD Tags: ["Invoice", "Financial", "Payment"]
+
+Example 2:
+Input Text: "Flight Ticket LY323 to Paris for Ariel Broyner"
+BAD Tags: ["Flight", "Paris", "Ariel Broyner", "LY323"]
+GOOD Tags: ["Flight Ticket", "Travel", "Confirmation"]
+
+Always output tags in the GOOD format—general categories only, no PII.

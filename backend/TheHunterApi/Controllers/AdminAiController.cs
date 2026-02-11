@@ -44,6 +44,18 @@ public class AdminAiController : ControllerBase
     }
 
     /// <summary>
+    /// GET /admin/debug/file-xray/{documentId} — נתוני File X-Ray מלאים (B&W, OCR source, raw/cleaned, tags).
+    /// </summary>
+    [HttpGet("file-xray/{documentId}")]
+    [ProducesResponseType(typeof(FileXRayData), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetFileXRay(string documentId)
+    {
+        var data = await _firestore.GetFileXRayAsync(documentId);
+        return data != null ? Ok(data) : NotFound();
+    }
+
+    /// <summary>
     /// GET /admin/debug/processing-chain/{documentId} — שרשרת עיבוד למסמך (Cloud Vision + Gemini).
     /// </summary>
     [HttpGet("processing-chain/{documentId}")]

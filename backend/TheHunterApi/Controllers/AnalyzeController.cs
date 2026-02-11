@@ -264,7 +264,8 @@ public class AnalyzeController : ControllerBase
                     var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
                     geminiResult = geminiResponse.Result;
                     processingChain = "[Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]";
-                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn);
+                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn,
+                        rawText: text, cleanedText: CleanTextForXRay(text), ocrSource, geminiResult?.Tags, geminiResult?.Category);
                 }
             }
             else
@@ -277,6 +278,15 @@ public class AnalyzeController : ControllerBase
                 _logger.LogDebug("Cloud Vision Fallback disabled, using Gemini");
                 (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
                 ocrSource = "Gemini";
+                // Gemini-only path — שליחת טקסט ל-Gemini tagging ושמירה ל-FileXRay
+                if (!isPureImageNoText && !string.IsNullOrWhiteSpace(text) && text.Trim().Length >= 5)
+                {
+                    var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
+                    geminiResult = geminiResponse.Result;
+                    processingChain = "[Local OCR -> Failed] -> [Gemini OCR + Tagging -> Done]";
+                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn,
+                        rawText: text, cleanedText: CleanTextForXRay(text), ocrSource, geminiResult?.Tags, geminiResult?.Category);
+                }
             }
 
             return Ok(new OcrExtractResponse
@@ -293,6 +303,16 @@ public class AnalyzeController : ControllerBase
             Array.Clear(bytes, 0, bytes.Length);
             _logger.LogInformation("Temporary OCR buffer cleared successfully");
         }
+    }
+
+    /// <summary>ניקוי טקסט ל-FileXRay — תואם ל-TextCleaner ב-AdminAiController.</summary>
+    private static string CleanTextForXRay(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(text, @"\n{3,}", "\n\n");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[ \t]+", " ");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[\x00-\x08\x0B\x0C\x0E-\x1F]", "");
+        return cleaned.Trim();
     }
 
     private async Task<(string Text, bool IsPureImageNoText)> _extractViaGeminiAsync(byte[] bytes, string fileName)

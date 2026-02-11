@@ -591,16 +591,29 @@ public class AdminFirestoreService
     }
 
     /// <summary>שומר שרשרת עיבוד למסמך — [Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done].</summary>
-    public async Task SaveProcessingChainAsync(string documentId, string chain, string? filename = null)
+    public async Task SaveProcessingChainAsync(string documentId, string chain, string? filename = null,
+        string? rawText = null, string? cleanedText = null, string? ocrSource = null,
+        IReadOnlyList<string>? tags = null, string? category = null)
     {
         try
         {
-            await _db.Collection(ColProcessingChains).Document(documentId).SetAsync(new Dictionary<string, object>
+            var data = new Dictionary<string, object>
             {
                 { "chain", chain },
                 { "filename", filename ?? "" },
                 { "timestamp", Timestamp.FromDateTime(DateTime.UtcNow) }
-            }, SetOptions.MergeAll);
+            };
+            if (!string.IsNullOrEmpty(rawText))
+                data["rawText"] = rawText.Length > 50000 ? rawText.Substring(0, 50000) + "…" : rawText;
+            if (!string.IsNullOrEmpty(cleanedText))
+                data["cleanedText"] = cleanedText.Length > 50000 ? cleanedText.Substring(0, 50000) + "…" : cleanedText;
+            if (!string.IsNullOrEmpty(ocrSource))
+                data["ocrSource"] = ocrSource;
+            if (tags != null && tags.Count > 0)
+                data["tags"] = tags.ToArray();
+            if (!string.IsNullOrEmpty(category))
+                data["category"] = category;
+            await _db.Collection(ColProcessingChains).Document(documentId).SetAsync(data, SetOptions.MergeAll);
         }
         catch (Exception ex)
         {
@@ -622,6 +635,72 @@ public class AdminFirestoreService
             return null;
         }
     }
+
+    /// <summary>מחזיר נתוני File X-Ray לפי documentId — processing_chains + scan_failures.</summary>
+    public async Task<FileXRayData?> GetFileXRayAsync(string documentId)
+    {
+        try
+        {
+            var chainSnap = await _db.Collection(ColProcessingChains).Document(documentId).GetSnapshotAsync();
+            if (!chainSnap.Exists)
+            {
+                var failure = await GetScanFailureByDocumentIdAsync(documentId);
+                return failure != null ? new FileXRayData
+                {
+                    DocumentId = documentId,
+                    Filename = failure.Filename,
+                    RawText = failure.RawText,
+                    OcrSource = "Local (Failed)",
+                    ProcessingChain = null
+                } : null;
+            }
+            var d = chainSnap.ToDictionary();
+            var tags = new List<string>();
+            if (d.TryGetValue("tags", out var tVal) && tVal is System.Collections.IEnumerable en)
+            {
+                foreach (var item in en)
+                    tags.Add(item?.ToString() ?? "");
+            }
+            return new FileXRayData
+            {
+                DocumentId = documentId,
+                Filename = GetString(d, "filename"),
+                ProcessingChain = GetString(d, "chain"),
+                RawText = GetString(d, "rawText"),
+                CleanedText = GetString(d, "cleanedText"),
+                OcrSource = GetString(d, "ocrSource"),
+                Tags = tags,
+                Category = GetString(d, "category")
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetFileXRay failed for doc {DocId}", documentId);
+            return null;
+        }
+    }
+
+    /// <summary>מחזיר כשלון סריקה לפי documentId.</summary>
+    public async Task<ScanFailure?> GetScanFailureByDocumentIdAsync(string documentId)
+    {
+        try
+        {
+            var snapshot = await _db.Collection(ColScanFailures)
+                .WhereEqualTo("documentId", documentId)
+                .OrderByDescending("timestamp")
+                .Limit(1)
+                .GetSnapshotAsync();
+            var doc = snapshot.Documents.FirstOrDefault();
+            return doc != null ? MapDocToScanFailure(doc.Id, doc.ToDictionary()) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetString(IReadOnlyDictionary<string, object> d, string key) =>
+        d.TryGetValue(key, out var v) && v != null ? v.ToString() ?? "" : "";
 
     /// <summary>מחזיר מונח בודד לפי מזהה מסמך.</summary>
     public async Task<LearnedTerm?> GetTermByIdAsync(string documentId)

@@ -167,12 +167,19 @@
                 <small class="text-muted">לבדיקת IsTextMeaningful — ברירת מחדל 70</small>
                 <div class="scanner-readonly-note text-muted small d-none mt-1"></div>
             </div>
-            <div class="col-md-6 col-lg-4" data-param="cloudVisionFallbackEnabled">
-                <div class="form-check mt-4">
-                    <input type="checkbox" class="form-check-input" id="cloudVisionFallbackEnabled" name="cloudVisionFallbackEnabled" value="true"
-                           @(Model.ScannerSettings?.CloudVisionFallbackEnabled == true ? "checked" : "") />
-                    <label for="cloudVisionFallbackEnabled" class="form-check-label">Cloud Vision Fallback</label>
-                    <small class="text-muted d-block">כש־ML Kit נכשל — העלאת תמונה ל-Google Cloud Vision</small>
+            <div class="col-12" data-param="cloudVisionFallbackEnabled">
+                <div class="card border-1 border-primary bg-light bg-opacity-25 py-2 px-3">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                        <div>
+                            <strong>Cloud Vision Status: <span id="cloudVisionStatusText" class="badge">—</span></strong>
+                            <small class="text-muted d-block">כש־ML Kit נכשל — העלאת תמונה ל-Google Cloud Vision</small>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" class="form-check-input" id="cloudVisionFallbackEnabled" name="cloudVisionFallbackEnabled" value="true" role="switch"
+                                   @(Model.ScannerSettings?.CloudVisionFallbackEnabled == true ? "checked" : "") />
+                            <label for="cloudVisionFallbackEnabled" class="form-check-label">הפעל</label>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="col-12">
@@ -369,6 +376,35 @@
             }
         });
     }
+    function updateCloudVisionStatusDisplay(isActive) {
+        var el = document.getElementById('cloudVisionStatusText');
+        if (!el) return;
+        el.textContent = isActive ? 'Active' : 'Inactive';
+        el.className = 'badge ' + (isActive ? 'bg-success' : 'bg-secondary');
+    }
+    // Cloud Vision Toggle — עדכון מיידי ל-Firestore כש־משנים
+    (function initCloudVisionToggle() {
+        var toggle = document.getElementById('cloudVisionFallbackEnabled');
+        if (!toggle) return;
+        updateCloudVisionStatusDisplay(toggle.checked);
+        toggle.addEventListener('change', function() {
+            var enabled = toggle.checked;
+            toggle.disabled = true;
+            fetch('/admin/scanner-settings', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cloudVisionFallbackEnabled: enabled })
+            }).then(function(r) {
+                if (r.ok) {
+                    updateCloudVisionStatusDisplay(enabled);
+                } else throw new Error('HTTP ' + r.status);
+            }).catch(function(e) {
+                toggle.checked = !enabled;
+                alert('לא ניתן לעדכן: ' + e.message);
+            }).finally(function() { toggle.disabled = false; });
+        });
+    })();
     // טעינת הגדרות סריקה מהשרת — מוודא שהערכים משקפים את המצב האמיתי
     (function loadScannerSettings() {
         var errEl = document.getElementById('scannerSettingsLoadErr');
@@ -399,6 +435,7 @@
                         var v = cfg.item.value;
                         if (inp.type === 'checkbox') {
                             inp.checked = v >= 0.5;
+                            if (key === 'cloudVisionFallbackEnabled') updateCloudVisionStatusDisplay(inp.checked);
                         } else {
                             inp.value = (v === Math.floor(v)) ? v : Math.round(v * 100) / 100;
                         }

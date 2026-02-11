@@ -1,0 +1,184 @@
+@{
+    ViewData["Title"] = "File X-Ray";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<h1 class="mb-4"><i class="bi bi-search me-2"></i>File X-Ray</h1>
+<p class="text-muted mb-4">כלי דיבאג — בחינת חילוץ OCR, מקור (Local/Cloud Vision), ותגיות Gemini. לאימות PII ו־Cloud Vision.</p>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Document ID (Isar)</label>
+                <input type="text" id="xrayDocId" class="form-control" placeholder="מזהה מסמך">
+            </div>
+            <div class="col-auto">
+                <button type="button" id="xrayFetchBtn" class="btn btn-primary">
+                    <span class="xraySpinner spinner-border spinner-border-sm d-none me-1"></span>טען
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="xrayResult" class="d-none">
+    <div class="row g-4">
+        @* B&W Pre-processed Image *@
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="bi bi-image me-1"></i>Pre-processed Image (B&W)</h5>
+                </div>
+                <div class="card-body">
+                    <div id="xrayBwPlaceholder" class="alert alert-info">
+                        תמונת B&W אינה נשמרת בשרת. העלה קובץ ב-<a href="/admin/ai-lab#ocr" target="_blank">OCR Test Lab</a> כדי לצפות בעיבוד.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* OCR Source *@
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="bi bi-cpu me-1"></i>OCR Source</h5>
+                </div>
+                <div class="card-body">
+                    <div id="xrayOcrSource" class="d-flex align-items-center gap-2">
+                        <span id="xrayOcrSourceBadge" class="badge fs-6"></span>
+                        <i id="xrayGoogleIcon" class="bi bi-google d-none fs-4 text-primary" title="Cloud Vision"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Raw vs Cleaned Text *@
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">Raw Text</h5>
+                </div>
+                <div class="card-body">
+                    <pre id="xrayRawText" class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl"></pre>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Cleaned Text</h5>
+                </div>
+                <div class="card-body">
+                    <pre id="xrayCleanedText" class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl"></pre>
+                    <div id="xrayCleanedN/A" class="text-muted small d-none">לא זמין</div>
+                </div>
+            </div>
+        </div>
+
+        @* Tags from Gemini *@
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-tags me-1"></i>Tags (Gemini)</h5>
+                </div>
+                <div class="card-body">
+                    <div id="xrayTags" class="d-flex flex-wrap gap-2"></div>
+                    <div id="xrayTagsEmpty" class="text-muted small d-none">אין תגיות</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="xrayNotFound" class="alert alert-warning d-none">לא נמצאו נתונים למסמך זה.</div>
+
+@section Scripts {
+<script>
+(function() {
+    const docIdInp = document.getElementById('xrayDocId');
+    const fetchBtn = document.getElementById('xrayFetchBtn');
+    const spinner = fetchBtn?.querySelector('.xraySpinner');
+    const resultDiv = document.getElementById('xrayResult');
+    const notFoundDiv = document.getElementById('xrayNotFound');
+
+    function looksLikePii(tag) {
+        if (!tag || tag.length < 4) return false;
+        var parts = tag.trim().split(/\s+/);
+        if (parts.length < 2) return false;
+        return parts.every(function(p) {
+            return p.length > 1 && p[0] === p[0].toUpperCase() && /^[a-zA-Z\u0590-\u05FF]+$/.test(p);
+        });
+    }
+
+    fetchBtn?.addEventListener('click', async function() {
+        var docId = (docIdInp?.value || '').trim();
+        if (!docId) {
+            alert('הזן מזהה מסמך');
+            return;
+        }
+        fetchBtn.disabled = true;
+        if (spinner) spinner.classList.remove('d-none');
+        resultDiv?.classList.add('d-none');
+        notFoundDiv?.classList.add('d-none');
+        try {
+            var r = await fetch('/admin/debug/file-xray/' + encodeURIComponent(docId), { credentials: 'same-origin' });
+            if (r.status === 404) {
+                notFoundDiv?.classList.remove('d-none');
+                return;
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            var data = await r.json();
+
+            resultDiv?.classList.remove('d-none');
+            document.getElementById('xrayRawText').textContent = data.rawText || '(ריק)';
+            var cleaned = document.getElementById('xrayCleanedText');
+            var cleanedNa = document.getElementById('xrayCleanedN/A');
+            if (data.cleanedText) {
+                cleaned.textContent = data.cleanedText;
+                cleaned.classList.remove('d-none');
+                cleanedNa.classList.add('d-none');
+            } else {
+                cleaned.classList.add('d-none');
+                cleanedNa.classList.remove('d-none');
+            }
+
+            var ocrBadge = document.getElementById('xrayOcrSourceBadge');
+            var googleIcon = document.getElementById('xrayGoogleIcon');
+            var src = (data.ocrSource || '').toLowerCase();
+            if (src.includes('google') || src.includes('cloud')) {
+                ocrBadge.textContent = data.ocrSource || 'Cloud Vision';
+                ocrBadge.className = 'badge fs-6 bg-success';
+                googleIcon?.classList.remove('d-none');
+            } else {
+                ocrBadge.textContent = data.ocrSource || 'Local';
+                ocrBadge.className = 'badge fs-6 bg-secondary';
+                googleIcon?.classList.add('d-none');
+            }
+
+            var tagsDiv = document.getElementById('xrayTags');
+            var tagsEmpty = document.getElementById('xrayTagsEmpty');
+            var tags = data.tags || [];
+            tagsDiv.innerHTML = '';
+            if (tags.length === 0) {
+                tagsEmpty?.classList.remove('d-none');
+            } else {
+                tagsEmpty?.classList.add('d-none');
+                tags.forEach(function(tag) {
+                    var span = document.createElement('span');
+                    span.className = looksLikePii(tag) ? 'badge bg-danger' : 'badge bg-primary';
+                    span.textContent = tag;
+                    if (looksLikePii(tag)) span.title = 'PII warning — may be a name';
+                    tagsDiv.appendChild(span);
+                });
+            }
+        } catch (e) {
+            alert('שגיאה: ' + e.message);
+        } finally {
+            fetchBtn.disabled = false;
+            if (spinner) spinner.classList.add('d-none');
+        }
+    });
+})();
+</script>
+}
