@@ -33,6 +33,7 @@ import 'services/tags_service.dart';
 import 'services/widget_service.dart';
 import 'services/file_scanner_service.dart';
 import 'services/file_watcher_service.dart';
+import 'services/permission_service.dart';
 import 'services/log_service.dart';
 import 'services/settings_service.dart';
 import 'services/user_activity_service.dart';
@@ -702,28 +703,49 @@ class _MainScreenState extends State<MainScreen> {
 
   /// מאתחל סריקה אוטומטית ברקע
   Future<void> _initializeAutoScan() async {
+    // 1. בקשת הרשאות אחסון
+    final hasPermission = await PermissionService.instance.hasStoragePermission();
+    if (!hasPermission) {
+      final result = await PermissionService.instance.requestStoragePermission();
+      if (result != PermissionResult.permanentlyDenied && result != PermissionResult.denied) {
+        // משתמש דחה — יוכל לנסות שוב מהגדרות
+      }
+    }
+
+    // 2. אם טרם השלים בחירת תיקיות — הצג פופאפ בחירה לפני סריקה
+    final hasCompleted = await FileScannerService.hasCompletedFolderSetup();
+    if (!hasCompleted && mounted) {
+      final completed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (context) => const FolderSelectionScreen(isInitialSetup: true),
+          fullscreenDialog: true,
+        ),
+      );
+      if (!mounted) return;
+      if (completed != true) {
+        // לא שמר — נסה שוב בפעם הבאה
+        return;
+      }
+    }
+
     final manager = AutoScanManager.instance;
-    
+
     manager.onStatusUpdate = (status) {
       if (!mounted) return;
-      // סטטוס סריקה הוסר מהממשק - לא מעדכנים state
     };
-    
+
     manager.onScanComplete = (result) {
       if (!mounted) return;
-      // הודעות סריקה הוסרו לבקשת המשתמש
     };
-    
+
     manager.onProcessComplete = (result) {
       if (!mounted) return;
     };
-    
+
     manager.onNewFileFound = (path) {
       if (!mounted) return;
-      // הודעות קובץ חדש הוסרו לבקשת המשתמש
     };
-    
-    // הרצת אתחול
+
     manager.initialize();
   }
 

@@ -140,29 +140,74 @@ class FileScannerService {
     }
   }
   
+  /// מפתח לסימון שהמשתמש השלים את בחירת התיקיות (התקנה ראשונה)
+  static const String _folderSetupCompletedKey = 'has_completed_folder_setup';
+
   /// מחזיר רשימת מקורות סריקה מותאמות אישית (אסינכרוני)
+  /// אם המשתמש טרם השלים את בחירת התיקיות — מחזיר רשימה ריקה (אין סריקה אוטומטית)
   Future<List<ScanSource>> getCustomScanSources() async {
     final base = basePath;
     if (base.isEmpty) return [];
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
+      var hasCompleted = prefs.getBool(_folderSetupCompletedKey) ?? false;
       final customPaths = prefs.getStringList(_selectedFoldersKey);
-      
+
+      // מיגרציה: משתמש קיים עם נתיבים שמורים נחשב כהשלמה
+      if (!hasCompleted && customPaths != null) {
+        await prefs.setBool(_folderSetupCompletedKey, true);
+        hasCompleted = true;
+      }
+      if (!hasCompleted) {
+        appLog('FileScannerService: Folder setup not completed — no scan');
+        return [];
+      }
       if (customPaths != null && customPaths.isNotEmpty) {
         appLog('FileScannerService: Using ${customPaths.length} custom folders');
         return customPaths.map((path) {
-          // חילוץ שם מהנתיב
-          final name = path.split('/').last;
+          final parts = path.split(Platform.pathSeparator);
+          final name = parts.isEmpty ? path : parts.last;
           return ScanSource(name: name, path: path, exists: false);
         }).toList();
       }
     } catch (e) {
       appLog('FileScannerService: Error loading custom folders: $e');
     }
-    
-    // ברירת מחדל
-    return getScanSources();
+
+    return [];
+  }
+
+  /// בודק אם המשתמש השלים את בחירת התיקיות (התקנה ראשונה)
+  static Future<bool> hasCompletedFolderSetup() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_folderSetupCompletedKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// מסמן שהמשתמש השלים את בחירת התיקיות
+  static Future<void> markFolderSetupCompleted() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_folderSetupCompletedKey, true);
+    } catch (e) {
+      appLog('FileScannerService: Error marking folder setup: $e');
+    }
+  }
+
+  /// מאפס את בחירת התיקיות — המשתמש יראה את פופאפ הבחירה שוב בהפעלה הבאה
+  static Future<void> resetFolderSetup() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_folderSetupCompletedKey);
+      await prefs.remove(_selectedFoldersKey);
+      appLog('FileScannerService: Folder setup reset');
+    } catch (e) {
+      appLog('FileScannerService: Error resetting folder setup: $e');
+    }
   }
 
   /// בודק אילו מקורות קיימים

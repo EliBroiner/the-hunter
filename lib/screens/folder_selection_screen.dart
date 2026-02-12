@@ -1,12 +1,19 @@
 import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/file_scanner_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
 
 /// מסך בחירת תיקיות לסריקה
+/// [isInitialSetup] true = התקנה ראשונה — אין חזרה, חובה לשמור
 class FolderSelectionScreen extends StatefulWidget {
-  const FolderSelectionScreen({super.key});
+  const FolderSelectionScreen({super.key, this.isInitialSetup = false});
+
+  final bool isInitialSetup;
 
   @override
   State<FolderSelectionScreen> createState() => _FolderSelectionScreenState();
@@ -67,7 +74,6 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
         icon: Icons.chat,
         color: Colors.teal,
         description: 'folder_whatsapp_desc',
-        isPremium: true,
       ),
       FolderOption(
         name: 'folder_telegram',
@@ -75,7 +81,6 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
         icon: Icons.send,
         color: Colors.lightBlue,
         description: 'folder_telegram_desc',
-        isPremium: true,
       ),
       FolderOption(
         name: 'folder_screenshots',
@@ -87,6 +92,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     ];
 
     // בדיקה אילו תיקיות קיימות - מציגים רק קיימות
+    final predefinedPaths = folders.map((f) => f.path).toSet();
     for (final folder in folders) {
       final dir = Directory(folder.path);
       folder.exists = await dir.exists();
@@ -95,17 +101,27 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
       }
     }
 
-    // הגדרת ברירת מחדל או טעינה מהשמור
+    // תיקיות מותאמות אישית (מהשמור או שנוספו בעבר)
     if (savedPaths != null) {
+      for (final p in savedPaths) {
+        if (p.isNotEmpty && !predefinedPaths.contains(p)) {
+          final dir = Directory(p);
+          if (await dir.exists()) {
+            _availableFolders.add(FolderOption(
+              name: p.split(Platform.pathSeparator).last,
+              path: p,
+              icon: Icons.folder_open,
+              color: Colors.amber,
+              description: p,
+              isCustom: true,
+            ));
+          }
+        }
+      }
       _selectedPaths = savedPaths.toSet();
     } else {
-      // ברירת מחדל - תיקיות בסיסיות
-      _selectedPaths = {
-        '$basePath/Download',
-        '$basePath/DCIM',
-        '$basePath/Pictures',
-        '$basePath/Documents',
-      };
+      // התקנה ראשונה — אין נבחרות, המשתמש בוחר ידנית
+      _selectedPaths = {};
     }
 
     setState(() => _isLoading = false);
@@ -114,7 +130,31 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
   Future<void> _saveFolders() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_selectedFoldersKey, _selectedPaths.toList());
+    await FileScannerService.markFolderSetupCompleted();
     appLog('FolderSelection: Saved ${_selectedPaths.length} folders');
+  }
+
+  Future<void> _addFolderViaBrowse() async {
+    final path = await FilePicker.platform.getDirectoryPath();
+    if (path == null || path.isEmpty) return;
+    final name = path.split(Platform.pathSeparator).last;
+    final exists = await Directory(path).exists();
+    if (!exists) return;
+
+    setState(() {
+      final existing = _availableFolders.any((f) => f.path == path);
+      if (!existing) {
+        _availableFolders.add(FolderOption(
+          name: name,
+          path: path,
+          icon: Icons.folder_open,
+          color: Colors.amber,
+          description: path,
+          isCustom: true,
+        ));
+        _selectedPaths.add(path);
+      }
+    });
   }
 
   void _toggleFolder(FolderOption folder) {
@@ -137,13 +177,15 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          tr('scan_folders_title'),
+          widget.isInitialSetup ? tr('folder_setup_initial_title') : tr('scan_folders_title'),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: widget.isInitialSetup
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
         actions: [
           TextButton.icon(
             onPressed: () async {
@@ -184,14 +226,16 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       color: theme.colorScheme.primary.withValues(alpha: 0.3),
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, 
-                           color: theme.colorScheme.primary, size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          tr('scan_folders_explanation'),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, 
+                             color: theme.colorScheme.primary, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            widget.isInitialSetup
+                                ? tr('folder_setup_initial_explanation')
+                                : tr('scan_folders_explanation'),
                           style: TextStyle(
                             color: theme.colorScheme.primary,
                             fontSize: 13,
@@ -228,7 +272,6 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                         onPressed: () {
                           setState(() {
                             _selectedPaths = _availableFolders
-                                .where((f) => !f.isPremium)
                                 .map((f) => f.path)
                                 .toSet();
                           });
@@ -245,9 +288,23 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                     ],
                   ),
                 ),
-                
+
                 const SizedBox(height: 8),
-                
+
+                // כפתור הוסף תיקייה (עיון)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: OutlinedButton.icon(
+                    onPressed: _addFolderViaBrowse,
+                    icon: const Icon(Icons.create_new_folder),
+                    label: Text(tr('add_folder_browse')),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
                 // רשימת תיקיות
                 Expanded(
                   child: ListView.builder(
@@ -312,46 +369,29 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                       Row(
                         children: [
                           Text(
-                            tr(folder.name),
+                            folder.isCustom ? folder.name : tr(folder.name),
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
                             ),
                           ),
-                          if (folder.isPremium) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.amber,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                tr('pro_badge'),
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black,
-                                ),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        tr(folder.description),
+                        folder.isCustom ? folder.path : tr(folder.description),
                         style: TextStyle(
                           color: Colors.grey.shade500,
                           fontSize: 12,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
                 
-                // Checkbox
+                // Checkbox — כל המשתמשים יכולים לבחור (כולל PRO)
                 Checkbox(
                   value: isSelected,
                   onChanged: (_) => _toggleFolder(folder),
@@ -376,7 +416,7 @@ class FolderOption {
   final IconData icon;
   final Color color;
   final String description;
-  final bool isPremium;
+  final bool isCustom;
   bool exists;
 
   FolderOption({
@@ -385,7 +425,7 @@ class FolderOption {
     required this.icon,
     required this.color,
     required this.description,
-    this.isPremium = false,
+    this.isCustom = false,
     this.exists = true,
   });
 }

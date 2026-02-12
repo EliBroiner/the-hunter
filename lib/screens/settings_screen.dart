@@ -7,8 +7,11 @@ import '../services/auth_service.dart';
 import '../services/log_service.dart';
 import '../services/backup_service.dart';
 import '../services/database_service.dart';
+import '../services/favorites_service.dart';
 import '../services/file_scanner_service.dart';
+import '../services/recent_files_service.dart';
 import '../services/settings_service.dart';
+import '../services/widget_service.dart';
 import '../services/localization_service.dart';
 import 'package:firebase_core/firebase_core.dart' show Firebase;
 
@@ -33,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _reindexCurrent = 0;
   int _reindexTotal = 0;
   bool _isCleanupRunning = false;
+  bool _isResetting = false;
   /// Developer Mode — נסתר כברירת מחדל; נפתח ב־7 לחיצות על גרסה
   bool _isDevMode = false;
 
@@ -186,6 +190,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 16),
+
+            _buildSettingsSection(
+              context,
+              tr('section_danger'),
+              [
+                _buildSettingsTile(
+                  context,
+                  icon: Icons.restart_alt,
+                  title: tr('reset_all_title'),
+                  subtitle: tr('reset_all_subtitle'),
+                  trailing: _isResetting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.chevron_right, color: Colors.red.shade400),
+                  titleColor: Colors.red.shade400,
+                  onTap: _isResetting ? () {} : _showResetAllDialog,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             
             _buildSettingsSection(
               context,
@@ -226,7 +253,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           if (_isReindexing) _buildReindexOverlay(theme),
+          if (_isResetting) _buildResettingOverlay(theme),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResettingOverlay(ThemeData theme) {
+    return Positioned.fill(
+      child: Container(
+        color: theme.scaffoldBackgroundColor.withValues(alpha: 0.95),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(color: theme.colorScheme.primary),
+              ),
+              const SizedBox(height: 16),
+              Text(tr('reset_all_progress'), style: theme.textTheme.titleMedium),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -348,6 +398,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isCleanupRunning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('שגיאה: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showResetAllDialog() {
+    final theme = Theme.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red.shade400, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                tr('reset_all_warning_title'),
+                style: TextStyle(color: Colors.red.shade400, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Text(
+            tr('reset_all_warning_body'),
+            style: TextStyle(height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(tr('cancel')),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _runResetAll();
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            child: Text(tr('reset_all_confirm')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _runResetAll() async {
+    if (!mounted) return;
+    setState(() => _isResetting = true);
+    try {
+      DatabaseService.instance.clearAll();
+      await FileScannerService.resetFolderSetup();
+      await FavoritesService.instance.clear();
+      await RecentFilesService.instance.clear();
+      await WidgetService.instance.updateWidget();
+      if (mounted) {
+        setState(() => _isResetting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(tr('reset_all_done')),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isResetting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('שגיאה: $e'),
@@ -1250,9 +1376,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     required VoidCallback onTap,
     Widget? trailing,
+    Color? titleColor,
   }) {
     final theme = Theme.of(context);
-    
+    final effectiveColor = titleColor ?? theme.colorScheme.primary;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -1263,14 +1391,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.2),
+            color: effectiveColor.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+          child: Icon(icon, color: effectiveColor, size: 20),
         ),
         title: Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          style: TextStyle(fontWeight: FontWeight.w600, color: titleColor),
         ),
         subtitle: Text(
           subtitle,
