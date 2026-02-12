@@ -1,10 +1,87 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
 
 import '../utils/extracted_text_quality.dart';
 import 'log_service.dart';
+
+/// קבלת הודעת preprocess — (path, applyBinaryThreshold)
+typedef PreprocessInput = (String, bool);
+
+/// נקודת כניסה ל־Isolate — עיבוד תמונה סינכרוני (גווני אפור, threshold). חוסך מעבד מה-main thread.
+String _preprocessImageInIsolate(PreprocessInput input) {
+  final (imagePath, applyBinaryThreshold) = input;
+  try {
+    final bytes = File(imagePath).readAsBytesSync();
+    img.Image? image = img.decodeImage(bytes);
+    if (image == null) return imagePath;
+
+    image = img.grayscale(image);
+    image = img.contrast(image, contrast: 130);
+
+    if (applyBinaryThreshold) {
+      const threshold = 128;
+      for (var y = 0; y < image.height; y++) {
+        for (var x = 0; x < image.width; x++) {
+          final p = image.getPixel(x, y);
+          final l = (p.r.toInt() + p.g.toInt() + p.b.toInt()) ~/ 3;
+          final v = l > threshold ? 255.0 : 0.0;
+          image.setPixel(x, y, image.getColor(v, v, v));
+        }
+      }
+    }
+
+    final outBytes = img.encodePng(image);
+    final suffix = applyBinaryThreshold ? 'full' : 'light';
+    final tempFile = File(
+      '${Directory.systemTemp.path}/ocr_${suffix}_${DateTime.now().millisecondsSinceEpoch}.png',
+    );
+    tempFile.writeAsBytesSync(outBytes);
+    return tempFile.path;
+  } catch (_) {
+    return imagePath;
+  }
+}
+
+/// נקודת כניסה ל־Isolate — דחיסת תמונה B&W לעלייה. סינכרוני.
+({List<int> bytes, String mimeType}) _compressBwImageInIsolate(String imagePath) {
+  const maxEdge = 1920;
+  const jpegQuality = 70;
+  try {
+    final fileBytes = File(imagePath).readAsBytesSync();
+    img.Image? image = img.decodeImage(fileBytes);
+    if (image == null) return (bytes: <int>[], mimeType: 'image/jpeg');
+
+    image = img.grayscale(image);
+    image = img.contrast(image, contrast: 130);
+    const threshold = 128;
+    for (var y = 0; y < image.height; y++) {
+      for (var x = 0; x < image.width; x++) {
+        final p = image.getPixel(x, y);
+        final l = (p.r.toInt() + p.g.toInt() + p.b.toInt()) ~/ 3;
+        final v = l > threshold ? 255.0 : 0.0;
+        image.setPixel(x, y, image.getColor(v, v, v));
+      }
+    }
+
+    final maxDim = image.width > image.height ? image.width : image.height;
+    if (maxDim > maxEdge) {
+      final scale = maxEdge / maxDim;
+      image = img.copyResize(
+        image,
+        width: (image.width * scale).round(),
+        height: (image.height * scale).round(),
+      );
+    }
+
+    final jpegBytes = img.encodeJpg(image, quality: jpegQuality);
+    return (bytes: List<int>.from(jpegBytes), mimeType: 'image/jpeg');
+  } catch (_) {
+    return (bytes: <int>[], mimeType: 'image/jpeg');
+  }
+}
 
 /// תוצאת OCR — טקסט + סטטוס (אין טקסט מזוהה / ביטחון נמוך / תקין)
 enum OcrStatus {
@@ -160,35 +237,10 @@ class OCRService {
     return _preprocessImage(imagePath, applyBinaryThreshold: false);
   }
 
-  /// עיבוד מקדים לתמונה ל-OCR. מחזיר נתיב לקובץ מעובד (temp) או המקור אם העיבוד נכשל.
+  /// עיבוד מקדים לתמונה ל-OCR — רץ ב-isolate נפרד כדי לא לחנוק את המעבד.
   Future<String> _preprocessImage(String imagePath, {required bool applyBinaryThreshold}) async {
     try {
-      final bytes = await File(imagePath).readAsBytes();
-      img.Image? image = img.decodeImage(bytes);
-      if (image == null) return imagePath;
-
-      image = img.grayscale(image);
-      image = img.contrast(image, contrast: 130);
-
-      if (applyBinaryThreshold) {
-        const threshold = 128;
-        for (var y = 0; y < image.height; y++) {
-          for (var x = 0; x < image.width; x++) {
-            final p = image.getPixel(x, y);
-            final l = (p.r.toInt() + p.g.toInt() + p.b.toInt()) ~/ 3;
-            final v = l > threshold ? 255.0 : 0.0;
-            image.setPixel(x, y, image.getColor(v, v, v));
-          }
-        }
-      }
-
-      final outBytes = img.encodePng(image);
-      final suffix = applyBinaryThreshold ? 'full' : 'light';
-      final tempFile = File(
-        '${Directory.systemTemp.path}/ocr_${suffix}_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await tempFile.writeAsBytes(outBytes);
-      return tempFile.path;
+      return await compute(_preprocessImageInIsolate, (imagePath, applyBinaryThreshold));
     } catch (e) {
       appLog('OCRService: preprocess failed, using original — $e');
       return imagePath;
@@ -196,41 +248,10 @@ class OCRService {
   }
 
   /// תמונה מעובדת B&W מקומפוסת — לעלייה ל-Backend (Cloud Vision לא צריך high-res צבע).
-  /// מחזיר (bytes, mimeType). maxEdge=1920, JPEG quality 70.
-  static const int _maxEdgeForUpload = 1920;
-  static const int _jpegQuality = 70;
-
+  /// מחזיר (bytes, mimeType). רץ ב-isolate נפרד כדי לא לחנוק את המעבד.
   Future<({List<int> bytes, String mimeType})> getCompressedBwImageForUpload(String imagePath) async {
     try {
-      final fileBytes = await File(imagePath).readAsBytes();
-      img.Image? image = img.decodeImage(fileBytes);
-      if (image == null) return (bytes: <int>[], mimeType: 'image/jpeg');
-
-      image = img.grayscale(image);
-      image = img.contrast(image, contrast: 130);
-      const threshold = 128;
-      for (var y = 0; y < image.height; y++) {
-        for (var x = 0; x < image.width; x++) {
-          final p = image.getPixel(x, y);
-          final l = (p.r.toInt() + p.g.toInt() + p.b.toInt()) ~/ 3;
-          final v = l > threshold ? 255.0 : 0.0;
-          image.setPixel(x, y, image.getColor(v, v, v));
-        }
-      }
-
-      // הקטנה — Cloud Vision לא צריך רזולוציה גבוהה
-      final maxDim = image.width > image.height ? image.width : image.height;
-      if (maxDim > _maxEdgeForUpload) {
-        final scale = _maxEdgeForUpload / maxDim;
-        image = img.copyResize(
-          image,
-          width: (image.width * scale).round(),
-          height: (image.height * scale).round(),
-        );
-      }
-
-      final jpegBytes = img.encodeJpg(image, quality: _jpegQuality);
-      return (bytes: List<int>.from(jpegBytes), mimeType: 'image/jpeg');
+      return await compute(_compressBwImageInIsolate, imagePath);
     } catch (e) {
       appLog('OCRService: getCompressedBwImageForUpload failed — $e');
       return (bytes: <int>[], mimeType: 'image/jpeg');

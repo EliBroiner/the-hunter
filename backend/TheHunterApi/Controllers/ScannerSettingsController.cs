@@ -44,37 +44,47 @@ public class ScannerSettingsController : ControllerBase
         }
     }
 
-    /// <summary>POST /admin/scanner-settings — עדכון הגדרות.</summary>
+    /// <summary>POST /admin/scanner-settings — עדכון הגדרות (JSON).</summary>
     [HttpPost("scanner-settings")]
+    [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Update([FromBody] ScannerSettingsDto dto)
     {
         if (dto == null)
             return BadRequest(new ErrorResponse { Error = "Body required" });
 
-        if (dto.GarbageThresholdPercent.HasValue)
+        try
         {
-            await _scannerSettings.SetGarbageThresholdPercentAsync(dto.GarbageThresholdPercent.Value);
-            _logger.LogInformation("Scanner: garbageThresholdPercent = {Value}", dto.GarbageThresholdPercent.Value);
-        }
-        if (dto.MinMeaningfulLength.HasValue)
-        {
-            await _scannerSettings.SetMinMeaningfulLengthAsync(dto.MinMeaningfulLength.Value);
-            _logger.LogInformation("Scanner: minMeaningfulLength = {Value}", dto.MinMeaningfulLength.Value);
-        }
-        if (dto.MinValidCharRatioPercent.HasValue)
-        {
-            await _scannerSettings.SetMinValidCharRatioPercentAsync(dto.MinValidCharRatioPercent.Value);
-            _logger.LogInformation("Scanner: minValidCharRatioPercent = {Value}", dto.MinValidCharRatioPercent.Value);
-        }
-        if (dto.CloudVisionFallbackEnabled.HasValue)
-        {
-            await _scannerSettings.SetCloudVisionFallbackEnabledAsync(dto.CloudVisionFallbackEnabled.Value);
-            _logger.LogInformation("Scanner: cloudVisionFallbackEnabled = {Value}", dto.CloudVisionFallbackEnabled.Value);
-        }
+            if (dto.GarbageThresholdPercent.HasValue)
+            {
+                await _scannerSettings.SetGarbageThresholdPercentAsync(dto.GarbageThresholdPercent.Value);
+                _logger.LogInformation("Scanner: garbageThresholdPercent = {Value}", dto.GarbageThresholdPercent.Value);
+            }
+            if (dto.MinMeaningfulLength.HasValue)
+            {
+                await _scannerSettings.SetMinMeaningfulLengthAsync(dto.MinMeaningfulLength.Value);
+                _logger.LogInformation("Scanner: minMeaningfulLength = {Value}", dto.MinMeaningfulLength.Value);
+            }
+            if (dto.MinValidCharRatioPercent.HasValue)
+            {
+                await _scannerSettings.SetMinValidCharRatioPercentAsync(dto.MinValidCharRatioPercent.Value);
+                _logger.LogInformation("Scanner: minValidCharRatioPercent = {Value}", dto.MinValidCharRatioPercent.Value);
+            }
+            if (dto.CloudVisionFallbackEnabled.HasValue)
+            {
+                await _scannerSettings.SetCloudVisionFallbackEnabledAsync(dto.CloudVisionFallbackEnabled.Value);
+                _logger.LogInformation("Scanner: cloudVisionFallbackEnabled = {Value}", dto.CloudVisionFallbackEnabled.Value);
+            }
 
-        return Ok(new { success = true });
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "POST scanner-settings failed");
+            return StatusCode(500, new { error = ex.Message, details = ex.InnerException?.Message });
+        }
     }
 }
 

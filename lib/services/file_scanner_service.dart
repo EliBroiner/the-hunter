@@ -830,16 +830,16 @@ class FileScannerService {
   }
 
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
-  /// עיבוד בקצב מבוקר כדי לא להאט את האפליקציה
+  /// עיבוד בקצב מבוקר — לא לחנוק את המעבד. ברירת מחדל: batch=1, השהיות ארוכות.
   /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד
   /// maxFilesPerSession - מגביל כמה קבצים לעבד במהלך קריאה אחת (למניעת חימום יתר)
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
     bool Function()? shouldPause,
     int? maxFilesPerSession,
-    int batchSize = 3,  // כמה קבצים לעבד בכל פעם
-    int delayBetweenBatchesMs = 500,  // השהיה בין אצוות (מילישניות)
-    int delayBetweenFilesMs = 100,  // השהיה בין קבצים (מילישניות)
+    int batchSize = 1,  // ברקע: קובץ אחד בכל פעם — פחות עומס CPU
+    int delayBetweenBatchesMs = 800,  // השהיה בין אצוות
+    int delayBetweenFilesMs = 300,  // השהיה בין קבצים
   }) async {
     try {
       // קבלת כל הקבצים שטרם עובדו
@@ -862,9 +862,10 @@ class FileScannerService {
       int filesWithText = 0;
       int batchCount = 0;
 
-      // עיבוד תמונות עם OCR - בקצב מבוקר
+      // עיבוד תמונות עם OCR - בקצב מבוקר, yield ל-UI בין קבצים
       for (final file in pendingImages) {
         if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
+        await Future.delayed(Duration.zero);  // yield למעבד — נותן ל-UI לנשום
         appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
 
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
@@ -956,7 +957,7 @@ class FileScannerService {
         }
 
         batchCount++;
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
         if (batchCount >= batchSize) {
           batchCount = 0;
           await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
@@ -966,6 +967,7 @@ class FileScannerService {
       // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
       for (final file in pendingTextFiles) {
         if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
+        await Future.delayed(Duration.zero);  // yield למעבד
         appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
 
         // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
@@ -1028,7 +1030,7 @@ class FileScannerService {
         }
 
         batchCount++;
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs + 50));
+        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
         if (batchCount >= batchSize) {
           batchCount = 0;
           await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));

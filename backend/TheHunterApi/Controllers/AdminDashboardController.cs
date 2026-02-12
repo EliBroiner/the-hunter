@@ -171,17 +171,27 @@ public class AdminDashboardController : Controller
     [HttpPost]
     [Route("scanner-settings")]
     [ValidateAntiForgeryToken]
+    [Consumes("application/x-www-form-urlencoded", "multipart/form-data")]
     public async Task<IActionResult> UpdateScannerSettings([FromForm] double? garbageThresholdPercent, [FromForm] int? minMeaningfulLength, [FromForm] double? minValidCharRatioPercent, [FromForm] bool cloudVisionFallbackEnabled = false)
     {
-        if (garbageThresholdPercent.HasValue)
-            await _scannerSettings.SetGarbageThresholdPercentAsync(garbageThresholdPercent.Value);
-        if (minMeaningfulLength.HasValue)
-            await _scannerSettings.SetMinMeaningfulLengthAsync(minMeaningfulLength.Value);
-        if (minValidCharRatioPercent.HasValue)
-            await _scannerSettings.SetMinValidCharRatioPercentAsync(minValidCharRatioPercent.Value);
-        await _scannerSettings.SetCloudVisionFallbackEnabledAsync(cloudVisionFallbackEnabled);
-        TempData["WeightsMessage"] = "הגדרות הסריקה עודכנו. השינויים יוחלו מיד.";
-        TempData["WeightsMessageSuccess"] = true;
+        try
+        {
+            if (garbageThresholdPercent.HasValue)
+                await _scannerSettings.SetGarbageThresholdPercentAsync(garbageThresholdPercent.Value);
+            if (minMeaningfulLength.HasValue)
+                await _scannerSettings.SetMinMeaningfulLengthAsync(minMeaningfulLength.Value);
+            if (minValidCharRatioPercent.HasValue)
+                await _scannerSettings.SetMinValidCharRatioPercentAsync(minValidCharRatioPercent.Value);
+            await _scannerSettings.SetCloudVisionFallbackEnabledAsync(cloudVisionFallbackEnabled);
+            TempData["WeightsMessage"] = "הגדרות הסריקה עודכנו. השינויים יוחלו מיד.";
+            TempData["WeightsMessageSuccess"] = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpdateScannerSettings failed");
+            TempData["WeightsMessage"] = $"שגיאה: {ex.Message}";
+            TempData["WeightsMessageSuccess"] = false;
+        }
         return RedirectToAction(nameof(Index));
     }
 

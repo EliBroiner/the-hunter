@@ -125,8 +125,8 @@ class AutoScanManager with WidgetsBindingObserver {
   bool _appInBackground = false;  // אפליקציה ברקע — לא להשהות סריקה
   Timer? _resumeDebounceTimer;
   static const Duration _resumeDebounce = Duration(seconds: 3);
-  /// מקסימום קבצים לעיבוד במהלך סשן אחד — מונע חימום יתר של המכשיר
-  static const int maxFilesPerSession = 50;
+  /// מקסימום קבצים לעיבוד במהלך סשן אחד — מונע חימום יתר וחונקת מעבד
+  static const int maxFilesPerSession = 20;
 
   /// callback כשסריקה הושלמה
   Function(ScanResult result)? onScanComplete;
