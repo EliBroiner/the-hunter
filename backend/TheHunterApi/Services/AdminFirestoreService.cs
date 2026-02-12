@@ -510,9 +510,24 @@ public class AdminFirestoreService
             var dict = new Dictionary<string, double>();
             foreach (var doc in snapshot.Documents)
             {
-                var v = doc.GetValue<double?>("value");
-                if (v.HasValue)
-                    dict[doc.Id] = v.Value;
+                try
+                {
+                    var field = doc.GetValue<object>("value");
+                    double? v = field switch
+                    {
+                        double d => d,
+                        int i => i,
+                        long l => l,
+                        float f => f,
+                        _ => field != null && double.TryParse(field.ToString(), out var parsed) ? parsed : null
+                    };
+                    if (v.HasValue)
+                        dict[doc.Id] = v.Value;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Skip scanner_settings doc {DocId}: invalid value", doc.Id);
+                }
             }
             return dict;
         }

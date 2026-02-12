@@ -277,12 +277,12 @@ public class GeminiService
         {
             _logger.LogInformation("[LOGIC] Item {DocumentId} has text ({TextLength} chars). Using Text Generation only (no FileUri).",
                 doc.Id, text.Length);
-            return await SendTextOnlyToGeminiAsync(doc.Id, filename, text, userId, customPromptOverride);
+            return await SendTextOnlyToGeminiAsync(doc.Id ?? "", filename, text, userId, customPromptOverride);
         }
 
         // CASE B: אין טקסט — לא קוראים ל-Gemini (אין fallback ל-FileUri — הלקוח שולח רק טקסט).
         _logger.LogWarning("[LOGIC] Item {DocumentId} has NO text. Skipping Gemini (returning empty result).", doc.Id);
-        return new DocumentAnalysisResponse { DocumentId = doc.Id, Result = new DocumentAnalysisResult() };
+        return new DocumentAnalysisResponse { DocumentId = doc.Id ?? "", Result = new DocumentAnalysisResult() };
     }
 
     /// <summary>
@@ -382,12 +382,13 @@ public class GeminiService
             _logger.LogInformation("[GEMINI_PARSED] Doc {Id} — Category={Category} | Tags count={TagCount} | Raw text length={RawLen}",
                 documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
 
-            await LearnFromDocumentResultAsync(result, userId);
+            var safeResult = result ?? new DocumentAnalysisResult();
+            await LearnFromDocumentResultAsync(safeResult, userId);
 
-            var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = result }, _jsonOptions);
+            var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = safeResult }, _jsonOptions);
             _logger.LogInformation("[GEMINI_TO_CLIENT] Doc {Id} — Sending result: {Preview}", documentId, TruncateForLog(finalJson));
 
-            return new DocumentAnalysisResponse { DocumentId = documentId, Result = result };
+            return new DocumentAnalysisResponse { DocumentId = documentId, Result = safeResult };
         }
         catch (Exception ex)
         {

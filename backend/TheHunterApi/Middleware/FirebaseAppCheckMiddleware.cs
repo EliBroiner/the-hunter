@@ -47,7 +47,8 @@ public class FirebaseAppCheckMiddleware
         // נתיבים פטורים
         if (ExemptPaths.Contains(path) ||
             path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase))
+            path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/debug", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

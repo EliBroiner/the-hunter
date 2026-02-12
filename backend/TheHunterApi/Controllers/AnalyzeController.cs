@@ -361,6 +361,23 @@ public class AnalyzeController : ControllerBase
     }
 
     /// <summary>
+    /// בדיקה זמנית — שולח תמונה מינימלית ל-Cloud Vision. מחזיר 200 עם טקסט בהצלחה, או הודעת שגיאה מדויקת (403, API not enabled וכו').
+    /// </summary>
+    [HttpGet("debug/test-cloud-vision")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> TestCloudVision()
+    {
+        // תמונה מינימלית 1x1 PNG (base64) — מספיקה לבדיקת חיבור ל-API
+        var base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        var bytes = Convert.FromBase64String(base64);
+        var (text, error) = await _ocrService.TestCloudVisionAsync(bytes);
+        if (error != null)
+            return StatusCode(500, error);
+        return Ok(new { success = true, text });
+    }
+
+    /// <summary>
     /// Database Doctor — בודק כתיבה ל-Firestore (collection: suggestions). GET לבדיקה בדפדפן.
     /// </summary>
     [HttpGet("test-db-write")]

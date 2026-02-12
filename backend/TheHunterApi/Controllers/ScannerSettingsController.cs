@@ -24,15 +24,24 @@ public class ScannerSettingsController : ControllerBase
     /// <summary>GET /admin/scanner-settings — מחזיר את כל ההגדרות + metadata (editable / source).</summary>
     [HttpGet("scanner-settings")]
     [ProducesResponseType(typeof(ScannerSettingsGetResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Get()
     {
-        return Ok(new ScannerSettingsGetResponse
+        try
         {
-            GarbageThresholdPercent = new ScannerSettingItem(await _scannerSettings.GetGarbageThresholdPercentAsync(), true, "firestore"),
-            MinMeaningfulLength = new ScannerSettingItem(await _scannerSettings.GetMinMeaningfulLengthAsync(), true, "firestore"),
-            MinValidCharRatioPercent = new ScannerSettingItem(await _scannerSettings.GetMinValidCharRatioPercentAsync(), true, "firestore"),
-            CloudVisionFallbackEnabled = new ScannerSettingItem(await _scannerSettings.GetCloudVisionFallbackEnabledAsync() ? 1.0 : 0.0, true, "firestore")
-        });
+            return Ok(new ScannerSettingsGetResponse
+            {
+                GarbageThresholdPercent = new ScannerSettingItem(await _scannerSettings.GetGarbageThresholdPercentAsync(), true, "firestore"),
+                MinMeaningfulLength = new ScannerSettingItem(await _scannerSettings.GetMinMeaningfulLengthAsync(), true, "firestore"),
+                MinValidCharRatioPercent = new ScannerSettingItem(await _scannerSettings.GetMinValidCharRatioPercentAsync(), true, "firestore"),
+                CloudVisionFallbackEnabled = new ScannerSettingItem(await _scannerSettings.GetCloudVisionFallbackEnabledAsync() ? 1.0 : 0.0, true, "firestore")
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Get scanner-settings failed");
+            return StatusCode(500, new { error = ex.Message, details = ex.InnerException?.Message });
+        }
     }
 
     /// <summary>POST /admin/scanner-settings — עדכון הגדרות.</summary>

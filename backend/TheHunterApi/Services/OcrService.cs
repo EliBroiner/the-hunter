@@ -1,4 +1,5 @@
 using Google.Cloud.Vision.V1;
+using Grpc.Core;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -57,6 +58,27 @@ public class OcrService
         {
             _logger.LogError(ex, "Cloud Vision OCR failed");
             return ("", false, false);
+        }
+    }
+
+    /// <summary>בדיקה זמנית — שולח תמונה ל-Cloud Vision, מחזיר טקסט או הודעת שגיאה מדויקת.</summary>
+    public async Task<(string? Text, string? Error)> TestCloudVisionAsync(byte[] imageBytes)
+    {
+        try
+        {
+            var image = Google.Cloud.Vision.V1.Image.FromBytes(imageBytes);
+            var response = await GetClient().DetectDocumentTextAsync(image);
+            var text = response?.Text?.Trim() ?? "";
+            return (string.IsNullOrEmpty(text) ? "(no text in image)" : text, null);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message;
+            if (ex.InnerException != null)
+                msg += " | Inner: " + ex.InnerException.Message;
+            if (ex is RpcException rpc)
+                msg = $"{rpc.StatusCode} {rpc.Status.Detail}";
+            return (null, msg);
         }
     }
 
