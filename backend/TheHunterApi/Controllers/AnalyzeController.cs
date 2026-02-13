@@ -361,6 +361,39 @@ public class AnalyzeController : ControllerBase
     }
 
     /// <summary>
+    /// OCR Testing Lab — חילוץ טקסט מתמונה דרך Cloud Vision בלבד (ללא Gemini).
+    /// מקבל תמונה B&W, מחזיר טקסט גולמי.
+    /// </summary>
+    [HttpPost("debug/ocr-vision-only")]
+    [RequestSizeLimit(5 * 1024 * 1024)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> OcrVisionOnly(IFormFile? file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new ErrorResponse { Error = "Image file required" });
+
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+
+        try
+        {
+            var (text, error) = await _ocrService.TestCloudVisionAsync(bytes);
+            if (error != null)
+                return StatusCode(500, new ErrorResponse { Error = "Cloud Vision failed", Details = error });
+            return Ok(new { text = text ?? "", isPureImageNoText = string.IsNullOrWhiteSpace(text) });
+        }
+        finally
+        {
+            Array.Clear(bytes, 0, bytes.Length);
+        }
+    }
+
+    /// <summary>
     /// בדיקה זמנית — שולח תמונה מינימלית ל-Cloud Vision. מחזיר 200 עם טקסט בהצלחה, או הודעת שגיאה מדויקת (403, API not enabled וכו').
     /// </summary>
     [HttpGet("debug/test-cloud-vision")]

@@ -60,6 +60,14 @@ class _AiLabScreenState extends State<AiLabScreen> {
   bool _savingInProgress = false;
   bool _migrateUsersInProgress = false;
 
+  // OCR Testing Lab — צעד אחרי צעד
+  String _ocrLabFilePath = '';
+  List<int>? _ocrLabBwBytes;
+  String _ocrLabVisionText = '';
+  String _ocrLabGeminiJson = '';
+  bool _ocrLabVisionInProgress = false;
+  bool _ocrLabGeminiInProgress = false;
+
   // Dictionary
   DateTime? _lastSyncTime;
   int _synonymsCount = 0;
@@ -487,7 +495,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: Colors.grey[900],
         appBar: AppBar(
@@ -511,6 +519,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
             tabs: const [
               Tab(text: 'Dictionary'),
               Tab(text: 'Pipeline'),
+              Tab(text: 'OCR Testing Lab'),
             ],
           ),
         ),
@@ -523,6 +532,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
                   children: [
                     _buildDictionaryTab(),
                     _buildPipelineTab(),
+                    _buildOcrTestingLabTab(),
                   ],
                 ),
               ),
@@ -889,6 +899,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 16),
         const SizedBox(height: 16),
         // מיגרציה חד-פעמית: הוספת שדה id לכל מסמך users
         Card(
@@ -1403,6 +1414,273 @@ class _AiLabScreenState extends State<AiLabScreen> {
       Colors.orangeAccent,
     ];
     return colors[hash.abs() % colors.length];
+  }
+
+  /// OCR Testing Lab — צעד אחרי צעד: קובץ → B&W → Cloud Vision → Gemini
+  Widget _buildOcrTestingLabTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildOcrLabChainVsXrayInfo(),
+        const SizedBox(height: 16),
+        _buildOcrLabStep(1, 'בחר קובץ', Icons.folder_open, [
+          OutlinedButton.icon(
+            onPressed: _ocrLabPickFile,
+            icon: const Icon(Icons.add_photo_alternate, size: 20),
+            label: const Text('Pick image'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+          ),
+          if (_ocrLabFilePath.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_ocrLabFilePath, style: const TextStyle(fontSize: 11, color: Colors.white54), maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+        ]),
+        const SizedBox(height: 12),
+        _buildOcrLabStep(2, 'המר לשחור-לבן', Icons.filter_b_and_w, [
+          OutlinedButton.icon(
+            onPressed: _ocrLabBwBytes != null ? null : _ocrLabConvertToBw,
+            icon: _ocrLabBwBytes != null ? const Icon(Icons.check_circle, size: 20, color: Colors.green) : const Icon(Icons.filter_b_and_w, size: 20),
+            label: Text(_ocrLabBwBytes != null ? 'B&W ready (${(_ocrLabBwBytes!.length / 1024).toStringAsFixed(1)} KB)' : 'Convert to B&W'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        _buildOcrLabStep(3, 'Cloud Vision', Icons.cloud, [
+          OutlinedButton.icon(
+            onPressed: _ocrLabBwBytes == null || _ocrLabVisionInProgress ? null : _ocrLabSendToVision,
+            icon: _ocrLabVisionInProgress
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.cloud_upload, size: 20),
+            label: Text(_ocrLabVisionInProgress ? 'Sending...' : 'Send to Cloud Vision'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+          ),
+          if (_ocrLabVisionText.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green)),
+              child: Text(_ocrLabVisionText, style: const TextStyle(fontSize: 12, color: Colors.black87), maxLines: 8, overflow: TextOverflow.ellipsis),
+            ),
+        ]),
+        const SizedBox(height: 12),
+        _buildOcrLabStep(4, 'Gemini (עם Prompt)', Icons.psychology, [
+          OutlinedButton.icon(
+            onPressed: (_ocrLabVisionText.isEmpty && _ocrLabGeminiJson.isEmpty) || _ocrLabGeminiInProgress ? null : _ocrLabSendToGemini,
+            icon: _ocrLabGeminiInProgress
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.send, size: 20),
+            label: Text(_ocrLabGeminiInProgress ? 'Sending...' : 'Send to Gemini'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+          ),
+          if (_ocrLabGeminiJson.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: const Color(0xFFE8E8E8), borderRadius: BorderRadius.circular(8)),
+              child: Text(_ocrLabGeminiJson, style: const TextStyle(fontSize: 11, fontFamily: 'monospace'), maxLines: 10, overflow: TextOverflow.ellipsis),
+            ),
+          TextButton.icon(
+            onPressed: () => _showCustomPromptSettings(context),
+            icon: const Icon(Icons.tune, size: 18),
+            label: const Text('Edit System Prompt'),
+            style: TextButton.styleFrom(foregroundColor: Colors.amber),
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildOcrLabStep(int n, String title, IconData icon, List<Widget> children) {
+    final colors = [Colors.blueAccent, Colors.amberAccent, Colors.greenAccent, Colors.purpleAccent];
+    final c = colors[(n - 1) % colors.length];
+    return Card(
+      color: const Color(0xFF161B22),
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: c.withValues(alpha: 0.6))),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: c.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                  child: Text('$n', style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+                const SizedBox(width: 10),
+                Icon(icon, color: c, size: 20),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOcrLabChainVsXrayInfo() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blueGrey),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blueGrey.shade300, size: 20),
+              const SizedBox(width: 8),
+              Text('Chain vs File X-Ray', style: TextStyle(color: Colors.blueGrey.shade200, fontWeight: FontWeight.bold, fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'OCR Testing Lab (כאן): צעד-אחרי-צעד אינטראקטיבי — בוחרים קובץ, ממירים ל-B&W, שולחים ל-Cloud Vision, ואז ל-Gemini עם Prompt מותאם. אין documentId.',
+            style: TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'File X-Ray (Admin Web): צפייה בנתונים שמורים — מזינים documentId ומקבלים את מה שנשמר ב-Firestore (processing chain, raw/cleaned text, tags). Read-only.',
+            style: TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _ocrLabPickFile() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null || path.isEmpty) return;
+    if (!OCRService.isSupportedImage(path.split('.').last)) {
+      _labLog('OCR Lab: unsupported image type');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unsupported image type'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+      return;
+    }
+    setState(() {
+      _ocrLabFilePath = path;
+      _ocrLabBwBytes = null;
+      _ocrLabVisionText = '';
+      _ocrLabGeminiJson = '';
+    });
+    _labLog('OCR Lab: picked $path');
+  }
+
+  Future<void> _ocrLabConvertToBw() async {
+    if (_ocrLabFilePath.isEmpty) return;
+    _labLog('OCR Lab: converting to B&W...');
+    try {
+      final result = await OCRService.instance.getCompressedBwImageForUpload(_ocrLabFilePath);
+      if (result.bytes.isEmpty) {
+        _labLog('OCR Lab: B&W conversion failed');
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('B&W conversion failed'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+        return;
+      }
+      setState(() => _ocrLabBwBytes = result.bytes);
+      _labLog('OCR Lab: B&W ready ${result.bytes.length} bytes');
+    } catch (e) {
+      _labLog('OCR Lab B&W error: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+    }
+  }
+
+  Future<void> _ocrLabSendToVision() async {
+    if (_ocrLabBwBytes == null) return;
+    setState(() => _ocrLabVisionInProgress = true);
+    _labLog('OCR Lab: sending to Cloud Vision...');
+    try {
+      final uri = Uri.parse('$_kBackendBase/api/debug/ocr-vision-only');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(http.MultipartFile.fromBytes('file', _ocrLabBwBytes!, filename: 'bw.jpg'));
+      request.headers.addAll(await AppCheckHttpHelper.getBackendHeaders());
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        _labLog('OCR Lab Vision error: ${response.statusCode} ${response.body}');
+        setState(() {
+          _ocrLabVisionText = 'Error: ${response.statusCode}\n${response.body.length > 200 ? response.body.substring(0, 200) + '...' : response.body}';
+          _ocrLabVisionInProgress = false;
+        });
+        return;
+      }
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final text = decoded['text']?.toString() ?? '';
+      setState(() {
+        _ocrLabVisionText = text.isEmpty ? '(no text in image)' : text;
+        _ocrLabVisionInProgress = false;
+      });
+      _labLog('OCR Lab: Vision done, text length=${text.length}');
+    } catch (e, st) {
+      _labLog('OCR Lab Vision error: $e');
+      if (mounted) {
+        setState(() {
+          _ocrLabVisionText = 'Exception: $e';
+          _ocrLabVisionInProgress = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+      }
+      debugPrint('_ocrLabSendToVision: $e\n$st');
+    }
+  }
+
+  Future<void> _ocrLabSendToGemini() async {
+    final text = _ocrLabVisionText;
+    if (text.isEmpty || text.startsWith('Error') || text.startsWith('Exception') || text == '(no text in image)') {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Run Cloud Vision first or enter text'), backgroundColor: Colors.amber, behavior: SnackBarBehavior.floating));
+      return;
+    }
+    setState(() => _ocrLabGeminiInProgress = true);
+    _labLog('OCR Lab: sending to Gemini...');
+    try {
+      final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
+      final userId = AuthService.instance.currentUser?.uid;
+      final body = jsonEncode({
+        'text': text,
+        if (userId != null) 'userId': userId,
+        if (_isAdmin && _customPrompt.isNotEmpty) 'adminPromptOverride': _customPrompt,
+      });
+      final headers = await AppCheckHttpHelper.getBackendHeaders();
+      headers['Content-Type'] = 'application/json';
+      final response = await http.post(uri, headers: headers, body: body).timeout(const Duration(seconds: 30));
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        setState(() {
+          _ocrLabGeminiJson = 'Error: ${response.statusCode}\n${response.body}';
+          _ocrLabGeminiInProgress = false;
+        });
+        return;
+      }
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final pretty = const JsonEncoder.withIndent('  ').convert(decoded);
+      setState(() {
+        _ocrLabGeminiJson = pretty;
+        _ocrLabGeminiInProgress = false;
+      });
+      _labLog('OCR Lab: Gemini done');
+    } catch (e, st) {
+      _labLog('OCR Lab Gemini error: $e');
+      if (mounted) {
+        setState(() {
+          _ocrLabGeminiJson = 'Exception: $e';
+          _ocrLabGeminiInProgress = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
+      }
+      debugPrint('_ocrLabSendToGemini: $e\n$st');
+    }
   }
 
   Widget _buildLogConsole() {
