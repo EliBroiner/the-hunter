@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using TheHunterApi.Models;
 using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
@@ -53,9 +54,4 @@ public class UsersController : ControllerBase
             return StatusCode(500, new { error = ex.Message });
         }
     }
-}
-
-public class CheckRoleResponse
-{
-    public bool HasRole { get; set; }
 }

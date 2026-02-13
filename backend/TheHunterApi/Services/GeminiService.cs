@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Serilog;
+using TheHunterApi.Config;
+using TheHunterApi.Constants;
 using TheHunterApi.Models;
 
 namespace TheHunterApi.Services;
@@ -21,9 +23,6 @@ public class GeminiService
     private const string GeminiModel = "gemini-3-flash-preview";
     private const string GeminiDocModel = "gemini-2.5-flash";
     private const int MaxLogPayloadChars = 200; // היגיינת לוגים — לא לדפיס Body/JSON מלא (Cloud Run ~256KB limit)
-    private const int MaxRetriesOn429 = 2; // ניסיונות חוזרים על 429 (סה"כ עד 3 קריאות)
-    private const int DefaultRetryAfterSeconds = 45; // אם Gemini לא החזיר "retry in Xs"
-
     // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
     private const string DefaultPrompt = """
         You are a smart query parser for a multilingual file search engine.
@@ -154,6 +153,11 @@ public class GeminiService
     /// </summary>
     public bool IsConfigured => !string.IsNullOrEmpty(_geminiConfig.ApiKey);
 
+    /// <summary>מחזיר HttpClient + URL ל-Gemini — שימוש חוזר בכל הקריאות.</summary>
+    private (HttpClient Client, string Url) GetGeminiClientAndUrl(string model) => (
+        _httpClientFactory.CreateClient("GeminiApi"),
+        $"v1beta/models/{model}:generateContent?key={_geminiConfig.ApiKey}");
+
     /// <summary>
     /// מפענח שאילתת חיפוש בשפה טבעית ל-SearchIntent מובנה.
     /// systemPromptOverride — רק Admin (מאומת ב-Controller).
@@ -174,43 +178,17 @@ public class GeminiService
 
         try
         {
-            var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/{GeminiModel}:generateContent?key={_geminiConfig.ApiKey}";
-
+            var (client, url) = GetGeminiClientAndUrl(GeminiModel);
             var geminiRequest = await BuildGeminiRequestAsync(query, systemPromptOverride);
             var jsonContent = JsonSerializer.Serialize(geminiRequest, _jsonOptions);
-
-            HttpResponseMessage? response = null;
-            string responseBody = "";
-            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
-            {
-                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                response = await client.PostAsync(url, httpContent);
-                responseBody = await response.Content.ReadAsStringAsync();
-
-                _logger.LogDebug("📡 GEMINI_RAW_RESPONSE | Status: {StatusCode} | Body: {Body}",
-                    response.StatusCode, TruncateForLog(responseBody));
-
-                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
-                {
-                    var waitSec = TryParseRetryAfterSeconds(responseBody);
-                    _logger.LogWarning("[GEMINI_429] ParseSearchIntent — retry {Attempt}/{Max} after {Sec}s.", attempt + 1, MaxRetriesOn429, waitSec);
-                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("Gemini API error: {StatusCode} - {Body}", response.StatusCode, TruncateForLog(responseBody));
-                    if ((int)response.StatusCode == 429)
-                        return GeminiResult<SearchIntent>.Failure("Gemini quota exceeded (429). Try again in a minute.");
-                    return GeminiResult<SearchIntent>.Failure($"Gemini API error: {response.StatusCode}");
-                }
-                break;
-            }
+            var (response, responseBody) = await GeminiHttpHelper.PostWith429RetryAsync(client, url, jsonContent, _logger, "ParseSearchIntent");
 
             if (response == null || !response.IsSuccessStatusCode)
+            {
+                if (response != null && (int)response.StatusCode == 429)
+                    return GeminiResult<SearchIntent>.Failure("Gemini quota exceeded (429). Try again in a minute.");
                 return GeminiResult<SearchIntent>.Failure("Gemini API error or quota exceeded. Try again later.");
+            }
 
             var result = ParseGeminiResponse(responseBody);
             if (result.IsSuccess && result.Data != null)
@@ -259,15 +237,19 @@ public class GeminiService
             return documents.Select(d => new DocumentAnalysisResponse { DocumentId = d.Id, Result = new DocumentAnalysisResult() }).ToList();
         }
 
-        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId, customPromptOverride));
+        // טעינת פרומפט פעם אחת — מונע N קריאות DB/קובץ באצווה
+        var systemPrompt = customPromptOverride ?? await GetDocAnalysisPromptAsync();
+        if (customPromptOverride != null)
+            _logger.LogWarning("Using Custom Developer Prompt (Admin override) for batch of {Count} docs", documents.Count);
+        var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId, systemPrompt));
         var results = await Task.WhenAll(tasks);
         return results.ToList();
     }
 
     private async Task<DocumentAnalysisResponse> AnalyzeOneDocumentAsync(
         DocumentPayload doc,
-        string? userId = null,
-        string? customPromptOverride = null)
+        string? userId,
+        string systemPrompt)
     {
         var text = (doc.Text ?? "").Trim();
         var filename = doc.Filename ?? doc.Id ?? "";
@@ -277,7 +259,7 @@ public class GeminiService
         {
             _logger.LogInformation("[LOGIC] Item {DocumentId} has text ({TextLength} chars). Using Text Generation only (no FileUri).",
                 doc.Id, text.Length);
-            return await SendTextOnlyToGeminiAsync(doc.Id ?? "", filename, text, userId, customPromptOverride);
+            return await SendTextOnlyToGeminiAsync(doc.Id ?? "", filename, text, userId, systemPrompt);
         }
 
         // CASE B: אין טקסט — לא קוראים ל-Gemini (אין fallback ל-FileUri — הלקוח שולח רק טקסט).
@@ -287,27 +269,20 @@ public class GeminiService
 
     /// <summary>
     /// שולח ל-Gemini רק Part מסוג Text. לא מוסיף FileData/FileUri — מונע 404.
+    /// systemPrompt — כבר נטען ברמת האצווה (מונע N קריאות DB).
     /// </summary>
     private async Task<DocumentAnalysisResponse> SendTextOnlyToGeminiAsync(
         string documentId,
         string filename,
         string text,
         string? userId,
-        string? customPromptOverride)
+        string systemPrompt)
     {
         try
         {
-            string systemInstructions = await GetDocAnalysisPromptAsync();
-            if (!string.IsNullOrEmpty(customPromptOverride))
-            {
-                _logger.LogWarning("Using Custom Developer Prompt (Admin override) for doc {DocId}", documentId);
-                systemInstructions = customPromptOverride;
-            }
-
             // פרומפט אחד — הוראות + תוכן. רק Part.Text, בלי FileData/FileUri.
-            var prompt = $"Analyze this document text.\nFilename: {filename}\nContent:\n{text}\n\n{systemInstructions}";
-            var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var prompt = $"Analyze this document text.\nFilename: {filename}\nContent:\n{text}\n\n{systemPrompt}";
+            var (client, url) = GetGeminiClientAndUrl(GeminiDocModel);
 
             var request = new GeminiRequest
             {
@@ -327,47 +302,19 @@ public class GeminiService
             };
 
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
+            _logger.LogInformation("[GEMINI_REQUEST] Model={Model} | Request length={Len} | Prompt: {Preview}",
+                GeminiDocModel, jsonContent.Length, TruncateForLog(prompt));
 
-            // —— לוג: מה שולחים ל-Gemini ——
-            _logger.LogInformation("[GEMINI_REQUEST] Model={Model} | URL=v1beta/models/{Model}:generateContent | Request body length={Len} chars | Prompt preview: {Preview}",
-                GeminiDocModel, GeminiDocModel, jsonContent.Length, TruncateForLog(prompt));
-
-            HttpResponseMessage? response = null;
-            string responseBody = "";
-            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
+            var (response, responseBody) = await GeminiHttpHelper.PostWith429RetryAsync(client, url, jsonContent, _logger, $"Doc {documentId}");
+            if (response == null || !response.IsSuccessStatusCode)
             {
-                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                response = await client.PostAsync(url, httpContent);
-                responseBody = await response.Content.ReadAsStringAsync();
-
-                _logger.LogInformation("[GEMINI_RESPONSE] Status={Status} | Body length={Len} | Body: {Body}",
-                    (int)response.StatusCode, responseBody.Length, TruncateForLog(responseBody));
-
-                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
-                {
-                    var waitSec = TryParseRetryAfterSeconds(responseBody);
-                    _logger.LogWarning("[GEMINI_429] Doc {Id} — quota exceeded. Retry {Attempt}/{Max} after {Sec}s.",
-                        documentId, attempt + 1, MaxRetriesOn429, waitSec);
-                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("[GEMINI_FAIL] Doc {Id} — HTTP {Status}. Full body: {Body}. Batch continues.",
-                        documentId, response.StatusCode, responseBody.Length > 1000 ? responseBody.Substring(0, 1000) + "…" : responseBody);
-                    return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
-                }
-
-                break;
+                if (response != null)
+                    _logger.LogError("[GEMINI_FAIL] Doc {Id} — HTTP {Status}. Batch continues.", documentId, response.StatusCode);
+                return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
             }
 
-            if (response == null || !response.IsSuccessStatusCode)
-                return new DocumentAnalysisResponse { DocumentId = documentId, Result = new DocumentAnalysisResult() };
-
-            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
-                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
-            var cleanJson = SanitizeJsonResponse(rawText);
+            var rawText = GeminiHttpHelper.ExtractRawTextFromResponse(responseBody, _jsonOptions);
+            var cleanJson = GeminiHttpHelper.SanitizeJsonResponse(rawText);
             DocumentAnalysisResult result;
             try
             {
@@ -408,8 +355,7 @@ public class GeminiService
         var systemPrompt = string.IsNullOrWhiteSpace(customPrompt) ? await GetDocAnalysisPromptAsync() : customPrompt.Trim();
         try
         {
-            var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var (client, url) = GetGeminiClientAndUrl(GeminiDocModel);
             var request = new GeminiRequest
             {
                 Contents = new List<GeminiContent>
@@ -431,41 +377,17 @@ public class GeminiService
                 }
             };
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
-            _logger.LogInformation("[GEMINI_REQUEST] analyze-debug | Model={Model} | Request length={Len} | Text preview: {Preview}",
-                GeminiDocModel, jsonContent.Length, TruncateForLog(text));
+            _logger.LogInformation("[GEMINI_REQUEST] analyze-debug | Model={Model} | Request length={Len}", GeminiDocModel, jsonContent.Length);
 
-            HttpResponseMessage? response = null;
-            string responseBody = "";
-            for (var attempt = 0; attempt <= MaxRetriesOn429; attempt++)
+            var (response, responseBody) = await GeminiHttpHelper.PostWith429RetryAsync(client, url, jsonContent, _logger, "analyze-debug");
+            if (response == null || !response.IsSuccessStatusCode)
             {
-                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                response = await client.PostAsync(url, httpContent);
-                responseBody = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation("[GEMINI_RESPONSE] analyze-debug | Status={Status} | Body: {Body}",
-                    (int)response.StatusCode, TruncateForLog(responseBody));
-
-                if ((int)response.StatusCode == 429 && attempt < MaxRetriesOn429)
-                {
-                    var waitSec = TryParseRetryAfterSeconds(responseBody);
-                    _logger.LogWarning("[GEMINI_429] analyze-debug — retry {Attempt}/{Max} after {Sec}s.", attempt + 1, MaxRetriesOn429, waitSec);
-                    await Task.Delay(TimeSpan.FromSeconds(waitSec));
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("[GEMINI_FAIL] analyze-debug — HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
-                    return new DocumentAnalysisResult();
-                }
-                break;
+                if (response != null) _logger.LogError("[GEMINI_FAIL] analyze-debug — HTTP {Status}", response.StatusCode);
+                return new DocumentAnalysisResult();
             }
 
-            if (response == null || !response.IsSuccessStatusCode)
-                return new DocumentAnalysisResult();
-
-            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
-                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
-            var cleanJson = SanitizeJsonResponse(rawText);
+            var rawText = GeminiHttpHelper.ExtractRawTextFromResponse(responseBody, _jsonOptions);
+            var cleanJson = GeminiHttpHelper.SanitizeJsonResponse(rawText);
             try
             {
                 return JsonSerializer.Deserialize<DocumentAnalysisResult>(cleanJson, _jsonOptions) ?? new DocumentAnalysisResult();
@@ -494,8 +416,7 @@ public class GeminiService
         try
         {
             var b64 = Convert.ToBase64String(fileBytes);
-            var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var (client, url) = GetGeminiClientAndUrl(GeminiDocModel);
             var request = new GeminiRequest
             {
                 Contents = new List<GeminiContent>
@@ -516,20 +437,13 @@ public class GeminiService
                 }
             };
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
-
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(url, httpContent);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+            var (response, responseBody) = await GeminiHttpHelper.PostWith429RetryAsync(client, url, jsonContent, _logger, "GEMINI_OCR");
+            if (response == null || !response.IsSuccessStatusCode)
             {
-                _logger.LogError("[GEMINI_OCR] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
-                return ("", false, $"HTTP {(int)response.StatusCode}");
+                if (response != null) _logger.LogError("[GEMINI_OCR] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
+                return ("", false, response != null ? $"HTTP {(int)response.StatusCode}" : "Request failed");
             }
-
-            var parts = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
-                ?.Candidates?.FirstOrDefault()?.Content?.Parts ?? [];
-            var rawText = parts.FirstOrDefault(p => !string.IsNullOrEmpty(p?.Text))?.Text ?? "";
+            var rawText = GeminiHttpHelper.ExtractRawTextFromResponse(responseBody, _jsonOptions);
             return (rawText, true, null);
         }
         catch (Exception ex)
@@ -549,8 +463,7 @@ public class GeminiService
 
         try
         {
-            var client = _httpClientFactory.CreateClient("GeminiApi");
-            var url = $"v1beta/models/{GeminiDocModel}:generateContent?key={_geminiConfig.ApiKey}";
+            var (client, url) = GetGeminiClientAndUrl(GeminiDocModel);
             var request = new GeminiRequest
             {
                 Contents = new List<GeminiContent>
@@ -564,26 +477,16 @@ public class GeminiService
                         }
                     }
                 },
-                GenerationConfig = new GenerationConfig
-                {
-                    Temperature = 0.1,
-                    MaxOutputTokens = 4096
-                }
+                GenerationConfig = new GenerationConfig { Temperature = 0.1, MaxOutputTokens = 4096 }
             };
             var jsonContent = JsonSerializer.Serialize(request, _jsonOptions);
-
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(url, httpContent);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+            var (response, responseBody) = await GeminiHttpHelper.PostWith429RetryAsync(client, url, jsonContent, _logger, "GEMINI_PLAYGROUND");
+            if (response == null || !response.IsSuccessStatusCode)
             {
-                _logger.LogError("[GEMINI_PLAYGROUND] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
-                return (responseBody, false, $"HTTP {(int)response.StatusCode}");
+                if (response != null) _logger.LogError("[GEMINI_PLAYGROUND] HTTP {Status}. Body: {Body}", response.StatusCode, TruncateForLog(responseBody));
+                return (responseBody, false, response != null ? $"HTTP {(int)response.StatusCode}" : "Request failed");
             }
-
-            var rawText = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions)
-                ?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+            var rawText = GeminiHttpHelper.ExtractRawTextFromResponse(responseBody, _jsonOptions);
             return (rawText, true, null);
         }
         catch (Exception ex)
@@ -593,51 +496,57 @@ public class GeminiService
         }
     }
 
-    /// <summary>
-    /// מקור פרומפט ניתוח מסמכים: DB (DocAnalysis) → קובץ DOC_ANALYSIS_PROMPT_FILE → fallback מוטבע.
-    /// </summary>
+    /// <summary>מקור: DB (DocAnalysis) → קובץ DOC_ANALYSIS_PROMPT_FILE → fallback מוטבע.</summary>
     private async Task<string> GetDocAnalysisPromptAsync()
+    {
+        var fromDb = await TryGetPromptFromDbAsync(SystemPromptFeatures.DocAnalysis);
+        if (fromDb != null) return fromDb;
+
+        var fromFile = await TryLoadPromptFromFileAsync(
+            Environment.GetEnvironmentVariable("DOC_ANALYSIS_PROMPT_FILE")?.Trim() ?? "doc_analysis_default.txt");
+        if (fromFile != null) return fromFile;
+
+        _logger.LogDebug("פרומפט DocAnalysis: שימוש ב-fallback מוטבע");
+        return DocAnalysisPromptFallback;
+    }
+
+    private async Task<string?> TryGetPromptFromDbAsync(string feature)
     {
         try
         {
-            var dbPrompt = await _systemPromptService.GetActivePromptAsync("DocAnalysis");
+            var dbPrompt = await _systemPromptService.GetActivePromptAsync(feature);
             if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
             {
-                _logger.LogDebug("פרומפט DocAnalysis: שימוש ב-DB (Version={Version})", dbPrompt.Version);
+                _logger.LogDebug("פרומפט {Feature}: שימוש ב-DB (Version={Version})", feature, dbPrompt.Version);
                 return dbPrompt.Content;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "כשלון בשליפת פרומפט DocAnalysis מ-DB, מעבר ל-fallback");
+            _logger.LogWarning(ex, "כשלון בשליפת פרומפט {Feature} מ-DB", feature);
         }
+        return null;
+    }
 
-        var fileName = Environment.GetEnvironmentVariable("DOC_ANALYSIS_PROMPT_FILE")?.Trim()
-            ?? "doc_analysis_default.txt";
-        var dirs = new[]
-        {
-            Path.Combine(_webHost.ContentRootPath, "Prompts"),
-            Path.Combine(AppContext.BaseDirectory, "Prompts")
-        };
+    private async Task<string?> TryLoadPromptFromFileAsync(string fileName)
+    {
+        var dirs = new[] { Path.Combine(_webHost.ContentRootPath, "Prompts"), Path.Combine(AppContext.BaseDirectory, "Prompts") };
         foreach (var dir in dirs)
         {
             var path = Path.Combine(dir, fileName);
-            if (File.Exists(path))
+            if (!File.Exists(path)) continue;
+            try
             {
-                try
-                {
-                    var content = await File.ReadAllTextAsync(path);
-                    _logger.LogDebug("פרומפט ניתוח מסמכים נטען מקובץ: {Path}", path);
-                    return content;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "כשלון בקריאת קובץ פרומפט {Path}, משתמשים ב-fallback", path);
-                }
+                var content = await File.ReadAllTextAsync(path);
+                _logger.LogDebug("פרומפט נטען מקובץ: {Path}", path);
+                return content;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "כשלון בקריאת קובץ פרומפט {Path}", path);
             }
         }
-        _logger.LogDebug("פרומפט ניתוח מסמכים: שימוש ב-fallback מוטבע");
-        return DocAnalysisPromptFallback;
+        return null;
     }
 
     /// <summary>
@@ -678,41 +587,18 @@ public class GeminiService
         };
     }
 
-    /// <summary>
-    /// בונה את הפרומפט המערכתי. מקור: DB (Search) → env SYSTEM_PROMPT → ברירת מחדל.
-    /// </summary>
+    /// <summary>מקור: DB (Search) → env SYSTEM_PROMPT → ברירת מחדל.</summary>
     private async Task<string> BuildSystemPromptAsync()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fromDb = await TryGetPromptFromDbAsync(SystemPromptFeatures.Search);
+        if (fromDb != null) return fromDb.Replace("{CurrentDate}", today);
 
-        try
-        {
-            var dbPrompt = await _systemPromptService.GetActivePromptAsync("Search");
-            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
-            {
-                _logger.LogDebug("פרומפט Search: שימוש ב-DB (Version={Version})", dbPrompt.Version);
-                return dbPrompt.Content.Replace("{CurrentDate}", today);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "כשלון בשליפת פרומפט Search מ-DB, מעבר ל-fallback");
-        }
-
-        var customPrompt = Environment.GetEnvironmentVariable("SYSTEM_PROMPT");
-        string promptTemplate;
-        if (!string.IsNullOrEmpty(customPrompt))
-        {
-            _logger.LogInformation("📝 Using Custom Prompt from SYSTEM_PROMPT environment variable");
-            promptTemplate = customPrompt;
-        }
-        else
-        {
-            _logger.LogDebug("📝 Using Default Prompt");
-            promptTemplate = DefaultPrompt;
-        }
-
-        return promptTemplate.Replace("{CurrentDate}", today);
+        var fromEnv = Environment.GetEnvironmentVariable("SYSTEM_PROMPT");
+        var template = !string.IsNullOrEmpty(fromEnv) ? fromEnv : DefaultPrompt;
+        if (!string.IsNullOrEmpty(fromEnv)) _logger.LogInformation("📝 Using Custom Prompt from SYSTEM_PROMPT");
+        else _logger.LogDebug("📝 Using Default Prompt");
+        return template.Replace("{CurrentDate}", today);
     }
 
     /// <summary>
@@ -725,9 +611,8 @@ public class GeminiService
         
         try
         {
-            // שלב 1: פירסור התשובה מ-Gemini API
-            var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseBody, _jsonOptions);
-            rawText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+            // שלב 1: חילוץ טקסט גולמי — שימוש חוזר ב-Helper
+            rawText = GeminiHttpHelper.ExtractRawTextFromResponse(responseBody, _jsonOptions);
 
             _logger.LogDebug("[Gemini Raw]: {RawText}", TruncateForLog(rawText));
 
@@ -740,7 +625,7 @@ public class GeminiService
             _logger.LogDebug("🔍 EXTRACTED_TEXT | Length: {Length} | Content: {Content}",
                 rawText.Length, TruncateForLog(rawText));
 
-            cleanJson = SanitizeJsonResponse(rawText);
+            cleanJson = GeminiHttpHelper.SanitizeJsonResponse(rawText);
 
             _logger.LogDebug("✅ SANITIZED_JSON | Length: {Length} | Content: {Content}",
                 cleanJson.Length, TruncateForLog(cleanJson));
@@ -810,62 +695,6 @@ public class GeminiService
         }
     }
 
-    /// <summary>
-    /// מנקה ומסנן את התשובה מ-Gemini - מסיר markdown ומחלץ רק את ה-JSON
-    /// </summary>
-    private static string SanitizeJsonResponse(string responseText)
-    {
-        Log.Debug("🧹 SANITIZE_START | Input Length: {Length}", responseText?.Length ?? 0);
-
-        if (string.IsNullOrWhiteSpace(responseText))
-        {
-            Log.Warning("⚠️ SANITIZE: Empty input, returning empty object");
-            return "{}";
-        }
-
-        responseText = responseText
-            .Replace("```json", "")
-            .Replace("```JSON", "")
-            .Replace("```", "")
-            .Trim();
-
-        Log.Debug("🧹 AFTER_MARKDOWN_REMOVAL | Length: {Length}", responseText.Length);
-
-        int firstBrace = responseText.IndexOf('{');
-        int lastBrace = responseText.LastIndexOf('}');
-
-        Log.Debug("🧹 BRACE_POSITIONS | FirstBrace: {First} | LastBrace: {Last}", firstBrace, lastBrace);
-
-        if (firstBrace >= 0 && lastBrace > firstBrace)
-        {
-            responseText = responseText.Substring(firstBrace, lastBrace - firstBrace + 1);
-            Log.Debug("🧹 JSON_EXTRACTED | Length: {Length}", responseText.Length);
-        }
-        else
-        {
-            Log.Warning("⚠️ Could not find valid JSON braces. Attempting to parse raw text. Length: {Length}", responseText.Length);
-        }
-
-        responseText = responseText
-            .Replace("\r\n", "\n")
-            .Replace("\r", "")
-            .Replace("\t", " ");
-
-        var result = responseText.Trim();
-        Log.Debug("🧹 SANITIZE_COMPLETE | Final Length: {Length}", result.Length);
-
-        return result;
-    }
-
-    /// <summary>מחלץ מ-Gemini 429 body את "Please retry in Xs" — מחזיר שניות להמתנה.</summary>
-    private static int TryParseRetryAfterSeconds(string responseBody)
-    {
-        var match = Regex.Match(responseBody, @"retry\s+in\s+([\d.]+)\s*s", RegexOptions.IgnoreCase);
-        if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var sec))
-            return (int)Math.Ceiling(Math.Clamp(sec, 5, 120)); // בין 5 ל-120 שניות
-        return DefaultRetryAfterSeconds;
-    }
-
     /// <summary>היגיינת לוגים — חיתוך Body/JSON כדי לא לחרוג ממגבלת שורת לוג (Cloud Run).</summary>
     private static string TruncateForLog(string? value)
     {
@@ -875,63 +704,3 @@ public class GeminiService
     }
 }
 
-#region Result Type
-
-/// <summary>
-/// תוצאה מ-Gemini עם תמיכה בהצלחה/כישלון
-/// </summary>
-public class GeminiResult<T>
-{
-    public bool IsSuccess { get; private init; }
-    public T? Data { get; private init; }
-    public string? Error { get; private init; }
-
-    public static GeminiResult<T> Success(T data) => new() { IsSuccess = true, Data = data };
-    public static GeminiResult<T> Failure(string error) => new() { IsSuccess = false, Error = error };
-}
-
-#endregion
-
-#region Gemini API Models
-
-public class GeminiRequest
-{
-    public List<GeminiContent> Contents { get; set; } = new();
-    public GenerationConfig? GenerationConfig { get; set; }
-}
-
-public class GeminiContent
-{
-    public List<GeminiPart> Parts { get; set; } = new();
-}
-
-public class GeminiPart
-{
-    public string? Text { get; set; }
-    public GeminiInlineData? InlineData { get; set; }
-}
-
-public class GeminiInlineData
-{
-    public string MimeType { get; set; } = "";
-    public string Data { get; set; } = ""; // base64
-}
-
-public class GenerationConfig
-{
-    public double Temperature { get; set; }
-    public int MaxOutputTokens { get; set; }
-    public string? ResponseMimeType { get; set; }
-}
-
-public class GeminiResponse
-{
-    public List<GeminiCandidate>? Candidates { get; set; }
-}
-
-public class GeminiCandidate
-{
-    public GeminiContent? Content { get; set; }
-}
-
-#endregion

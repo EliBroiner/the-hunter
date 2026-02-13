@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using TheHunterApi.Constants;
 using TheHunterApi.Models;
+using static TheHunterApi.Constants.RolesConstants;
 using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
@@ -54,7 +56,7 @@ public class AnalyzeController : ControllerBase
 
             var userId = string.IsNullOrEmpty(request.UserId) ? "anonymous" : request.UserId;
             var count = request.Documents.Count;
-            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, Admin);
             if (isAdmin)
                 _logger.LogInformation("👑 [Quota] User {UserId} is Admin — skipping quota check and usage increment.", userId);
 
@@ -114,7 +116,7 @@ public class AnalyzeController : ControllerBase
         var userId = request.UserId?.Trim();
         if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
         {
-            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, Admin);
             if (isAdmin)
             {
                 promptOverride = request.AdminPromptOverride.Trim();
@@ -153,7 +155,7 @@ public class AnalyzeController : ControllerBase
         var userId = request.UserId?.Trim();
         if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
         {
-            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, Admin);
             if (isAdmin)
             {
                 customPrompt = request.AdminPromptOverride.Trim();
@@ -246,8 +248,8 @@ public class AnalyzeController : ControllerBase
                 var (t, success, pure) = await _ocrService.ExtractTextFromImageAsync(bytes);
                 if (!success)
                 {
-                _logger.LogWarning("OCR-extract Cloud Vision failed for DocumentId={DocumentId}, falling back to Gemini", docId);
-                (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
+                    _logger.LogWarning("OCR-extract Cloud Vision failed for DocumentId={DocumentId}, falling back to Gemini", docId);
+                    (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
                     ocrSource = "Gemini";
                 }
                 else
@@ -257,16 +259,9 @@ public class AnalyzeController : ControllerBase
                     ocrSource = "GoogleCloud";
                 }
 
-                // Phase B: שליחת הטקסט החדש ל-Gemini — חילוץ קטגוריה, תגיות, תאריך. דריסת קטגוריה מקומית כושלת.
-                if (!isPureImageNoText && !string.IsNullOrWhiteSpace(text) && text.Trim().Length >= 5 && _geminiService.IsConfigured)
-                {
-                    _logger.LogInformation("OCR-extract: Triggering Gemini tagging for Document {DocumentId} (Cloud Vision text length={Len})", docId, text.Length);
-                    var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
-                    geminiResult = geminiResponse.Result;
-                    processingChain = "[Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]";
-                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn,
-                        rawText: text, cleanedText: CleanTextForXRay(text), ocrSource, geminiResult?.Tags, geminiResult?.Category);
-                }
+                // Phase B: שליחת הטקסט ל-Gemini tagging ושמירה
+                (geminiResult, processingChain) = await _runGeminiTaggingAndSaveAsync(docId, fn, text, isPureImageNoText, userId, ocrSource,
+                    "[Local OCR -> Failed] -> [Cloud Vision -> Success] -> [Gemini Tagging -> Done]");
             }
             else
             {
@@ -278,15 +273,8 @@ public class AnalyzeController : ControllerBase
                 _logger.LogDebug("Cloud Vision Fallback disabled, using Gemini");
                 (text, isPureImageNoText) = await _extractViaGeminiAsync(bytes, file.FileName ?? fn);
                 ocrSource = "Gemini";
-                // Gemini-only path — שליחת טקסט ל-Gemini tagging ושמירה ל-FileXRay
-                if (!isPureImageNoText && !string.IsNullOrWhiteSpace(text) && text.Trim().Length >= 5)
-                {
-                    var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
-                    geminiResult = geminiResponse.Result;
-                    processingChain = "[Local OCR -> Failed] -> [Gemini OCR + Tagging -> Done]";
-                    await _firestore.SaveProcessingChainAsync(docId, processingChain, fn,
-                        rawText: text, cleanedText: CleanTextForXRay(text), ocrSource, geminiResult?.Tags, geminiResult?.Category);
-                }
+                (geminiResult, processingChain) = await _runGeminiTaggingAndSaveAsync(docId, fn, text, isPureImageNoText, userId, ocrSource,
+                    "[Local OCR -> Failed] -> [Gemini OCR + Tagging -> Done]");
             }
 
             return Ok(new OcrExtractResponse
@@ -305,22 +293,27 @@ public class AnalyzeController : ControllerBase
         }
     }
 
-    /// <summary>ניקוי טקסט ל-FileXRay — תואם ל-TextCleaner ב-AdminAiController.</summary>
-    private static string CleanTextForXRay(string text)
+    /// <summary>ניקוי טקסט ל-FileXRay — שימוש חוזר ב-TextQualityHelper.</summary>
+    private static string CleanTextForXRay(string text) => TextQualityHelper.CleanText(text);
+
+    /// <summary>שליחת טקסט ל-Gemini tagging + שמירה ל-FileXRay — משותף ל-Cloud Vision ו-Gemini-only.</summary>
+    private async Task<(DocumentAnalysisResult? Result, string? Chain)> _runGeminiTaggingAndSaveAsync(
+        string docId, string fn, string text, bool isPureImageNoText, string? userId, string ocrSource, string processingChain)
     {
-        if (string.IsNullOrEmpty(text)) return "";
-        var cleaned = System.Text.RegularExpressions.Regex.Replace(text, @"\n{3,}", "\n\n");
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[ \t]+", " ");
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[\x00-\x08\x0B\x0C\x0E-\x1F]", "");
-        return cleaned.Trim();
+        if (isPureImageNoText || string.IsNullOrWhiteSpace(text) || text.Trim().Length < 5 || !_geminiService.IsConfigured)
+            return (null, null);
+        _logger.LogInformation("OCR-extract: Triggering Gemini tagging for Document {DocumentId} (text length={Len})", docId, text.Length);
+        var geminiResponse = await _geminiService.AnalyzeOcrTextAsync(docId, fn, text.Trim(), userId?.Trim());
+        await _firestore.SaveProcessingChainAsync(docId, processingChain, fn,
+            rawText: text, cleanedText: CleanTextForXRay(text), ocrSource, geminiResponse.Result?.Tags, geminiResponse.Result?.Category);
+        return (geminiResponse.Result, processingChain);
     }
 
     private async Task<(string Text, bool IsPureImageNoText)> _extractViaGeminiAsync(byte[] bytes, string fileName)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant().TrimStart('.');
-        var mimeType = ext switch { "png" => "image/png", "webp" => "image/webp", _ => "image/jpeg" };
-        const string prompt = "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
-        var (extracted, success, _) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, prompt);
+        var mimeType = OcrConstants.GetMimeTypeForExtension(ext, "image/jpeg");
+        var (extracted, success, _) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, OcrConstants.ExtractionPromptFallback);
         var text = success ? (extracted ?? "") : "";
         return (text, string.IsNullOrWhiteSpace(text));
     }

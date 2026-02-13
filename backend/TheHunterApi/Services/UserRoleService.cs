@@ -1,5 +1,7 @@
 using Google.Cloud.Firestore;
 
+using TheHunterApi.Constants;
+
 namespace TheHunterApi.Services;
 
 /// <summary>
@@ -100,7 +102,7 @@ public class UserRoleService
             // Fallback: יצירת משתמש חדש
             var initialRoles = new List<object> { "User" };
             if (_IsAdminEmail(email))
-                initialRoles.Add("Admin");
+                initialRoles.Add(RolesConstants.Admin);
             var data = new Dictionary<string, object>
             {
                 { "id", userId },
@@ -119,18 +121,18 @@ public class UserRoleService
         {
             var dataExisting = snapAfter.ToDictionary();
             var rolesList = GetRolesList(dataExisting);
-            if (_IsAdminEmail(email) && rolesList != null && !rolesList.Any(r => string.Equals(r?.ToString(), "Admin", StringComparison.OrdinalIgnoreCase)))
+            if (_IsAdminEmail(email) && rolesList != null && !rolesList.Any(r => string.Equals(r?.ToString(), RolesConstants.Admin, StringComparison.OrdinalIgnoreCase)))
             {
                 await docRef.UpdateAsync(new Dictionary<string, object>
                 {
                     { "id", userId },
-                    { "roles", FieldValue.ArrayUnion("Admin") },
+                    { "roles", FieldValue.ArrayUnion(RolesConstants.Admin) },
                     { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
                 });
                 if (!string.IsNullOrWhiteSpace(email))
                     await docRef.UpdateAsync(new Dictionary<string, object> { { "email", email } });
                 _logger.LogInformation("Self-healing: added Admin to user {UserId}", userId);
-                rolesList = new List<object>(rolesList!) { "Admin" };
+                rolesList = new List<object>(rolesList!) { RolesConstants.Admin };
             }
             return CheckHasRoleFromDoc(dataExisting, rolesList, role);
         }
@@ -159,7 +161,7 @@ public class UserRoleService
         var has = roles.Any(r => string.Equals(r?.ToString(), role, StringComparison.OrdinalIgnoreCase));
         if (has) return true;
         if (role.Equals("DebugAccess", StringComparison.OrdinalIgnoreCase) &&
-            roles.Any(r => string.Equals(r?.ToString(), "Admin", StringComparison.OrdinalIgnoreCase)))
+            roles.Any(r => string.Equals(r?.ToString(), RolesConstants.Admin, StringComparison.OrdinalIgnoreCase)))
             return true;
         return false;
     }
@@ -172,27 +174,12 @@ public class UserRoleService
         return HasRole(singleRole, role);
     }
 
-    /// <summary>
-    /// מוסיף תפקיד למשתמש. יוצר מסמך אם לא קיים (MergeAll).
-    /// </summary>
-    public async Task AddRoleAsync(string userId, string role)
-    {
-        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(role))
-            return;
-        var ref_ = _firestore.Collection(ColUsers).Document(userId);
-        await ref_.SetAsync(new Dictionary<string, object>
-        {
-            { "id", userId },
-            { "roles", FieldValue.ArrayUnion(role) }
-        }, SetOptions.MergeAll);
-    }
-
     private static bool HasRole(string userRole, string requiredRole)
     {
         if (userRole.Equals(requiredRole, StringComparison.OrdinalIgnoreCase))
             return true;
-        if (requiredRole.Equals("DebugAccess", StringComparison.OrdinalIgnoreCase) &&
-            userRole.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        if (requiredRole.Equals(RolesConstants.DebugAccess, StringComparison.OrdinalIgnoreCase) &&
+            userRole.Equals(RolesConstants.Admin, StringComparison.OrdinalIgnoreCase))
             return true;
         return false;
     }

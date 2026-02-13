@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using TheHunterApi.Constants;
 using TheHunterApi.Models;
 using TheHunterApi.Services;
 
@@ -54,7 +55,7 @@ public class SearchController : ControllerBase
         var userId = request.UserId?.Trim();
         if (!string.IsNullOrWhiteSpace(request.AdminPromptOverride) && !string.IsNullOrWhiteSpace(userId))
         {
-            var isAdmin = await _userRoleService.HasRoleAsync(userId, "Admin");
+            var isAdmin = await _userRoleService.HasRoleAsync(userId, RolesConstants.Admin);
             if (isAdmin)
             {
                 promptOverride = request.AdminPromptOverride.Trim();

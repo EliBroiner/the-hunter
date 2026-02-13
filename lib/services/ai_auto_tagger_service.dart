@@ -67,7 +67,7 @@ class AiAutoTaggerService {
     if (_isInAuthCooldown) return;
     try {
       final legacy = DatabaseService.instance.getUnanalyzedFilesForAiBackfill();
-      debugPrint('Found ${legacy.length} legacy files. Adding to AI queue...');
+      appLog('AiAutoTagger: Found ${legacy.length} legacy files. Adding to AI queue...');
       for (final file in legacy) {
         if (_disposed) break;
         await addToQueue(file);
@@ -97,7 +97,7 @@ class AiAutoTaggerService {
         file.isAiAnalyzed = true;
         file.aiStatus = null;
         _updateInIsar(file);
-        debugPrint('⚡ Local Hit: ${file.path}');
+        appLog('AiAutoTagger: Local hit — ${file.path}');
         return;
       }
     }
@@ -235,19 +235,13 @@ class AiAutoTaggerService {
       }
       if (response == null) throw Exception('No response after $_maxRetries attempts');
 
-      // X-Ray: גוף גולמי לפני כל פרסור — לראות בדיוק מה השרת החזיר
-      debugPrint('🔍 [X-RAY] Raw JSON from Server: ${response.body}');
-      // גוף התגובה עם UTF-8 מפורש — עברית קריאה ב-Debug Console
-      debugPrint('🚀 [RAW SERVER BODY]: ${utf8.decode(response.bodyBytes)}');
-      debugPrint('🚀 [DEBUG] Raw Server Response: ${response.body}');
-      appLog('🚀 [DEBUG] Raw Body: ${response.body}');
-      debugPrint('📡 [Client] Response Status: ${response.statusCode}');
+      // X-Ray: גוף גולמי — לוג ל-Console + AI Lab
+      appLog('AiAutoTagger: Response ${response.statusCode} | Body: ${bodyForLog(response.body)}');
       DevLogger.instance.log('📡 [Client] Response Status: ${response.statusCode}');
       DevLogger.instance.log('📄 [Client] Response Body: ${bodyForLog(response.body)}');
       if (response.statusCode == 200) {
         try {
           final decoded = jsonDecode(response.body);
-          debugPrint('🚀 [DEBUG] Decoded JSON type: ${decoded.runtimeType}, value: $decoded');
           // תמיכה בתגובה כ־list או כ־object בודד (analyze קובץ יחיד)
           final List<dynamic> list;
           if (decoded is List<dynamic>) {
@@ -301,9 +295,6 @@ class AiAutoTaggerService {
             }
           }
         } catch (e, st) {
-          debugPrint('🛑 [ERROR] Failed to parse JSON: $e');
-          debugPrint('🛑 [ERROR] problematic body: ${response.body}');
-          debugPrint('🛑 [ERROR] stack: $st');
           appLog('[SCAN] 4. API Response: JSON parse failed. Error: $e. Body length: ${response.body.length}. Body preview: ${response.body.length > 300 ? response.body.substring(0, 300) : response.body}');
           rethrow;
         }
@@ -341,8 +332,6 @@ class AiAutoTaggerService {
         _authFailedUntil = DateTime.now().add(_authCooldown);
         appLog('❌ AI Analysis failed due to App Check. Please ensure Debug Token is registered in Firebase Console.');
       }
-      final sanitized = sanitizeError(e, st);
-      debugPrint('AiAutoTagger _sendBatch: $sanitized');
       DevLogger.instance.log('💥 Error: ${sanitizeError(e)}');
       appLog('AiAutoTagger: ${isAppCheckError ? "App Check error" : "Network error"} - ${sanitizeError(e)}');
       appLog('[SCAN] Batch API failed (${batch.length} files). ${sanitizeError(e, st)}');

@@ -1,3 +1,5 @@
+using TheHunterApi.Services;
+
 namespace TheHunterApi.Models;
 
 /// <summary>
@@ -5,6 +7,15 @@ namespace TheHunterApi.Models;
 /// </summary>
 public class AdminDashboardViewModel
 {
+    /// <summary>יצירת ViewModel ריק לשגיאה — מונע כפילות ב-catch.</summary>
+    public static AdminDashboardViewModel CreateEmpty(bool geminiOk, bool firebaseOk) => new()
+    {
+        DatabaseOk = false,
+        GeminiOk = geminiOk,
+        FirebaseOk = firebaseOk,
+        RecentErrors = AdminErrorTracker.RecentErrors,
+        ScannerSettings = new ScannerSettingsViewModel()
+    };
     public List<LearnedTerm> PendingTerms { get; set; } = new();
     public Dictionary<string, double> RankingWeights { get; set; } = new();
     public List<SearchActivity> SearchActivities { get; set; } = new();
@@ -20,12 +31,4 @@ public class AdminDashboardViewModel
     public List<ScanFailure> ScanFailures { get; set; } = new();
     /// <summary>הגדרות סריקה — garbageThresholdPercent, minMeaningfulLength, minValidCharRatioPercent.</summary>
     public ScannerSettingsViewModel? ScannerSettings { get; set; }
-}
-
-public class ScannerSettingsViewModel
-{
-    public double GarbageThresholdPercent { get; set; } = 30;
-    public int MinMeaningfulLength { get; set; } = 5;
-    public double MinValidCharRatioPercent { get; set; } = 70;
-    public bool CloudVisionFallbackEnabled { get; set; }
 }

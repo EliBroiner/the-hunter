@@ -7,16 +7,22 @@ namespace TheHunterApi.Middleware;
 public class RequestLoggingMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<RequestLoggingMiddleware> _logger;
 
-    public RequestLoggingMiddleware(RequestDelegate next) => _next = next;
+    public RequestLoggingMiddleware(RequestDelegate next, ILogger<RequestLoggingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
 
     public async Task InvokeAsync(HttpContext context)
     {
         var method = context.Request.Method;
         var path = context.Request.Path;
-        Console.WriteLine($"[SPY] Incoming: {method} {path}");
-        Console.WriteLine($"[SPY] Auth Header Present: {context.Request.Headers.ContainsKey("Authorization")}");
-        Console.WriteLine($"[SPY] X-Firebase-AppCheck Present: {context.Request.Headers.ContainsKey("X-Firebase-AppCheck")}");
+        _logger.LogDebug("[SPY] Incoming: {Method} {Path} | Auth: {Auth} | AppCheck: {AppCheck}",
+            method, path,
+            context.Request.Headers.ContainsKey("Authorization"),
+            context.Request.Headers.ContainsKey("X-Firebase-AppCheck"));
         await _next(context);
     }
 }

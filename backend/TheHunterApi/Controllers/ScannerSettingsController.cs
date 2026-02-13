@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using TheHunterApi.Filters;
+using TheHunterApi.Models;
 using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
@@ -87,22 +88,3 @@ public class ScannerSettingsController : ControllerBase
         }
     }
 }
-
-public class ScannerSettingsDto
-{
-    public double? GarbageThresholdPercent { get; set; }
-    public int? MinMeaningfulLength { get; set; }
-    public double? MinValidCharRatioPercent { get; set; }
-    public bool? CloudVisionFallbackEnabled { get; set; }
-}
-
-/// <summary>תשובת GET — כולל metadata לכל פרמטר (עריכה / מקור).</summary>
-public class ScannerSettingsGetResponse
-{
-    public required ScannerSettingItem GarbageThresholdPercent { get; set; }
-    public required ScannerSettingItem MinMeaningfulLength { get; set; }
-    public required ScannerSettingItem MinValidCharRatioPercent { get; set; }
-    public required ScannerSettingItem CloudVisionFallbackEnabled { get; set; }
-}
-
-public record ScannerSettingItem(double Value, bool Editable, string Source);

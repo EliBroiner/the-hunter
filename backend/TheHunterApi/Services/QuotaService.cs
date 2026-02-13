@@ -18,8 +18,8 @@ public class QuotaService
         _firestore = firestore;
     }
 
-    private static string DocId(string userId) =>
-        $"{userId}_{DateTime.UtcNow:yyyyMMdd}";
+    private static string DocId(string userId, string? dateYyyyMmDd = null) =>
+        $"{userId}_{(dateYyyyMmDd ?? DateTime.UtcNow.ToString("yyyyMMdd"))}";
 
     /// <summary>
     /// מחזיר את מספר השימושים היום למשתמש (0 אם אין מסמך).
@@ -50,14 +50,13 @@ public class QuotaService
     /// </summary>
     public async Task IncrementUsageAsync(string userId, int amount)
     {
-        var dateStr = DateTime.UtcNow.ToString("yyyyMMdd");
-        var docId = $"{userId}_{dateStr}";
-        Log.Information("[Quota] Incrementing usage for user {UserId} for date {Date}", userId, dateStr);
+        var docId = DocId(userId);
+        Log.Information("[Quota] Incrementing usage for user {UserId}", userId);
         await _firestore.Collection(ColQuotas).Document(docId).SetAsync(
             new Dictionary<string, object>
             {
                 { "userId", userId },
-                { "date", dateStr },
+                { "date", DateTime.UtcNow.ToString("yyyyMMdd") },
                 { "count", FieldValue.Increment(amount) }
             },
             SetOptions.MergeAll);
@@ -68,8 +67,8 @@ public class QuotaService
     /// </summary>
     public async Task ResetQuotaAsync(string userId, string? dateYyyyMmDd = null)
     {
+        var docId = DocId(userId, dateYyyyMmDd);
         var dateStr = dateYyyyMmDd ?? DateTime.UtcNow.ToString("yyyyMMdd");
-        var docId = $"{userId}_{dateStr}";
         await _firestore.Collection(ColQuotas).Document(docId).SetAsync(
             new Dictionary<string, object>
             {

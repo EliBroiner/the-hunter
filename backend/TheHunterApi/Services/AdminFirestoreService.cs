@@ -1,5 +1,6 @@
 using Google.Cloud.Firestore;
 using Grpc.Core;
+using TheHunterApi.Constants;
 using TheHunterApi.Models;
 
 namespace TheHunterApi.Services;
@@ -56,7 +57,13 @@ public class AdminFirestoreService
     {
         _logger.LogDebug("[FIRESTORE_ATTEMPT] Writing to collection {CollectionName} in project {ProjectId} (op={Op})",
             collectionName, EffectiveProjectId, operation);
-        Console.WriteLine($"[FIRESTORE_ATTEMPT] Writing to collection {collectionName} in project {EffectiveProjectId}");
+    }
+
+    /// <summary>לוג כשהתוצאה ריקה — לבדיקת Cloud Run.</summary>
+    private void LogEmptyCollectionWarning(string collectionName)
+    {
+        _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.",
+            collectionName, EffectiveProjectId);
     }
 
     /// <summary>בודק אם השגיאה היא Permission Denied — לוג מפורט לקונסול ולבדיקת Cloud Run logs.</summary>
@@ -67,7 +74,6 @@ public class AdminFirestoreService
         {
             if (inner is RpcException rpc && rpc.StatusCode == StatusCode.PermissionDenied)
             {
-                Console.WriteLine($"[FIRESTORE PERMISSION DENIED] operation={operation}, ProjectId={EffectiveProjectId}, Detail={rpc.Status.Detail}");
                 _logger.LogError(
                     "[FIRESTORE PERMISSION DENIED] {Operation}. ProjectId={ProjectId}. " +
                     "ודא: 1) Cloud Run Service Account יש roles/datastore.user 2) FIRESTORE_PROJECT_ID תואם לפרויקט Firebase. Detail={Detail}",
@@ -97,10 +103,7 @@ public class AdminFirestoreService
                     list.Add(term);
             }
             list = list.OrderByDescending(x => x.Frequency).ThenByDescending(x => x.LastSeen).ToList();
-            if (list.Count == 0)
-            {
-                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColKnowledgeBase, EffectiveProjectId);
-            }
+            if (list.Count == 0) LogEmptyCollectionWarning(ColKnowledgeBase);
             return (list, true);
         }
         catch (Exception ex)
@@ -126,10 +129,7 @@ public class AdminFirestoreService
                 if (u != null)
                     list.Add(u);
             }
-            if (list.Count == 0)
-            {
-                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColUsers, EffectiveProjectId);
-            }
+            if (list.Count == 0) LogEmptyCollectionWarning(ColUsers);
             return (list, true);
         }
         catch (Exception ex)
@@ -157,10 +157,7 @@ public class AdminFirestoreService
                 if (a != null)
                     list.Add(a);
             }
-            if (list.Count == 0)
-            {
-                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColLogs, EffectiveProjectId);
-            }
+            if (list.Count == 0) LogEmptyCollectionWarning(ColLogs);
             return (list, true);
         }
         catch (Exception ex)
@@ -186,15 +183,13 @@ public class AdminFirestoreService
                 if (v.HasValue)
                     dict[doc.Id] = v.Value;
             }
-            if (dict.Count == 0)
-                _logger.LogWarning("Firestore returned 0 documents from [{Col}]. ProjectId={ProjectId}. ודא שה-collection קיים והמפתחות נטענו נכון.", ColRankingSettings, EffectiveProjectId);
+            if (dict.Count == 0) LogEmptyCollectionWarning(ColRankingSettings);
             return (dict, true);
         }
         catch (Exception ex)
         {
             LogIfPermissionDenied(ex, "GetRankingWeights");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return (new Dictionary<string, double>(), false);
         }
     }
@@ -404,7 +399,7 @@ public class AdminFirestoreService
                 { "id", docId },
                 { "email", email.Trim() },
                 { "userId", userId ?? "" },
-                { "role", role is "Admin" or "DebugAccess" ? role : "User" },
+                { "role", role is RolesConstants.Admin or RolesConstants.DebugAccess ? role : RolesConstants.User },
                 { "createdAt", now },
                 { "updatedAt", now },
             };
@@ -427,7 +422,7 @@ public class AdminFirestoreService
             await _db.Collection(ColUsers).Document(documentId).UpdateAsync(new Dictionary<string, object>
             {
                 { "id", documentId },
-                { "role", role is "Admin" or "DebugAccess" ? role : "User" },
+                { "role", role is RolesConstants.Admin or RolesConstants.DebugAccess ? role : RolesConstants.User },
                 { "updatedAt", Timestamp.FromDateTime(DateTime.UtcNow) },
             });
             return true;

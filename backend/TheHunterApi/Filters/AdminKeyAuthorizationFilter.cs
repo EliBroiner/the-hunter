@@ -9,10 +9,12 @@ namespace TheHunterApi.Filters;
 public class AdminKeyAuthorizationFilter : IAuthorizationFilter
 {
     private readonly IConfiguration _config;
+    private readonly ILogger<AdminKeyAuthorizationFilter> _logger;
 
-    public AdminKeyAuthorizationFilter(IConfiguration config)
+    public AdminKeyAuthorizationFilter(IConfiguration config, ILogger<AdminKeyAuthorizationFilter> logger)
     {
         _config = config;
+        _logger = logger;
     }
 
     public void OnAuthorization(AuthorizationFilterContext context)
@@ -30,14 +32,14 @@ public class AdminKeyAuthorizationFilter : IAuthorizationFilter
             ? (context.HttpContext.Request.Cookies["admin_session"] != null ? "cookie" : context.HttpContext.Request.Headers["X-Admin-Key"].FirstOrDefault() != null ? "header" : "query")
             : "none";
         var path = context.HttpContext.Request.Path.Value ?? "";
-        Console.WriteLine($"[AdminFilter] DEBUG: Request for {path}. Key provided: {!string.IsNullOrEmpty(key)}, source: {from}");
+        _logger.LogDebug("[AdminFilter] Request for {Path}. Key provided: {HasKey}, source: {From}", path, !string.IsNullOrEmpty(key), from);
 
         if (string.IsNullOrEmpty(key) || key != expectedKey)
         {
-            Console.WriteLine($"[AdminFilter] DEBUG: Unauthorized - key missing or invalid for {path}");
+            _logger.LogDebug("[AdminFilter] Unauthorized - key missing or invalid for {Path}", path);
             context.Result = new UnauthorizedResult();
             return;
         }
-        Console.WriteLine($"[AdminFilter] DEBUG: API Request authorized for {path}. Key from: {from}");
+        _logger.LogDebug("[AdminFilter] API Request authorized for {Path}. Key from: {From}", path, from);
     }
 }

@@ -43,7 +43,6 @@ public class AdminDashboardController : Controller
     {
         var keyFromCookie = Request.Cookies["admin_session"] != null;
         _logger.LogInformation("DEBUG: API Request received for Admin Index (Terms). Key from cookie: {FromCookie}", keyFromCookie);
-        Console.WriteLine($"DEBUG: API Request received for [Admin Index]. Key from cookie: {keyFromCookie}");
 
         try
         {
@@ -82,9 +81,7 @@ public class AdminDashboardController : Controller
                 terms.Count, weights.Count, activities.Count);
 
             var dbOk = termsOk && weightsOk && logsOk;
-            var geminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
-                || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]);
-            var firebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER"));
+            var (geminiOk, firebaseOk) = GetGeminiAndFirebaseOk();
 
             return View(new AdminDashboardViewModel
             {
@@ -106,25 +103,9 @@ public class AdminDashboardController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             AdminErrorTracker.AddError(ex.Message);
-            return View(new AdminDashboardViewModel
-            {
-                PendingTerms = new List<LearnedTerm>(),
-                RankingWeights = new Dictionary<string, double>(),
-                SearchActivities = new List<SearchActivity>(),
-                DatabaseOk = false,
-                GeminiOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
-                    || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]),
-                FirebaseOk = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER")),
-                RecentErrors = AdminErrorTracker.RecentErrors,
-                TotalUsers = 0,
-                PendingTermsCount = 0,
-                ApprovedTermsCount = 0,
-                NewTermsPerDay = new Dictionary<string, int>(),
-                ScanFailures = new List<ScanFailure>(),
-                ScannerSettings = new ScannerSettingsViewModel()
-            });
+            var (geminiOk, firebaseOk) = GetGeminiAndFirebaseOk();
+            return View(AdminDashboardViewModel.CreateEmpty(geminiOk, firebaseOk));
         }
     }
 
@@ -242,7 +223,6 @@ public class AdminDashboardController : Controller
         var ok = await _firestore.ApproveTermAsync(id);
         if (!ok) return NotFound();
         _logger.LogInformation("DEBUG: Term {TermId} was approved by admin.", id);
-        Console.WriteLine($"DEBUG: Term {id} was approved by admin.");
         return RedirectToAction(nameof(Index));
     }
 
@@ -258,7 +238,6 @@ public class AdminDashboardController : Controller
         var ok = await _firestore.ApproveTermAsync(termId);
         if (!ok) return NotFound();
         _logger.LogInformation("DEBUG: Term {TermId} was approved by admin.", termId);
-        Console.WriteLine($"DEBUG: Term {termId} was approved by admin.");
         return Json(new { success = true, termId });
     }
 
@@ -280,7 +259,6 @@ public class AdminDashboardController : Controller
     {
         var keyFromCookie = Request.Cookies["admin_session"] != null;
         _logger.LogInformation("DEBUG: API Request received for Admin Users. Key from cookie: {FromCookie}", keyFromCookie);
-        Console.WriteLine($"DEBUG: API Request received for [Admin Users]. Key from cookie: {keyFromCookie}");
 
         try
         {
@@ -295,7 +273,6 @@ public class AdminDashboardController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
-            Console.WriteLine($"ERROR fetching from Firestore: {ex.Message}");
             return View(new List<AdminUserViewModel>());
         }
     }
@@ -419,4 +396,9 @@ public class AdminDashboardController : Controller
         TempData["WeightsMessageSuccess"] = true;
         return RedirectToAction(nameof(Index));
     }
+
+    private (bool GeminiOk, bool FirebaseOk) GetGeminiAndFirebaseOk() => (
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
+            || !string.IsNullOrEmpty(_config["GEMINI_API_KEY"]),
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_PROJECT_NUMBER")));
 }

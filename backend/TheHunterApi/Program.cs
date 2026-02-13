@@ -1,6 +1,7 @@
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using TheHunterApi.Config;
 using TheHunterApi.Data;
 using TheHunterApi.Middleware;
 using TheHunterApi.Services;
@@ -147,12 +148,4 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-/// <summary>
-/// הגדרות Gemini API
-/// </summary>
-public class GeminiConfig
-{
-    public required string ApiKey { get; init; }
 }
