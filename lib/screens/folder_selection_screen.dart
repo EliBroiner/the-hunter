@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/file_scanner_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
+import '../ui/utils/snackbar_helper.dart';
+import 'folder_selection_screen/folder_selection_logic.dart';
+import 'folder_selection_screen/widgets/folder_selection_widgets.dart';
 
 /// מסך בחירת תיקיות לסריקה
 /// [isInitialSetup] true = התקנה ראשונה — אין חזרה, חובה לשמור
@@ -37,59 +40,8 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedPaths = prefs.getStringList(_selectedFoldersKey);
     
-    // תיקיות זמינות
     final basePath = '/storage/emulated/0';
-    final folders = [
-      FolderOption(
-        name: 'folder_downloads',
-        path: '$basePath/Download',
-        icon: Icons.download,
-        color: Colors.blue,
-        description: 'folder_downloads_desc',
-      ),
-      FolderOption(
-        name: 'folder_camera',
-        path: '$basePath/DCIM',
-        icon: Icons.camera_alt,
-        color: Colors.green,
-        description: 'folder_camera_desc',
-      ),
-      FolderOption(
-        name: 'folder_pictures',
-        path: '$basePath/Pictures',
-        icon: Icons.image,
-        color: Colors.purple,
-        description: 'folder_pictures_desc',
-      ),
-      FolderOption(
-        name: 'folder_documents',
-        path: '$basePath/Documents',
-        icon: Icons.description,
-        color: Colors.orange,
-        description: 'folder_documents_desc',
-      ),
-      FolderOption(
-        name: 'folder_whatsapp',
-        path: '$basePath/Android/media/com.whatsapp/WhatsApp/Media',
-        icon: Icons.chat,
-        color: Colors.teal,
-        description: 'folder_whatsapp_desc',
-      ),
-      FolderOption(
-        name: 'folder_telegram',
-        path: '$basePath/Telegram',
-        icon: Icons.send,
-        color: Colors.lightBlue,
-        description: 'folder_telegram_desc',
-      ),
-      FolderOption(
-        name: 'folder_screenshots',
-        path: '$basePath/Pictures/Screenshots',
-        icon: Icons.screenshot,
-        color: Colors.pink,
-        description: 'folder_screenshots_desc',
-      ),
-    ];
+    final folders = getPredefinedFolders(basePath);
 
     // בדיקה אילו תיקיות קיימות - מציגים רק קיימות
     final predefinedPaths = folders.map((f) => f.path).toSet();
@@ -191,19 +143,7 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
             onPressed: () async {
               await _saveFolders();
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                      const SizedBox(width: 8),
-                      Text(tr('settings_saved')),
-                    ],
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: Colors.green,
-                ),
-              );
+              showSuccessSnackBar(context, tr('settings_saved'));
               Navigator.of(context).pop(true);
             },
             icon: const Icon(Icons.save),
@@ -312,7 +252,12 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
                     itemCount: _availableFolders.length,
                     itemBuilder: (context, index) {
                       final folder = _availableFolders[index];
-                      return _buildFolderTile(folder, theme);
+                      return FolderSelectionTile(
+                        theme: theme,
+                        folder: folder,
+                        isSelected: _selectedPaths.contains(folder.path),
+                        onToggle: () => _toggleFolder(folder),
+                      );
                     },
                   ),
                 ),
@@ -321,111 +266,4 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     );
   }
 
-  Widget _buildFolderTile(FolderOption folder, ThemeData theme) {
-    final isSelected = _selectedPaths.contains(folder.path);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected
-              ? folder.color.withValues(alpha: 0.5)
-              : Colors.transparent,
-          width: 2,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _toggleFolder(folder),
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // אייקון
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: folder.color.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    folder.icon,
-                    color: folder.color,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                
-                // פרטים
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            folder.isCustom ? folder.name : tr(folder.name),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        folder.isCustom ? folder.path : tr(folder.description),
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 12,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Checkbox — כל המשתמשים יכולים לבחור (כולל PRO)
-                Checkbox(
-                  value: isSelected,
-                  onChanged: (_) => _toggleFolder(folder),
-                  activeColor: folder.color,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// מייצג תיקייה זמינה לסריקה
-class FolderOption {
-  final String name;
-  final String path;
-  final IconData icon;
-  final Color color;
-  final String description;
-  final bool isCustom;
-  bool exists;
-
-  FolderOption({
-    required this.name,
-    required this.path,
-    required this.icon,
-    required this.color,
-    required this.description,
-    this.isCustom = false,
-    this.exists = true,
-  });
 }

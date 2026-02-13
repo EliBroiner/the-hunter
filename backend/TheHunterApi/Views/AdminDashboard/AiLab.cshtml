@@ -64,52 +64,69 @@
         </div>
     </div>
 
-    @* OCR Testing Lab *@
+    @* OCR Testing Lab — צעד אחרי צעד *@
     <div class="col-12 col-lg-6">
         <div class="card shadow-sm h-100">
             <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>OCR Testing Lab</h5>
+                <h5 class="mb-0"><i class="bi bi-file-earmark-image me-1"></i>OCR Testing Lab</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small">העלאת PDF/תמונה — חילוץ ישיר + fallback ל-Gemini (כשג'יבריש > 30%)</p>
-                <form id="ocrForm">
-                    <div class="mb-3">
-                        <label class="form-label">קובץ (PDF, JPG, PNG, WebP)</label>
-                        <input type="file" id="ocrFile" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                <div id="ocrChainVsXrayInfo" class="alert alert-secondary py-2 mb-3 small">
+                    <strong>Chain vs File X-Ray:</strong> OCR Lab — צעד-אחרי-צעד: קובץ → B&W → Cloud Vision → Gemini. File X-Ray — צפייה בנתונים שמורים לפי documentId.
+                </div>
+                @* שלב 1: בחירת קובץ *@
+                <div class="ocr-step mb-3 p-3 border rounded border-primary border-opacity-50">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-primary">1</span>
+                        <strong>בחר קובץ</strong>
                     </div>
-                    <button type="submit" id="ocrBtn" class="btn btn-info w-100">
-                        <span class="ocrSpinner spinner-border spinner-border-sm d-none me-1"></span>בדוק חילוץ
+                    <input type="file" id="ocrLabFile" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.webp">
+                    <small id="ocrLabFileName" class="text-muted d-none mt-1"></small>
+                </div>
+                @* שלב 2: המרה ל-B&W *@
+                <div class="ocr-step mb-3 p-3 border rounded">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-secondary">2</span>
+                        <strong>המר לשחור-לבן</strong>
+                        <span id="ocrLabBwBadge" class="badge bg-success d-none">מוכן</span>
+                    </div>
+                    <button type="button" id="ocrLabBwBtn" class="btn btn-sm btn-outline-secondary" disabled>
+                        <span class="ocrLabBwSpinner spinner-border spinner-border-sm d-none me-1"></span>המר ל-B&W
                     </button>
-                </form>
-                <div id="ocrResult" class="mt-3 d-none">
-                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="ocrShowComparison" checked>
-                            <label class="form-check-label" for="ocrShowComparison">השוואה: גולמי ⟷ מנוקה</label>
-                        </div>
-                        <span id="ocrCleanupBadge" class="badge bg-secondary d-none" title="אחוז רעש שהוסר">רעש: 0%</span>
+                    <div id="ocrLabBwPreview" class="mt-2 d-none">
+                        <img id="ocrLabBwThumb" src="" alt="B&W" class="img-thumbnail" style="max-width:200px;max-height:150px;">
                     </div>
-                    <div id="ocrReasonRow" class="mb-2 d-none">
-                        <strong>Reason for Upload:</strong> <span id="ocrReasonValue"></span>
+                </div>
+                @* שלב 3: Cloud Vision *@
+                <div class="ocr-step mb-3 p-3 border rounded">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-secondary">3</span>
+                        <strong>Cloud Vision</strong>
                     </div>
-                    <div id="ocrThumbnailRow" class="mb-2 d-none">
-                        <strong>B&W Sent to Server:</strong>
-                        <img id="ocrBwThumbnail" src="" alt="B&W thumbnail" class="img-thumbnail ms-2" style="max-width:200px;max-height:150px;">
+                    <button type="button" id="ocrLabVisionBtn" class="btn btn-sm btn-outline-info" disabled>
+                        <span class="ocrLabVisionSpinner spinner-border spinner-border-sm d-none me-1"></span>שלח ל-Cloud Vision
+                    </button>
+                    <div id="ocrLabVisionResult" class="mt-2 d-none">
+                        <label class="form-label small text-muted">טקסט מחולץ</label>
+                        <pre id="ocrLabVisionText" class="p-2 bg-light rounded small mb-0 font-monospace" style="max-height:150px;overflow:auto;white-space:pre-wrap" dir="rtl"></pre>
                     </div>
-                    <div id="ocrProcessedOnly" class="p-3 bg-light rounded d-none">
-                        <pre class="small mb-0 font-monospace" style="max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl"></pre>
+                </div>
+                @* שלב 4: Gemini *@
+                <div class="ocr-step mb-3 p-3 border rounded">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-secondary">4</span>
+                        <strong>Gemini (עם Prompt)</strong>
                     </div>
-                    <div id="ocrComparison" class="row g-2 d-none">
-                        <div class="col-6">
-                            <label class="form-label small text-muted">גולמי (לפני TextCleaner)</label>
-                            <pre class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:250px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl" id="ocrRawText"></pre>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small text-muted">מנוקה</label>
-                            <pre class="p-3 bg-light rounded small mb-0 font-monospace" style="max-height:250px;overflow:auto;white-space:pre-wrap;word-wrap:break-word" dir="rtl" id="ocrCleanedText"></pre>
-                        </div>
+                    <div class="mb-2">
+                        <label class="form-label small">System Prompt (אופציונלי — ריק = ברירת מחדל)</label>
+                        <textarea id="ocrLabGeminiPrompt" class="form-control form-control-sm font-monospace" rows="3" placeholder="ריק = פרומפט ברירת מחדל מהמערכת"></textarea>
                     </div>
-                    <div id="ocrMeta" class="mt-2 small text-muted"></div>
+                    <button type="button" id="ocrLabGeminiBtn" class="btn btn-sm btn-info" disabled>
+                        <span class="ocrLabGeminiSpinner spinner-border spinner-border-sm d-none me-1"></span>שלח ל-Gemini
+                    </button>
+                    <div id="ocrLabGeminiResult" class="mt-2 d-none">
+                        <pre id="ocrLabGeminiJson" class="p-2 bg-dark text-light rounded small mb-0 font-monospace" style="max-height:200px;overflow:auto"></pre>
+                    </div>
                 </div>
             </div>
         </div>
@@ -261,93 +278,95 @@
         btn.disabled = false; spinner.classList.add('d-none');
     });
 
-    // OCR Test
-    const ocrProcessedOnly = document.getElementById('ocrProcessedOnly');
-    const ocrComparison = document.getElementById('ocrComparison');
-    const ocrRawText = document.getElementById('ocrRawText');
-    const ocrCleanedText = document.getElementById('ocrCleanedText');
-    const ocrCleanupBadge = document.getElementById('ocrCleanupBadge');
-    const ocrMeta = document.getElementById('ocrMeta');
-    const ocrShowComparison = document.getElementById('ocrShowComparison');
+    // OCR Testing Lab — צעד אחרי צעד
+    let ocrLabBwBase64 = null;
+    let ocrLabVisionText = '';
 
-    function toggleOcrView() {
-        const isComparison = ocrShowComparison.checked;
-        ocrComparison.classList.toggle('d-none', !isComparison);
-        ocrProcessedOnly.classList.toggle('d-none', isComparison);
+    document.getElementById('ocrLabFile').addEventListener('change', function() {
+        const f = this.files?.[0];
+        const nameEl = document.getElementById('ocrLabFileName');
+        const bwBtn = document.getElementById('ocrLabBwBtn');
+        if (!f) {
+            nameEl.classList.add('d-none');
+            bwBtn.disabled = true;
+            ocrLabBwBase64 = null;
+            ocrLabVisionText = '';
+            resetOcrLabSteps2to4();
+            return;
+        }
+        nameEl.textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+        nameEl.classList.remove('d-none');
+        bwBtn.disabled = false;
+        ocrLabBwBase64 = null;
+        ocrLabVisionText = '';
+        resetOcrLabSteps2to4();
+    });
+
+    function resetOcrLabSteps2to4() {
+        document.getElementById('ocrLabBwBadge').classList.add('d-none');
+        document.getElementById('ocrLabBwPreview').classList.add('d-none');
+        document.getElementById('ocrLabVisionBtn').disabled = true;
+        document.getElementById('ocrLabVisionResult').classList.add('d-none');
+        document.getElementById('ocrLabGeminiBtn').disabled = true;
+        document.getElementById('ocrLabGeminiResult').classList.add('d-none');
     }
-    ocrShowComparison.addEventListener('change', toggleOcrView);
 
-    document.getElementById('ocrForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const fileInput = document.getElementById('ocrFile');
+    document.getElementById('ocrLabBwBtn').addEventListener('click', async function() {
+        const fileInput = document.getElementById('ocrLabFile');
         if (!fileInput.files?.length) return;
-        const btn = document.getElementById('ocrBtn'), spinner = btn.querySelector('.ocrSpinner'), out = document.getElementById('ocrResult');
+        const btn = this, spinner = btn.querySelector('.ocrLabBwSpinner');
         btn.disabled = true; spinner.classList.remove('d-none');
-        out.classList.add('d-none');
         try {
             const fd = new FormData();
             fd.append('file', fileInput.files[0]);
-            const r = await fetch(base + '/ocr-test', {
-                method: 'POST',
-                body: fd,
-                credentials: 'same-origin'
-            });
-            const data = await r.json();
-            if (!r.ok) {
-                ocrRawText.textContent = ocrCleanedText.textContent = '';
-                ocrProcessedOnly.querySelector('pre').textContent = '';
-                ocrCleanupBadge.classList.add('d-none');
-                ocrComparison.classList.add('d-none');
-                ocrProcessedOnly.classList.add('d-none');
-                document.getElementById('ocrReasonRow').classList.add('d-none');
-                document.getElementById('ocrThumbnailRow').classList.add('d-none');
-                ocrMeta.innerHTML = '<span class="text-danger">' + (data.error || r.status) + '</span>';
-                ocrMeta.classList.remove('d-none');
-            } else {
-                const raw = data.rawExtractText || '';
-                const cleaned = data.cleanedExtractText || '';
-                ocrRawText.textContent = raw || '(ריק)';
-                ocrCleanedText.textContent = cleaned || '(ריק)';
-                ocrProcessedOnly.querySelector('pre').textContent = cleaned || '(ריק)';
-                if (data.cleanupRatioPercent != null) {
-                    ocrCleanupBadge.textContent = 'רעש: ' + data.cleanupRatioPercent + '%';
-                    ocrCleanupBadge.className = 'badge ' + (data.cleanupRatioPercent > 30 ? 'bg-danger' : 'bg-success');
-                    ocrCleanupBadge.classList.remove('d-none');
-                } else {
-                    ocrCleanupBadge.classList.add('d-none');
-                }
-                var reasonRow = document.getElementById('ocrReasonRow');
-                var reasonVal = document.getElementById('ocrReasonValue');
-                if (data.reasonForUpload) {
-                    reasonVal.textContent = data.reasonForUpload;
-                    reasonRow.classList.remove('d-none');
-                } else {
-                    reasonRow.classList.add('d-none');
-                }
-                var thumbRow = document.getElementById('ocrThumbnailRow');
-                var thumbImg = document.getElementById('ocrBwThumbnail');
-                if (data.bwThumbnailDataUrl) {
-                    thumbImg.src = data.bwThumbnailDataUrl;
-                    thumbRow.classList.remove('d-none');
-                } else {
-                    thumbRow.classList.add('d-none');
-                }
-                let meta = '<strong>קובץ:</strong> ' + data.filename + ' (' + (data.fileSizeBytes/1024).toFixed(1) + ' KB)';
-                if (data.directGarbageRatioPercent != null) {
-                    meta += ' | <strong>חילוץ ישיר:</strong> ' + data.directGarbageRatioPercent + '% ג\'יבריש — ' + (data.directPassesThreshold ? '<span class="text-success">עובר</span>' : '<span class="text-danger">נכשל</span>');
-                }
-                if (data.fallbackUsed) {
-                    meta += ' | <strong>Fallback:</strong> ' + (data.fallbackError ? '<span class="text-danger">' + escapeHtml(data.fallbackError) + '</span>' : '<span class="text-success">הצלחה</span>');
-                }
-                ocrMeta.innerHTML = meta;
-                ocrMeta.classList.remove('d-none');
-                toggleOcrView();
-            }
-            out.classList.remove('d-none');
+            const r = await fetch(base + '/ocr-step-bw', { method: 'POST', body: fd, credentials: 'same-origin' });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || r.status);
+            ocrLabBwBase64 = d.bwBase64;
+            document.getElementById('ocrLabBwThumb').src = d.bwThumbnailDataUrl || '';
+            document.getElementById('ocrLabBwPreview').classList.remove('d-none');
+            document.getElementById('ocrLabBwBadge').classList.remove('d-none');
+            document.getElementById('ocrLabVisionBtn').disabled = false;
         } catch (e) {
-            ocrMeta.innerHTML = '<span class="text-danger">שגיאה: ' + e.message + '</span>';
-            ocrMeta.classList.remove('d-none');
-            out.classList.remove('d-none');
+            alert('שגיאה: ' + e.message);
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    document.getElementById('ocrLabVisionBtn').addEventListener('click', async function() {
+        if (!ocrLabBwBase64) return;
+        const btn = this, spinner = btn.querySelector('.ocrLabVisionSpinner');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        try {
+            const r = await post('/ocr-step-vision', { imageBase64: ocrLabBwBase64 });
+            ocrLabVisionText = r.text || '';
+            document.getElementById('ocrLabVisionText').textContent = ocrLabVisionText || '(אין טקסט בתמונה)';
+            document.getElementById('ocrLabVisionResult').classList.remove('d-none');
+            document.getElementById('ocrLabGeminiBtn').disabled = false;
+        } catch (e) {
+            document.getElementById('ocrLabVisionText').textContent = 'שגיאה: ' + e.message;
+            document.getElementById('ocrLabVisionResult').classList.remove('d-none');
+        }
+        btn.disabled = false; spinner.classList.add('d-none');
+    });
+
+    document.getElementById('ocrLabGeminiBtn').addEventListener('click', async function() {
+        const text = ocrLabVisionText;
+        if (!text || text === '(אין טקסט בתמונה)') {
+            alert('הרץ קודם Cloud Vision או הזן טקסט');
+            return;
+        }
+        const btn = this, spinner = btn.querySelector('.ocrLabGeminiSpinner');
+        btn.disabled = true; spinner.classList.remove('d-none');
+        try {
+            const prompt = document.getElementById('ocrLabGeminiPrompt').value.trim();
+            const r = await post('/ocr-step-gemini', { text: text, systemPromptOverride: prompt || null });
+            const pretty = JSON.stringify(r, null, 2);
+            document.getElementById('ocrLabGeminiJson').textContent = pretty;
+            document.getElementById('ocrLabGeminiResult').classList.remove('d-none');
+        } catch (e) {
+            document.getElementById('ocrLabGeminiJson').textContent = 'שגיאה: ' + e.message;
+            document.getElementById('ocrLabGeminiResult').classList.remove('d-none');
         }
         btn.disabled = false; spinner.classList.add('d-none');
     });

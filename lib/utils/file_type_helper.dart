@@ -1,4 +1,78 @@
+import 'package:flutter/material.dart';
+
 import '../models/file_metadata.dart';
+
+/// אייקון לפי סיומת קובץ — שימוש חוזר במסכים
+IconData getFileIcon(String extension) {
+  switch (extension.toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'gif':
+    case 'webp':
+    case 'heic':
+      return Icons.image;
+    case 'pdf':
+      return Icons.picture_as_pdf;
+    case 'doc':
+    case 'docx':
+      return Icons.description;
+    case 'xls':
+    case 'xlsx':
+      return Icons.table_chart;
+    case 'mp4':
+    case 'mov':
+    case 'avi':
+      return Icons.video_file;
+    case 'mp3':
+    case 'wav':
+    case 'aac':
+      return Icons.audio_file;
+    default:
+      return Icons.insert_drive_file;
+  }
+}
+
+/// צבע לפי סיומת קובץ — שימוש חוזר במסכים
+Color getFileColor(String extension) {
+  switch (extension.toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'gif':
+    case 'webp':
+    case 'bmp':
+    case 'heic':
+    case 'heif':
+      return Colors.purple;
+    case 'mp4':
+    case 'mov':
+    case 'avi':
+    case 'mkv':
+    case 'webm':
+    case '3gp':
+      return Colors.pink;
+    case 'pdf':
+      return Colors.red;
+    case 'doc':
+    case 'docx':
+      return Colors.blue;
+    case 'xls':
+    case 'xlsx':
+      return Colors.green;
+    case 'txt':
+    case 'rtf':
+      return Colors.orange;
+    case 'mp3':
+    case 'wav':
+    case 'm4a':
+    case 'ogg':
+    case 'aac':
+      return Colors.teal;
+    default:
+      return Colors.grey;
+  }
+}
 
 /// סיומת וסוג קובץ — בדיקה נייטרלית (case-insensitive, תמיכה בסיומת כפולה)
 class FileTypeHelper {

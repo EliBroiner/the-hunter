@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/localization_service.dart';
 import '../services/prompt_admin_service.dart';
+import 'prompt_management_screen/widgets/prompt_management_widgets.dart';
 
 /// מסך ניהול פרומפטים — רשימה, הוספת טיוטה, הפעלת גרסה.
 /// דורש Admin. RTL-friendly, Material 3.
@@ -146,110 +147,19 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
 
   Widget _buildBody(ThemeData theme) {
     if (_error != null) {
-      return _buildError(theme);
+      return PromptManagementError(
+        theme: theme,
+        detailMessage: _error!,
+        onRetry: _loadPrompts,
+      );
     }
     if (_isLoading) {
-      return _buildLoading(theme);
+      return PromptManagementLoading(theme: theme);
     }
     if (_prompts.isEmpty) {
-      return _buildEmpty(theme);
+      return PromptManagementEmpty(theme: theme, onCreate: _onCreatePrompt);
     }
     return _buildList(theme);
-  }
-
-  Widget _buildLoading(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(
-            color: theme.colorScheme.primary,
-            strokeWidth: 2,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            tr('loading'),
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildError(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: theme.colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              tr('prompts_error'),
-              style: theme.textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _error ?? '',
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _loadPrompts,
-              icon: const Icon(Icons.refresh),
-              label: Text(tr('prompts_retry')),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmpty(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.psychology_outlined,
-            size: 80,
-            color: theme.colorScheme.primary.withValues(alpha: 0.4),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            tr('prompts_empty'),
-            style: theme.textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            tr('prompts_empty_desc'),
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _onCreatePrompt,
-            icon: const Icon(Icons.add),
-            label: Text(tr('prompts_create')),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildList(ThemeData theme) {
@@ -260,140 +170,16 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
         itemCount: _prompts.length,
         itemBuilder: (context, index) {
           final prompt = _prompts[index];
-          return _buildPromptCard(theme, prompt);
+          return PromptManagementCard(
+            theme: theme,
+            prompt: prompt,
+            onTap: () => _onSetActive(prompt),
+          );
         },
       ),
     );
   }
 
-  Widget _buildPromptCard(ThemeData theme, SystemPrompt prompt) {
-    final isActive = prompt.isActive;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isActive
-              ? theme.colorScheme.primary.withValues(alpha: 0.6)
-              : theme.colorScheme.outline.withValues(alpha: 0.2),
-          width: isActive ? 2 : 1,
-        ),
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-            : null,
-      ),
-      child: InkWell(
-        onTap: () => _onSetActive(prompt),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(
-                isActive ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: isActive
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                size: 28,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          prompt.targetFeature,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: isActive
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isActive
-                                ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                                : theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            prompt.version,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isActive
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                            ),
-                          ),
-                        ),
-                        if (isActive) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              tr('prompts_active'),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.onPrimary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      prompt.content.length > 120
-                          ? '${prompt.content.substring(0, 120)}...'
-                          : prompt.content,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              if (!isActive)
-                Icon(
-                  Icons.arrow_forward_ios,
-                  size: 16,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _CreatePromptResult {

@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../utils/file_type_helper.dart';
+import '../utils/path_utils.dart';
 import '../services/database_service.dart';
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
@@ -24,17 +25,13 @@ import '../services/category_manager_service.dart';
 import '../services/file_processing_service.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
-import '../ui/sheets/file_details_sheet.dart';
-
-/// פילטר מקומי נוסף (לא קיים ב-SearchFilter)
-enum LocalFilter {
-  all,
-  favorites, // מועדפים - פרימיום בלבד
-  images,
-  pdfs,
-  whatsapp,
-  withText,
-}
+import '../ui/utils/snackbar_helper.dart';
+import 'search_screen/local_filter.dart';
+import 'search_screen/search_helpers.dart';
+import 'search_screen/search_logic.dart';
+import 'search_screen/widgets/search_result_widgets.dart';
+import 'search_screen/widgets/search_file_details_modal.dart';
+import 'search_screen/widgets/search_file_actions_sheet.dart';
 
 /// מסך חיפוש - מסך ראשי לחיפוש קבצים
 class SearchScreen extends StatefulWidget {
@@ -193,18 +190,16 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final startDate = _selectedStartDate ?? queryStartDate;
     final endDate = _selectedEndDate;
     
-    SearchFilter dbFilter = SearchFilter.all;
-    if (_selectedFilter == LocalFilter.images) dbFilter = SearchFilter.images;
-    if (_selectedFilter == LocalFilter.pdfs) dbFilter = SearchFilter.pdfs;
+    final dbFilter = dbFilterForLocalFilter(_selectedFilter);
     
-    final filteredCloud = _filteredCloudResults();
+    final filteredCloud = filterCloudByLocalFilter(_cloudResults, _selectedFilter);
 
     List<FileMetadata> mergeWithCloud(List<FileMetadata> local) {
-      final localPaths = local.map((f) => f.name.toLowerCase()).toSet();
-      final uniqueCloud = filteredCloud.where((f) => !localPaths.contains(f.name.toLowerCase())).toList();
-      final combined = [...local, ...uniqueCloud];
-      combined.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-      return _applyLocalFilter(combined);
+      return mergeLocalWithCloud(
+        local,
+        filteredCloud,
+        (r) => applyLocalFilter(r, _selectedFilter, _favoritesService.isFavorite),
+      );
     }
 
     setState(() {
@@ -248,14 +243,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   /// מעדכן פילטרי UI בקונטרולר (תאריכים, סוג קובץ) — לפני כל חיפוש; "הכל" = רשימה ריקה (כל הסוגים)
   void _applyUiFiltersToController() {
-    List<String>? fileTypes;
-    if (_selectedFilter == LocalFilter.images) {
-      fileTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
-    } else if (_selectedFilter == LocalFilter.pdfs) {
-      fileTypes = ['pdf'];
-    } else {
-      fileTypes = []; // All — מפורש ריק כדי שלא יועתקו fileTypes מהפרסר
-    }
+    final fileTypes = getFileTypesForFilter(_selectedFilter);
     _hybridController.setUiFilters(
       dateFrom: _selectedStartDate,
       dateTo: _selectedEndDate,
@@ -370,37 +358,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         behavior: SnackBarBehavior.floating,
       ),
     );
-  }
-
-  /// מחיל פילטר מקומי על התוצאות
-  List<FileMetadata> _applyLocalFilter(List<FileMetadata> results) {
-    // סינון לפי WhatsApp
-    if (_selectedFilter == LocalFilter.whatsapp) {
-      return results.where((f) => 
-        f.path.toLowerCase().contains('whatsapp')
-      ).toList();
-    }
-    
-    // סינון לפי מועדפים
-    if (_selectedFilter == LocalFilter.favorites) {
-      final favoriteResults = results.where((f) => 
-        _favoritesService.isFavorite(f.path)
-      ).toList();
-      return favoriteResults;
-    }
-    
-    // מיון: מועדפים קודם (אם לא בפילטר מועדפים)
-    if (_selectedFilter != LocalFilter.favorites) {
-      results.sort((a, b) {
-        final aFav = _favoritesService.isFavorite(a.path);
-        final bFav = _favoritesService.isFavorite(b.path);
-        if (aFav && !bFav) return -1;
-        if (!aFav && bFav) return 1;
-        return 0; // שמור על המיון הקיים
-      });
-    }
-    
-    return results;
   }
 
   /// משנה פילטר — מעדכן UI ומריץ חיפוש מחדש עם הפילטר החדש
@@ -548,146 +505,91 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   /// פותח קובץ — קבצי ענן: הורדה לקובץ זמני ופתיחה
   Future<void> _openFile(FileMetadata file) async {
-    // קובץ ענן (Drive): הורדה ואז פתיחה
     if (file.isCloud || file.path.isEmpty || file.path == 'Google Drive') {
-      final cloudId = file.cloudId;
-      if (cloudId == null || cloudId.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not download file'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                const Text('Downloading...'),
-              ],
-            ),
-            duration: const Duration(minutes: 1),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E1E3F),
-          ),
-        );
-      }
-      try {
-        final bytes = await _googleDriveService.downloadFile(cloudId);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        if (bytes == null || bytes.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not download file'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-        final tempDir = await getTemporaryDirectory();
-        // שמירה מפורשת על סיומת — לזיהוי סוג קובץ ופתיחה נכונה
-        final ext = FileTypeHelper.effectiveExtensionFromName(file.name);
-        final effectiveExt = ext.isNotEmpty ? ext : file.extension.toLowerCase();
-        final baseName = file.name.contains('.')
-            ? file.name.substring(0, file.name.lastIndexOf('.'))
-            : file.name;
-        final safeBase = baseName.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
-        final tempFileName = effectiveExt.isNotEmpty ? '$safeBase.$effectiveExt' : safeBase;
-        final tempPath = '${tempDir.path}/$tempFileName';
-        final tempFile = File(tempPath);
-        await tempFile.writeAsBytes(bytes);
-        final result = await OpenFilex.open(tempPath);
-        if (result.type == ResultType.done) {
-          RecentFilesService.instance.addRecentFile(
-            path: tempPath,
-            name: file.name,
-            extension: file.extension,
-          );
-          WidgetService.instance.updateRecentFile(file.name, tempPath, file.extension);
-        } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('open_error').replaceFirst('\${result.message}', result.message)),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not download file'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      }
+      await _downloadAndOpenCloudFile(file);
       return;
     }
+    await _openLocalFile(file);
+  }
 
+  Future<void> _downloadAndOpenCloudFile(FileMetadata file) async {
+    final cloudId = file.cloudId;
+    if (cloudId == null || cloudId.isEmpty) {
+      if (mounted) _showFileNotFoundSnackBar();
+      return;
+    }
+    if (mounted) _showDownloadingSnackBar();
+    try {
+      final bytes = await _googleDriveService.downloadFile(cloudId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) _showFileNotFoundSnackBar();
+        return;
+      }
+      final tempPath = await _saveTempFile(file, bytes);
+      final result = await OpenFilex.open(tempPath);
+      if (result.type == ResultType.done) {
+        RecentFilesService.instance.addRecentFile(path: tempPath, name: file.name, extension: file.extension);
+        WidgetService.instance.updateRecentFile(file.name, tempPath, file.extension);
+      } else if (mounted) {
+        _showOpenErrorSnackBar(result.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        _showFileNotFoundSnackBar();
+      }
+    }
+  }
+
+  void _showFileNotFoundSnackBar() {
+    showErrorSnackBar(context, 'Could not download file');
+  }
+
+  void _showDownloadingSnackBar() {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Row(children: [SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)), const SizedBox(width: 12), const Text('Downloading...')]), duration: const Duration(minutes: 1), behavior: SnackBarBehavior.floating, backgroundColor: const Color(0xFF1E1E3F)));
+  }
+
+  void _showOpenErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('open_error').replaceFirst('\${result.message}', message)), backgroundColor: Colors.orange, behavior: SnackBarBehavior.floating));
+  }
+
+  Future<String> _saveTempFile(FileMetadata file, List<int> bytes) async {
+    final tempDir = await getTemporaryDirectory();
+    final ext = FileTypeHelper.effectiveExtensionFromName(file.name);
+    final effectiveExt = ext.isNotEmpty ? ext : file.extension.toLowerCase();
+    final baseName = file.name.contains('.') ? file.name.substring(0, file.name.lastIndexOf('.')) : file.name;
+    final safeBase = baseName.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
+    final tempFileName = effectiveExt.isNotEmpty ? '$safeBase.$effectiveExt' : safeBase;
+    final tempPath = '${tempDir.path}/$tempFileName';
+    await File(tempPath).writeAsBytes(bytes);
+    return tempPath;
+  }
+
+  Future<void> _openLocalFile(FileMetadata file) async {
     // קובץ מקומי: בדיקה אם קיים
     final fileExists = await File(file.path).exists();
     if (!fileExists) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text(tr('file_not_found').replaceFirst('\${file.name}', file.name))),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: tr('remove_from_list'),
-              textColor: Colors.white,
-              onPressed: () {
-                _databaseService.deleteFile(file.id);
-                _updateSearchStream(); // רענון לאחר מחיקה
-              },
-            ),
-          ),
+        showErrorSnackBarWithAction(
+          context,
+          tr('file_not_found').replaceFirst('\${file.name}', file.name),
+          actionLabel: tr('remove_from_list'),
+          onAction: () {
+            _databaseService.deleteFile(file.id);
+            _updateSearchStream();
+          },
         );
       }
       return;
     }
-
     final result = await OpenFilex.open(file.path);
     if (result.type == ResultType.done) {
-      // שמירה בקבצים אחרונים
-      RecentFilesService.instance.addRecentFile(
-        path: file.path,
-        name: file.name,
-        extension: file.extension,
-      );
-      // עדכון הווידג'ט עם הקובץ האחרון
+      RecentFilesService.instance.addRecentFile(path: file.path, name: file.name, extension: file.extension);
       WidgetService.instance.updateRecentFile(file.name, file.path, file.extension);
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr('open_error').replaceFirst('\${result.message}', result.message)),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showOpenErrorSnackBar(result.message);
     }
   }
 
@@ -696,15 +598,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     // בדיקה אם הקובץ קיים
     final fileExists = await File(file.path).exists();
     if (!fileExists) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('הקובץ לא נמצא'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) showErrorSnackBar(context, 'הקובץ לא נמצא');
       return;
     }
 
@@ -844,9 +738,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// מציג פרטי קובץ
   void _showFileDetails(FileMetadata file) {
     final theme = Theme.of(context);
-    final sheetBg = theme.canvasColor;
-    final cardBg = theme.colorScheme.surfaceContainerHighest;
-    final dividerColor = theme.dividerColor;
     final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
     final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
 
@@ -854,101 +745,43 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        top: false,
-        bottom: true,
-        child: Container(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
-          decoration: BoxDecoration(
-            color: sheetBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(Icons.info_outline, color: theme.colorScheme.primary, size: 24),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        tr('file_details_title'),
-                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: textColor),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cardBg,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildAnalysisSmartBadge(file),
-                      Divider(height: 20, color: dividerColor),
-                      _buildDetailRow(theme, tr('detail_name'), file.name, Icons.insert_drive_file),
-                      Divider(height: 20, color: dividerColor),
-                      _buildDetailRow(theme, tr('detail_type'), file.extension.toUpperCase(), Icons.category),
-                      Divider(height: 20, color: dividerColor),
-                      _buildDetailRow(theme, tr('detail_size'), file.readableSize, Icons.data_usage),
-                      Divider(height: 20, color: dividerColor),
-                      _buildDetailRow(theme, tr('detail_date'), _formatDate(file.lastModified), Icons.calendar_today),
-                      Divider(height: 20, color: dividerColor),
-                      _buildDetailRow(theme, tr('detail_path'), file.path, Icons.folder_open, isPath: true),
-                      if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
-                        Divider(height: 20, color: dividerColor),
-                        _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
-                      ],
-                      Divider(height: 20, color: dividerColor),
-                      _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingSuggestionsByPath[file.path]),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FileDetailsSheet(
-                  file: file,
-                  onReanalyze: (report, isCanceled) => _reanalyzeFile(file, reportProgress: report, isCanceled: isCanceled),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.colorScheme.primary,
-                      foregroundColor: theme.colorScheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: Text(tr('close')),
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-            ),
-          ),
-        ),
+      builder: (context) => SearchFileDetailsModal(
+        file: file,
+        theme: theme,
+        pendingSuggestions: _pendingSuggestionsByPath[file.path],
+        detailsCard: _buildFileDetailsCard(file, theme, textColor, secondaryColor),
+        onReanalyze: (report, isCanceled) => _reanalyzeFile(file, reportProgress: report, isCanceled: isCanceled),
+        onClose: () => Navigator.of(context).pop(),
+      ),
+    );
+  }
+
+  Widget _buildFileDetailsCard(FileMetadata file, ThemeData theme, Color textColor, Color secondaryColor) {
+    final cardBg = theme.colorScheme.surfaceContainerHighest;
+    final dividerColor = theme.dividerColor;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          _buildAnalysisSmartBadge(file),
+          Divider(height: 20, color: dividerColor),
+          SearchDetailRow(theme: theme, label: tr('detail_name'), value: file.name, icon: Icons.insert_drive_file),
+          Divider(height: 20, color: dividerColor),
+          SearchDetailRow(theme: theme, label: tr('detail_type'), value: file.extension.toUpperCase(), icon: Icons.category),
+          Divider(height: 20, color: dividerColor),
+          SearchDetailRow(theme: theme, label: tr('detail_size'), value: file.readableSize, icon: Icons.data_usage),
+          Divider(height: 20, color: dividerColor),
+          SearchDetailRow(theme: theme, label: tr('detail_date'), value: formatDate(file.lastModified), icon: Icons.calendar_today),
+          Divider(height: 20, color: dividerColor),
+          SearchDetailRow(theme: theme, label: tr('detail_path'), value: getShortPath(file.path), icon: Icons.folder_open, isPath: true),
+          if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
+            Divider(height: 20, color: dividerColor),
+            _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
+          ],
+          Divider(height: 20, color: dividerColor),
+          _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingSuggestionsByPath[file.path]),
+        ],
       ),
     );
   }
@@ -1033,7 +866,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               style: TextStyle(color: secondaryColor, fontSize: 12),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              textDirection: _isHebrew(previewLines) ? TextDirection.rtl : TextDirection.ltr,
+              textDirection: isHebrew(previewLines) ? TextDirection.rtl : TextDirection.ltr,
             ),
           ],
         ],
@@ -1043,7 +876,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         SelectableText(
           text,
           style: TextStyle(fontSize: 13, color: textColor),
-          textDirection: _isHebrew(text) ? TextDirection.rtl : TextDirection.ltr,
+          textDirection: isHebrew(text) ? TextDirection.rtl : TextDirection.ltr,
         ),
         const SizedBox(height: 8),
         Align(
@@ -1088,7 +921,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDetailRow(theme, tr('detail_ai_category'), file.category ?? '—', aiIcon, accentColor: aiColor),
+          SearchDetailRow(theme: theme, label: tr('detail_ai_category'), value: file.category ?? '—', icon: aiIcon, accentColor: aiColor),
           if (file.tags != null && file.tags!.isNotEmpty) ...[
             Divider(height: 16, color: theme.dividerColor),
             Text(
@@ -1220,33 +1053,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
-  /// בונה שורת פרט — צבעים מתוך theme; נתיב: maxLines 2 + ellipsis
-  Widget _buildDetailRow(ThemeData theme, String label, String value, IconData icon, {bool isPath = false, Color? accentColor}) {
-    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
-    final iconColor = accentColor ?? secondaryColor;
-    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
-    return Row(
-      crossAxisAlignment: isPath ? CrossAxisAlignment.start : CrossAxisAlignment.center,
-      children: [
-        Icon(icon, size: 18, color: iconColor),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 80,
-          child: Text(label, style: TextStyle(color: secondaryColor, fontSize: 13)),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(fontSize: 13, color: textColor),
-            textDirection: _isHebrew(value) ? TextDirection.rtl : TextDirection.ltr,
-            maxLines: isPath ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-  
   /// ניתוח מחדש סינכרוני: forceReprocessFile (איפוס → OCR → Waterfall → AI). מציג Snackbar עם תוצאה ומרענן.
   Future<void> _reanalyzeFile(
     FileMetadata file, {
@@ -1443,223 +1249,105 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   /// מפרק מחרוזת פירוט (Fn(31) + Content(133)...) לרשימת שורות לתצוגה
   List<Widget> _parseBreakdownToRows(String breakdown, [Color? labelColor, Color? valueColor]) {
-    if (breakdown.isEmpty) return [];
     final labelC = labelColor ?? Colors.grey;
     final valueC = valueColor ?? Colors.amber;
-    final parts = breakdown.split(RegExp(r'\s*\+\s*'));
-    final rows = <Widget>[];
-    for (final part in parts) {
-      final trimmed = part.trim();
-      if (trimmed.isEmpty) continue;
-      String label;
-      String value;
-      final fnMatch = RegExp(r'^Fn\(([\d.]+)\)$').firstMatch(trimmed);
-      final locMatch = RegExp(r'^Loc\(([\d.]+)\)$').firstMatch(trimmed);
-      final contentMatch = RegExp(r'^Content\(([\d.]+)\)$').firstMatch(trimmed);
-      final adjMatch = RegExp(r'^Adj\((\d+)\)$').firstMatch(trimmed);
-      final multiMatch = RegExp(r'^MultiWord(.+)$').firstMatch(trimmed);
-      final exactMatch = RegExp(r'^Exact\+(\d+)$').firstMatch(trimmed);
-      final crypticMatch = RegExp(r'^Cryptic\(([-\d.]+)\)$').firstMatch(trimmed);
-      final aiMatch = RegExp(r'^AI\(([\d.]+)\)$').firstMatch(trimmed);
-      final driveMatch = RegExp(r'^Drive\+([\d.]+)$').firstMatch(trimmed);
-      if (fnMatch != null) {
-        label = 'התאמת שם קובץ';
-        value = fnMatch.group(1)!;
-      } else if (locMatch != null) {
-        label = 'התאמת מיקום';
-        value = locMatch.group(1)!;
-      } else if (contentMatch != null) {
-        label = 'התאמת תוכן';
-        value = contentMatch.group(1)!;
-      } else if (adjMatch != null) {
-        label = 'סמיכות מונחים';
-        value = adjMatch.group(1)!;
-      } else if (multiMatch != null) {
-        label = 'ריבוי מילים';
-        value = multiMatch.group(1)!;
-      } else if (exactMatch != null) {
-        label = 'בונוס ביטוי מדויק';
-        value = exactMatch.group(1)!;
-      } else if (crypticMatch != null) {
-        label = 'קנס שם מערכת';
-        value = crypticMatch.group(1)!;
-      } else if (aiMatch != null) {
-        label = 'מטאדאטה AI';
-        value = aiMatch.group(1)!;
-      } else if (driveMatch != null) {
-        label = 'בונוס Drive';
-        value = driveMatch.group(1)!;
-      } else {
-        label = trimmed;
-        value = '';
-      }
-      rows.add(
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: TextStyle(color: labelC, fontSize: 13)),
-              if (value.isNotEmpty)
-                Text(value, style: TextStyle(color: valueC, fontWeight: FontWeight.w600, fontSize: 13)),
-            ],
-          ),
-        ),
-      );
-    }
-    return rows;
+    final rows = parseBreakdown(breakdown);
+    return rows.map((r) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(r.label, style: TextStyle(color: labelC, fontSize: 13)),
+          if (r.value.isNotEmpty)
+            Text(r.value, style: TextStyle(color: valueC, fontWeight: FontWeight.w600, fontSize: 13)),
+        ],
+      ),
+    )).toList();
   }
 
   /// מציג תפריט פעולות לקובץ
   void _showFileActionsSheet(FileMetadata file) {
     final theme = Theme.of(context);
-    final sheetBg = theme.canvasColor;
-    final textColor = theme.textTheme.bodyLarge?.color ?? (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
-    final secondaryColor = theme.textTheme.bodyMedium?.color ?? theme.colorScheme.onSurfaceVariant;
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        top: false,
-        bottom: true,
-        child: Container(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
-          decoration: BoxDecoration(
-            color: sheetBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (ctx) => SearchFileActionsSheet(
+        file: file,
+        theme: theme,
+        actionTiles: [
+          _buildActionTile(
+            icon: Icons.open_in_new,
+            title: tr('action_open'),
+            subtitle: tr('action_open_subtitle'),
+            color: theme.colorScheme.primary,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _openFile(file);
+            },
           ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: _getFileColor(file.extension).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Center(
-                        child: _buildFileIcon(file.extension, file.path.toLowerCase().contains('whatsapp')),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            file.name,
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: textColor),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            file.readableSize,
-                            style: TextStyle(color: secondaryColor, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _buildActionTile(
-              icon: Icons.open_in_new,
-              title: tr('action_open'),
-              subtitle: tr('action_open_subtitle'),
-              color: theme.colorScheme.primary,
-              onTap: () {
-                Navigator.of(context).pop();
-                _openFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            // מועדפים - פרימיום בלבד
-            _buildFavoriteActionTile(file),
-            const SizedBox(height: 8),
-            // תגיות - פרימיום בלבד
-            _buildTagsActionTile(file),
-            const SizedBox(height: 8),
-            // תיקייה מאובטחת - פרימיום בלבד
-            _buildSecureFolderActionTile(file),
-            const SizedBox(height: 8),
-            // העלאה לענן - פרימיום בלבד - הוסר
-            // _buildCloudUploadActionTile(file),
-            // const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.share,
-              title: tr('action_share'),
-              subtitle: tr('action_share_subtitle'),
-              color: Colors.blue,
-              onTap: () {
-                Navigator.of(context).pop();
-                _shareFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.info_outline,
-              title: tr('action_details'),
-              subtitle: tr('action_details_subtitle'),
-              color: Colors.teal,
-              onTap: () {
-                Navigator.of(context).pop();
-                _showFileDetails(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.analytics_outlined,
-              title: 'ניתוח דירוג',
-              subtitle: 'ציון רלוונטיות ופירוט',
-              color: Colors.amber,
-              onTap: () {
-                Navigator.of(context).pop();
-                _showRankingAnalysisSheet(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.refresh,
-              title: 'ניתוח מחדש',
-              subtitle: 'חילוץ טקסט + AI מחדש',
-              color: Colors.deepPurple,
-              onTap: () {
-                Navigator.of(context).pop();
-                _reanalyzeFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.delete_outline,
-              title: tr('action_delete'),
-              subtitle: tr('action_delete_subtitle'),
-              color: Colors.red,
-              onTap: () {
-                Navigator.of(context).pop();
-                _showDeleteConfirmation(file);
-              },
-            ),
-                const SizedBox(height: 20),
-              ],
-            ),
+          const SizedBox(height: 8),
+          _buildFavoriteActionTile(file),
+          const SizedBox(height: 8),
+          _buildTagsActionTile(file),
+          const SizedBox(height: 8),
+          _buildSecureFolderActionTile(file),
+          const SizedBox(height: 8),
+          _buildActionTile(
+            icon: Icons.share,
+            title: tr('action_share'),
+            subtitle: tr('action_share_subtitle'),
+            color: Colors.blue,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _shareFile(file);
+            },
           ),
-        ),
+          const SizedBox(height: 8),
+          _buildActionTile(
+            icon: Icons.info_outline,
+            title: tr('action_details'),
+            subtitle: tr('action_details_subtitle'),
+            color: Colors.teal,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _showFileDetails(file);
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildActionTile(
+            icon: Icons.analytics_outlined,
+            title: 'ניתוח דירוג',
+            subtitle: 'ציון רלוונטיות ופירוט',
+            color: Colors.amber,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _showRankingAnalysisSheet(file);
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildActionTile(
+            icon: Icons.refresh,
+            title: 'ניתוח מחדש',
+            subtitle: 'חילוץ טקסט + AI מחדש',
+            color: Colors.deepPurple,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _reanalyzeFile(file);
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildActionTile(
+            icon: Icons.delete_outline,
+            title: tr('action_delete'),
+            subtitle: tr('action_delete_subtitle'),
+            color: Colors.red,
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _showDeleteConfirmation(file);
+            },
+          ),
+        ],
       ),
     );
   }
@@ -2293,94 +1981,32 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
-  /// מחלץ שם התיקייה מהנתיב
-  String _getFolderName(String path) {
-    final parts = path.split('/');
-    if (parts.length < 2) return 'Unknown';
-    
-    // מחפש שמות תיקיות מוכרים
-    final knownFolders = {
-      'Download': 'Downloads',
-      'Downloads': 'Downloads', 
-      'DCIM': 'DCIM',
-      'Screenshots': 'Screenshots', 
-      'Pictures': 'Pictures',
-      'WhatsApp': 'WhatsApp', 
-      'Telegram': 'Telegram', 
-      'Documents': 'Documents', 
-      'Desktop': 'Desktop',
-    };
-    
-    for (final entry in knownFolders.entries) {
-      if (path.contains(entry.key)) return entry.value;
-    }
-    
-    return parts.length > 1 ? parts[parts.length - 2] : 'Unknown';
-  }
-
-  /// בודק אם טקסט מכיל עברית
-  bool _isHebrew(String text) {
-    return RegExp(r'[\u0590-\u05FF]').hasMatch(text);
-  }
-
-  /// מנקה מונחי זמן מהשאילתה להדגשה
-  String _getCleanQuery(String query) {
-    var clean = query;
-    const timeTerms = [
-      'שבועיים', '2 שבועות', 'שבוע', 'חודש', 'היום', 'אתמול',
-      'week', 'month', 'today', 'yesterday',
-    ];
-    for (final term in timeTerms) {
-      clean = clean.replaceAll(RegExp(term, caseSensitive: false), '');
-    }
-    return clean.trim();
-  }
-
-  /// בורר תאריך התחלה (מתאריך)
-  Future<void> _showStartDatePicker() async {
+  /// בורר תאריך — start או end
+  Future<void> _showDatePicker({required bool isStart}) async {
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final firstDate = DateTime(2020, 1, 1);
+    final firstDate = isStart ? DateTime(2020, 1, 1) : (_selectedStartDate ?? DateTime(2020, 1, 1));
+    final initial = isStart ? (_selectedStartDate ?? now) : (_selectedEndDate ?? now);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedStartDate ?? now,
+      initialDate: initial,
       firstDate: firstDate,
       lastDate: now,
       locale: const Locale('he', 'IL'),
       builder: (context, child) => _buildDatePickerTheme(theme, child),
     );
-    if (picked != null) {
-      setState(() {
+    if (picked == null) return;
+    setState(() {
+      if (isStart) {
         _selectedStartDate = picked;
-        if (_selectedEndDate != null && _selectedEndDate!.isBefore(picked)) {
-          _selectedEndDate = null; // עד לפני מ — מנקים עד
-        }
-      });
-      _applyUiFiltersToController();
-      _hybridController.runSearchNow();
-      _updateSearchStream();
-    }
-  }
-
-  /// בורר תאריך סיום (עד תאריך)
-  Future<void> _showEndDatePicker() async {
-    final theme = Theme.of(context);
-    final now = DateTime.now();
-    final firstDate = _selectedStartDate ?? DateTime(2020, 1, 1);
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedEndDate ?? now,
-      firstDate: firstDate,
-      lastDate: now,
-      locale: const Locale('he', 'IL'),
-      builder: (context, child) => _buildDatePickerTheme(theme, child),
-    );
-    if (picked != null) {
-      setState(() => _selectedEndDate = picked);
-      _applyUiFiltersToController();
-      _hybridController.runSearchNow();
-      _updateSearchStream();
-    }
+        if (_selectedEndDate != null && _selectedEndDate!.isBefore(picked)) _selectedEndDate = null;
+      } else {
+        _selectedEndDate = picked;
+      }
+    });
+    _applyUiFiltersToController();
+    _hybridController.runSearchNow();
+    _updateSearchStream();
   }
 
   /// מעביר את ה־Theme-is — ה־DatePickerThemeData ב־main.dart מטפל בצבעים
@@ -2648,7 +2274,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: _showStartDatePicker,
+                      onTap: () => _showDatePicker(isStart: true),
                       child: Row(
                         children: [
                           Text(
@@ -2661,7 +2287,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           Flexible(
                             child: Text(
                               _selectedStartDate != null
-                                  ? _formatDate(_selectedStartDate!)
+                                  ? formatDate(_selectedStartDate!)
                                   : tr('date_range_all'),
                               style: TextStyle(
                                 fontSize: 14,
@@ -2679,7 +2305,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   const SizedBox(width: 8),
                   Expanded(
                     child: GestureDetector(
-                      onTap: _showEndDatePicker,
+                      onTap: () => _showDatePicker(isStart: false),
                       child: Row(
                         children: [
                           Text(
@@ -2692,7 +2318,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                           Flexible(
                             child: Text(
                               _selectedEndDate != null
-                                  ? _formatDate(_selectedEndDate!)
+                                  ? formatDate(_selectedEndDate!)
                                   : tr('date_none'),
                               style: TextStyle(
                                 fontSize: 14,
@@ -2733,131 +2359,92 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// בונה את כותרת החיפוש - מודרני
   Widget _buildSearchHeader() {
     final theme = Theme.of(context);
-    
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // לוגו וכותרת
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      theme.colorScheme.primary,
-                      theme.colorScheme.secondary,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.search, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'חיפוש',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
-              // מועדפים — כוכב בכותרת (פעיל = צבע זהב)
-              _buildHeaderFavoritesButton(theme),
-              // כפתור הגדרות
-              IconButton(
-                icon: Icon(
-                  Icons.settings,
-                  color: theme.colorScheme.primary,
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const SettingsScreen(),
-                    ),
-                  );
-                },
-                tooltip: 'הגדרות',
-              ),
-            ],
-          ),
+          _buildSearchHeaderRow(theme),
           const SizedBox(height: 16),
-          // שדה חיפוש
-          Container(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: _isListening 
-                    ? Colors.red 
-                    : theme.colorScheme.primary.withValues(alpha: 0.3),
-                width: _isListening ? 2 : 1,
-              ),
-              boxShadow: [
-                if (_isListening)
-                  BoxShadow(
-                    color: Colors.red.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                  ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                textDirection: _isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
-                decoration: InputDecoration(
-                  hintText: tr('search_hint'),
-                  hintStyle: TextStyle(color: Colors.grey.shade500),
-                  prefixIcon: Icon(
-                    Icons.search,
-                    color: theme.colorScheme.primary,
-                  ),
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // כפתור ניקוי
-                      if (_searchController.text.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _searchController.clear();
-                            _onSearchChanged('');
-                          },
-                        ),
-                      // כפתור מיקרופון
-                      _buildMicrophoneButton(),
-                    ],
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  errorBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                onChanged: _onSearchChanged,
-              ),
-            ),
-          ),
+          _buildSearchField(theme),
         ],
       ),
     );
   }
-  
-  List<FileMetadata> _filteredCloudResults() {
-    var list = _cloudResults;
-    if (_selectedFilter == LocalFilter.images) {
-      list = list.where((f) => FileTypeHelper.isImage(f)).toList();
-    } else if (_selectedFilter == LocalFilter.pdfs) {
-      list = list.where((f) => FileTypeHelper.isPDF(f)).toList();
-    }
-    return list;
+
+  Widget _buildSearchHeaderRow(ThemeData theme) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [theme.colorScheme.primary, theme.colorScheme.secondary]),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.search, color: Colors.white, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Text('חיפוש', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+        const Spacer(),
+        _buildHeaderFavoritesButton(theme),
+        IconButton(
+          icon: Icon(Icons.settings, color: theme.colorScheme.primary),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          tooltip: 'הגדרות',
+        ),
+      ],
+    );
   }
 
+  Widget _buildSearchField(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _isListening ? Colors.red : theme.colorScheme.primary.withValues(alpha: 0.3),
+          width: _isListening ? 2 : 1,
+        ),
+        boxShadow: _isListening ? [BoxShadow(color: Colors.red.withValues(alpha: 0.2), blurRadius: 12)] : null,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: TextField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          textDirection: isHebrew(_searchController.text) ? TextDirection.rtl : TextDirection.ltr,
+          decoration: InputDecoration(
+            hintText: tr('search_hint'),
+            hintStyle: TextStyle(color: Colors.grey.shade500),
+            prefixIcon: Icon(Icons.search, color: theme.colorScheme.primary),
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear, size: 20),
+                    onPressed: () {
+                      _searchController.clear();
+                      _onSearchChanged('');
+                    },
+                  ),
+                _buildMicrophoneButton(),
+              ],
+            ),
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            errorBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+            filled: false,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
+          onChanged: _onSearchChanged,
+        ),
+      ),
+    );
+  }
+  
   /// בונה צ'יפים לסינון - מודרני
   Widget _buildFilterChips() {
     return SingleChildScrollView(
@@ -3142,17 +2729,20 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final localOnly = _hybridController.results.where((f) => !f.isCloud).toList();
     final driveOnly = _hybridController.results.where((f) => f.isCloud).toList();
     final canSearchDrive = _settingsService.isPremium && _googleDriveService.isConnected;
-    final showSearchDriveChip = isAllTab &&
-        _hybridController.localResults.isNotEmpty &&
-        _hybridController.driveResults.isEmpty &&
-        canSearchDrive &&
-        _searchController.text.trim().length >= 2;
-
-    String countLabel() {
-      if (isDriveTab) return 'נמצאו ${driveOnly.length} תוצאות Drive';
-      if (isLocalTab) return 'נמצאו ${localOnly.length} תוצאות מקומי';
-      return 'נמצאו $totalCount תוצאות';
-    }
+    final showSearchDriveChip = shouldShowSearchDriveChip(
+      isAllTab: isAllTab,
+      haveLocalResults: _hybridController.localResults.isNotEmpty,
+      haveDriveResults: _hybridController.driveResults.isNotEmpty,
+      canSearchDrive: canSearchDrive,
+      queryLength: _searchController.text.trim().length,
+    );
+    final countLabel = smartSearchCountLabel(
+      isDriveTab: isDriveTab,
+      isLocalTab: isLocalTab,
+      driveCount: driveOnly.length,
+      localCount: localOnly.length,
+      totalCount: totalCount,
+    );
 
     return Column(
       children: [
@@ -3167,7 +2757,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  countLabel(),
+                  countLabel,
                   style: TextStyle(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.w600,
@@ -3212,85 +2802,17 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 if (isDriveTab)
                   if (driveOnly.isEmpty)
                     if (_hybridController.isDriveSearching)
-                      ...[
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 32,
-                                  height: 32,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  tr('searching_cloud'),
-                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ]
+                      ...[_buildSmartSearchLoadingView(theme, tr('searching_cloud'))]
                     else
-                      ...[
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Text(
-                              tr('no_results'),
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                            ),
-                          ),
-                        ),
-                      ]
+                      ...[_buildSmartSearchEmptyView(theme)]
                   else
                     ...driveOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
                 if (isLocalTab)
                   if (localOnly.isEmpty)
                     if (_hybridController.isLocalSearching)
-                      ...[
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 32,
-                                  height: 32,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  tr('ai_scanning_deeper'),
-                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ]
+                      ...[_buildSmartSearchLoadingView(theme, tr('ai_scanning_deeper'))]
                     else
-                      ...[
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Text(
-                              tr('no_results'),
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                            ),
-                          ),
-                        ),
-                      ]
+                      ...[_buildSmartSearchEmptyView(theme)]
                   else
                     ...localOnly.asMap().entries.map((e) => _buildAnimatedResultItem(e.value, e.key)),
                 if (isAllTab) ...[
@@ -3328,6 +2850,26 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
+  Widget _buildSmartSearchLoadingView(ThemeData theme, String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 32, height: 32, child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.primary)),
+            const SizedBox(height: 16),
+            Text(message, style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmartSearchEmptyView(ThemeData theme) {
+    return Center(child: Padding(padding: const EdgeInsets.all(40), child: Text(tr('no_results'), style: TextStyle(color: Colors.grey.shade500, fontSize: 14))));
+  }
+
   Widget _buildAnimatedResultItem(FileMetadata file, int index) {
     return TweenAnimationBuilder<double>(
       key: ValueKey('${file.path}_${file.cloudId ?? ""}'),
@@ -3352,203 +2894,156 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final theme = Theme.of(context);
     final hasSearchQuery = _searchController.text.isNotEmpty;
     final dbCount = _databaseService.getFilesCount();
-    final isFavoritesFilter = _selectedFilter == LocalFilter.favorites;
-    final isSmartSearchEmpty = hasSearchQuery && _isSmartSearchActive;
-    
-    // מצב מיוחד - מועדפים ריקים
-    if (isFavoritesFilter) {
-      return _buildEmptyFavoritesState(theme);
-    }
-    
+    if (_selectedFilter == LocalFilter.favorites) return _buildEmptyFavoritesState(theme);
+
     final isAIScanning = hasSearchQuery && _isAILoading;
     final isDriveScanning = hasSearchQuery && _hybridController.isDriveSearching;
-    final loadingTitle = isAIScanning
-        ? tr('ai_analyzing')
-        : (isDriveScanning ? tr('searching_cloud') : (hasSearchQuery && _hybridController.isLocalSearching ? tr('ai_scanning_deeper') : null));
-    final emptyTitle = hasSearchQuery
-        ? (loadingTitle ?? (isSmartSearchEmpty && !isAIScanning ? tr('smart_search_no_results') : 'לא נמצאו תוצאות'))
-        : (dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?');
-    final emptyDesc = hasSearchQuery
-        ? ((isAIScanning || isDriveScanning) ? '' : tr('empty_state_desc_search'))
-        : (dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start'));
-    Widget content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.8, end: 1.0),
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.elasticOut,
-          builder: (context, scale, child) {
-            return Transform.scale(scale: scale, child: child);
-          },
-          child: Container(
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: hasSearchQuery 
-                    ? [Colors.grey.shade800, Colors.grey.shade700]
-                    : [
-                        theme.colorScheme.primary.withValues(alpha: 0.2),
-                        theme.colorScheme.secondary.withValues(alpha: 0.2),
-                      ],
-              ),
-              shape: BoxShape.circle,
-              boxShadow: hasSearchQuery ? null : [
-                BoxShadow(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
-            ),
-            child: Icon(
-              hasSearchQuery 
-                  ? Icons.search_off_rounded 
-                  : (dbCount == 0 ? Icons.folder_open_rounded : Icons.search_rounded),
-              size: 56,
-              color: hasSearchQuery ? Colors.grey.shade400 : theme.colorScheme.primary,
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
-        if (isAIScanning)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                emptyTitle,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: Colors.grey.shade400,
-                ),
-              ),
-            ],
-          )
-        else
-          Text(
-            emptyTitle,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: hasSearchQuery ? Colors.grey.shade400 : null,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        const SizedBox(height: 12),
-        if (emptyDesc.isNotEmpty)
-        Text(
-          emptyDesc,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.grey.shade500,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-    
+    final loadingTitle = _getEmptyStateLoadingTitle(isAIScanning, isDriveScanning, hasSearchQuery);
+    final emptyTitle = _getEmptyStateTitle(hasSearchQuery, dbCount, loadingTitle, isAIScanning);
+    final emptyDesc = _getEmptyStateDesc(hasSearchQuery, dbCount, isAIScanning, isDriveScanning);
+
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            content,
-            
-            // טיפים לחיפוש כשאין תוצאות
-            if (hasSearchQuery) ...[
-              const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.lightbulb_outline, color: Colors.amber, size: 18),
-                        const SizedBox(width: 8),
-                        Text(tr('tips_title'), style: const TextStyle(fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildTipRow(tr('tip_1')),
-                    _buildTipRow(tr('tip_2')),
-                    _buildTipRow(tr('tip_3')),
-                  ],
-                ),
-              ),
-            ],
-            
-            // סטטיסטיקות
-            if (!hasSearchQuery && dbCount > 0) ...[
-              const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.inventory_2_outlined, 
-                         color: theme.colorScheme.primary, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      tr('stats_ready').replaceFirst('\$dbCount', dbCount.toString()),
-                      style: TextStyle(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            
-            // דוגמאות חיפוש
-            if (!hasSearchQuery) ...[
-              const SizedBox(height: 28),
-              Text(
-                tr('suggestions_title'),
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  _buildSuggestionChip(tr('suggestion_invoice')),
-                  _buildSuggestionChip(tr('suggestion_id')),
-                  _buildSuggestionChip(tr('suggestion_contract')),
-                  _buildSuggestionChip('receipt'),
-                ],
-              ),
-            ],
-            
-            // קבצים אחרונים
+            _buildEmptyStateMainContent(theme, hasSearchQuery, dbCount, emptyTitle, emptyDesc, isAIScanning),
+            if (hasSearchQuery) ...[const SizedBox(height: 24), _buildEmptyStateTips(theme)],
+            if (!hasSearchQuery && dbCount > 0) ...[const SizedBox(height: 24), _buildEmptyStateStats(theme, dbCount)],
+            if (!hasSearchQuery) ...[const SizedBox(height: 28), _buildEmptyStateSuggestions(theme)],
             if (!hasSearchQuery) _buildRecentFilesSection(theme),
           ],
         ),
       ),
+    );
+  }
+
+  String? _getEmptyStateLoadingTitle(bool isAIScanning, bool isDriveScanning, bool hasSearchQuery) {
+    if (isAIScanning) return tr('ai_analyzing');
+    if (isDriveScanning) return tr('searching_cloud');
+    return hasSearchQuery && _hybridController.isLocalSearching ? tr('ai_scanning_deeper') : null;
+  }
+
+  String _getEmptyStateTitle(bool hasSearchQuery, int dbCount, String? loadingTitle, bool isAIScanning) {
+    if (hasSearchQuery) return loadingTitle ?? (_isSmartSearchActive && !isAIScanning ? tr('smart_search_no_results') : 'לא נמצאו תוצאות');
+    return dbCount == 0 ? 'מתחילים!' : 'מה מחפשים?';
+  }
+
+  String _getEmptyStateDesc(bool hasSearchQuery, int dbCount, bool isAIScanning, bool isDriveScanning) {
+    if (hasSearchQuery) return (isAIScanning || isDriveScanning) ? '' : tr('empty_state_desc_search');
+    return dbCount == 0 ? tr('empty_state_desc_scanning') : tr('empty_state_desc_start');
+  }
+
+  Widget _buildEmptyStateMainContent(ThemeData theme, bool hasSearchQuery, int dbCount, String emptyTitle, String emptyDesc, bool isAIScanning) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildEmptyStateIcon(theme, hasSearchQuery, dbCount),
+        const SizedBox(height: 28),
+        _buildEmptyStateTitleRow(theme, emptyTitle, emptyDesc, isAIScanning, hasSearchQuery),
+      ],
+    );
+  }
+
+  Widget _buildEmptyStateIcon(ThemeData theme, bool hasSearchQuery, int dbCount) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.8, end: 1.0),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.elasticOut,
+      builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Container(
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: hasSearchQuery
+                ? [Colors.grey.shade800, Colors.grey.shade700]
+                : [theme.colorScheme.primary.withValues(alpha: 0.2), theme.colorScheme.secondary.withValues(alpha: 0.2)],
+          ),
+          shape: BoxShape.circle,
+          boxShadow: hasSearchQuery ? null : [BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.3), blurRadius: 20, spreadRadius: 5)],
+        ),
+        child: Icon(
+          hasSearchQuery ? Icons.search_off_rounded : (dbCount == 0 ? Icons.folder_open_rounded : Icons.search_rounded),
+          size: 56,
+          color: hasSearchQuery ? Colors.grey.shade400 : theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateTitleRow(ThemeData theme, String emptyTitle, String emptyDesc, bool isAIScanning, bool hasSearchQuery) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isAIScanning)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.primary)),
+              const SizedBox(width: 12),
+              Text(emptyTitle, style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey.shade400)),
+            ],
+          )
+        else
+          Text(emptyTitle, style: theme.textTheme.headlineSmall?.copyWith(color: hasSearchQuery ? Colors.grey.shade400 : null, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        const SizedBox(height: 12),
+        if (emptyDesc.isNotEmpty) Text(emptyDesc, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade500), textAlign: TextAlign.center),
+      ],
+    );
+  }
+
+  Widget _buildEmptyStateTips(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [Icon(Icons.lightbulb_outline, color: Colors.amber, size: 18), const SizedBox(width: 8), Text(tr('tips_title'), style: const TextStyle(fontWeight: FontWeight.w600))]),
+          const SizedBox(height: 12),
+          SearchTipRow(text: tr('tip_1')),
+          SearchTipRow(text: tr('tip_2')),
+          SearchTipRow(text: tr('tip_3')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateStats(ThemeData theme, int dbCount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.inventory_2_outlined, color: theme.colorScheme.primary, size: 18),
+          const SizedBox(width: 8),
+          Text(tr('stats_ready').replaceFirst('\$dbCount', dbCount.toString()), style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateSuggestions(ThemeData theme) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(tr('suggestions_title'), style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [_buildSuggestionChip(tr('suggestion_invoice')), _buildSuggestionChip(tr('suggestion_id')), _buildSuggestionChip(tr('suggestion_contract')), _buildSuggestionChip('receipt')],
+        ),
+      ],
     );
   }
 
@@ -3586,7 +3081,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   
   /// בונה פריט קובץ אחרון
   Widget _buildRecentFileItem(RecentFile recent, ThemeData theme) {
-    final fileColor = _getFileColor(recent.extension);
+    final fileColor = getFileColor(recent.extension);
     
     return GestureDetector(
       onTap: () async {
@@ -3634,7 +3129,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                _getFileIcon(recent.extension),
+                getFileIcon(recent.extension),
                 size: 18,
                 color: fileColor,
               ),
@@ -3655,7 +3150,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    _formatRecentTime(recent.accessedAt),
+                    formatRecentTime(recent.accessedAt),
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.grey.shade500,
@@ -3671,56 +3166,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             ),
           ],
         ),
-      ),
-    );
-  }
-  
-  /// מחזיר אייקון לפי סוג קובץ
-  IconData _getFileIcon(String extension) {
-    switch (extension.toLowerCase()) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'heic':
-        return Icons.image;
-      case 'pdf':
-        return Icons.picture_as_pdf;
-      case 'doc': case 'docx':
-        return Icons.description;
-      case 'xls': case 'xlsx':
-        return Icons.table_chart;
-      case 'mp4': case 'mov': case 'avi':
-        return Icons.video_file;
-      case 'mp3': case 'wav': case 'aac':
-        return Icons.audio_file;
-      default:
-        return Icons.insert_drive_file;
-    }
-  }
-  
-  /// מפרמט זמן יחסי
-  String _formatRecentTime(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
-    
-    if (diff.inMinutes < 1) return 'עכשיו';
-    if (diff.inMinutes < 60) return 'לפני ${diff.inMinutes} דקות';
-    if (diff.inHours < 24) return 'לפני ${diff.inHours} שעות';
-    if (diff.inDays < 7) return 'לפני ${diff.inDays} ימים';
-    return '${time.day}/${time.month}/${time.year}';
-  }
-  
-  Widget _buildTipRow(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline, color: Colors.green, size: 14),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3826,233 +3271,100 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// בונה פריט תוצאה - מודרני
   Widget _buildResultItem(FileMetadata file) {
     final theme = Theme.of(context);
-    final rawQuery = _searchController.text;
-    final cleanQuery = _getCleanQuery(rawQuery);
-    final folderName = _getFolderName(file.path);
-    
-    // בדיקה אם יש התאמה בטקסט מחולץ
-    final hasOcrMatch = cleanQuery.isNotEmpty && 
-        file.extractedText?.toLowerCase().contains(cleanQuery.toLowerCase()) == true;
-    
-    // בדיקה אם זה קובץ מ-WhatsApp
+    final cleanQuery = getCleanQuery(_searchController.text);
+    final folderName = getFolderName(file.path);
+    final hasOcrMatch = cleanQuery.isNotEmpty && file.extractedText?.toLowerCase().contains(cleanQuery.toLowerCase()) == true;
     final isWhatsApp = file.path.toLowerCase().contains('whatsapp');
-    
-    // בדיקה אם מועדף
     final isFavorite = _favoritesService.isFavorite(file.path);
-    
-    // בדיקה אם נבחר (מצב בחירה מרובה)
     final isSelected = _selectedFiles.contains(file.path);
-    
-    // תגיות הקובץ
     final fileTags = TagsService.instance.getFileTags(file.path);
-    
-    final fileColor = _getFileColor(file.extension);
+    final fileColor = getFileColor(file.extension);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isSelected 
-            ? theme.colorScheme.primary.withValues(alpha: 0.15)
-            : theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : isFavorite
-                  ? Colors.amber.withValues(alpha: 0.5)
-                  : (hasOcrMatch 
-                      ? theme.colorScheme.secondary.withValues(alpha: 0.3)
-                      : Colors.transparent),
-          width: isSelected ? 2 : 1,
-        ),
-      ),
+      decoration: _buildResultItemDecoration(theme, isSelected, isFavorite, hasOcrMatch),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _isSelectionMode 
-              ? () => _toggleFileSelection(file.path)
-              : () => _openFile(file),
-          onLongPress: _isSelectionMode 
-              ? null 
-              : () {
-                  // כניסה למצב בחירה בלחיצה ארוכה
-                  HapticFeedback.mediumImpact();
-                  setState(() {
-                    _isSelectionMode = true;
-                    _selectedFiles.add(file.path);
-                  });
-                },
+          onTap: _isSelectionMode ? () => _toggleFileSelection(file.path) : () => _openFile(file),
+          onLongPress: _isSelectionMode ? null : () => _enterSelectionMode(file.path),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    // Checkbox במצב בחירה
-                    if (_isSelectionMode) ...[
-                      Checkbox(
-                        value: isSelected,
-                        onChanged: (_) => _toggleFileSelection(file.path),
-                        activeColor: theme.colorScheme.primary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    // תמונה ממוזערת או אייקון
-                    _buildFileThumbnail(file, fileColor, isWhatsApp),
-                    const SizedBox(width: 14),
-                    // תוכן — Expanded + ellipsis מונעים overflow בשמות ארוכים
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // שם קובץ עם הדגשה
-                            Row(
-                              children: [
-                                if (isFavorite) ...[
-                                  const Icon(Icons.star, color: Colors.amber, size: 14),
-                                  const SizedBox(width: 4),
-                                ],
-                                Expanded(
-                                  child: _buildHighlightedText(
-                                    file.name,
-                                    cleanQuery,
-                                    TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // תצוגת מקדימה של תוכן (extractedText) או "מעבד תוכן..."
-                            _buildContentPreviewSubtitle(file),
-                          const SizedBox(height: 6),
-                          
-                          // תגית מקור — שורה נפרדת (מונעת overflow)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isWhatsApp 
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.grey.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.max,
-                              children: [
-                                Icon(
-                                  isWhatsApp ? Icons.chat_bubble : (file.isCloud ? Icons.cloud : Icons.folder),
-                                  size: 10,
-                                  color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
-                                ),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    file.isCloud ? 'Google Drive' : folderName,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isWhatsApp ? Colors.green : (file.isCloud ? Colors.blue : Colors.grey.shade500),
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          // גודל + תאריך + debug
-                          Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: 12,
-                            runSpacing: 2,
-                            children: [
-                              Text(
-                                file.readableSize,
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                                textDirection: TextDirection.ltr,
-                              ),
-                              Text(
-                                _formatDate(file.lastModified),
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                                textDirection: TextDirection.ltr,
-                              ),
-                              if (_showDebugScore && file.debugScore != null)
-                                Text(
-                                  _formatDebugScore(file.debugScore!, file.debugScoreBreakdown),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.deepOrange,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                            ],
-                          ),
-                          // תגיות (אם יש)
-                          if (fileTags.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 4,
-                              runSpacing: 4,
-                              children: fileTags.take(3).map((tag) => Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: tag.color.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: tag.color.withValues(alpha: 0.3),
-                                    width: 0.5,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(tag.icon, size: 10, color: tag.color),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      tag.name,
-                                      style: TextStyle(fontSize: 9, color: tag.color),
-                                    ),
-                                  ],
-                                ),
-                              )).toList(),
-                            ),
-                          ],
-                        ],
-                        ),
-                      ),
-                    ),
-                    // כפתור תפריט פעולות
-                    IconButton(
-                      icon: Icon(
-                        Icons.more_vert,
-                        size: 20,
-                        color: theme.colorScheme.primary,
-                      ),
-                      onPressed: () => _showFileActionsSheet(file),
-                      tooltip: tr('more_options'),
-                    ),
-                  ],
-                ),
-                
-                // קטע טקסט מחולץ אם יש התאמה (עם תמיכה ב-RTL)
-                if (hasOcrMatch && file.extractedText != null) ...[
-                  const SizedBox(height: 12),
-                  _buildOcrSnippet(file.extractedText!, cleanQuery),
-                ],
+                _buildResultItemMainRow(file, theme, cleanQuery, folderName, isWhatsApp, isFavorite, isSelected, fileColor, fileTags),
+                if (hasOcrMatch && file.extractedText != null) ...[const SizedBox(height: 12), SearchOcrSnippet(text: file.extractedText!, query: cleanQuery)],
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  void _enterSelectionMode(String path) {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isSelectionMode = true;
+      _selectedFiles.add(path);
+    });
+  }
+
+  BoxDecoration _buildResultItemDecoration(ThemeData theme, bool isSelected, bool isFavorite, bool hasOcrMatch) {
+    return BoxDecoration(
+      color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.15) : theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: isSelected ? theme.colorScheme.primary : (isFavorite ? Colors.amber.withValues(alpha: 0.5) : (hasOcrMatch ? theme.colorScheme.secondary.withValues(alpha: 0.3) : Colors.transparent)),
+        width: isSelected ? 2 : 1,
+      ),
+    );
+  }
+
+  Widget _buildResultItemMainRow(FileMetadata file, ThemeData theme, String cleanQuery, String folderName, bool isWhatsApp, bool isFavorite, bool isSelected, Color fileColor, List<CustomTag> fileTags) {
+    return Row(
+      children: [
+        if (_isSelectionMode) ...[
+          Checkbox(value: isSelected, onChanged: (_) => _toggleFileSelection(file.path), activeColor: theme.colorScheme.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
+          const SizedBox(width: 8),
+        ],
+        SearchFileThumbnail(file: file, fileColor: fileColor, isWhatsApp: isWhatsApp),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (isFavorite) ...[const Icon(Icons.star, color: Colors.amber, size: 14), const SizedBox(width: 4)],
+                    Expanded(
+                      child: SearchHighlightedText(
+                        text: file.name,
+                        query: cleanQuery,
+                        baseStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: theme.colorScheme.onSurface),
+                      ),
+                    ),
+                  ],
+                ),
+                _buildContentPreviewSubtitle(file),
+                const SizedBox(height: 6),
+                SearchResultSourceTag(folderName: folderName, isWhatsApp: isWhatsApp, isCloud: file.isCloud),
+                const SizedBox(height: 4),
+                SearchResultMetaRow(file: file, showDebugScore: _showDebugScore),
+                if (fileTags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 4, runSpacing: 4, children: fileTags.take(3).map((tag) => SearchTagChip(tag: tag)).toList()),
+                ],
+              ],
+            ),
+          ),
+        ),
+        IconButton(icon: Icon(Icons.more_vert, size: 20, color: theme.colorScheme.primary), onPressed: () => _showFileActionsSheet(file), tooltip: tr('more_options')),
+      ],
     );
   }
 
@@ -4093,259 +3405,4 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
   
-  /// מחזיר צבע לפי סוג קובץ
-  Color _getFileColor(String extension) {
-    switch (extension.toLowerCase()) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'bmp': case 'heic': case 'heif':
-        return Colors.purple;
-      case 'mp4': case 'mov': case 'avi': case 'mkv': case 'webm': case '3gp':
-        return Colors.pink;
-      case 'pdf':
-        return Colors.red;
-      case 'doc': case 'docx':
-        return Colors.blue;
-      case 'xls': case 'xlsx':
-        return Colors.green;
-      case 'txt': case 'rtf':
-        return Colors.orange;
-      case 'mp3': case 'wav': case 'm4a': case 'ogg': case 'aac':
-        return Colors.teal;
-      default:
-        return Colors.grey;
-    }
-  }
-  
-  /// בונה אייקון קובץ
-  /// סיומות תמונה שנציג להן thumbnail
-  static const _imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
-  
-  /// בונה תמונה ממוזערת או אייקון
-  Widget _buildFileThumbnail(FileMetadata file, Color fileColor, bool isWhatsApp) {
-    final ext = file.extension.toLowerCase();
-    final isImage = _imageExtensions.contains(ext);
-    
-    // גודל התמונה הממוזערת
-    const double size = 52;
-    const double borderRadius = 12;
-    
-    // אם זו תמונה - נציג thumbnail
-    if (isImage) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(borderRadius),
-          color: fileColor.withValues(alpha: 0.15),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Image.file(
-          File(file.path),
-          fit: BoxFit.cover,
-          width: size,
-          height: size,
-          cacheWidth: 150, // קאשינג לביצועים
-          cacheHeight: 150,
-          errorBuilder: (context, error, stackTrace) {
-            // אם נכשל - נציג אייקון
-            return Center(
-              child: _buildFileIcon(file.extension, isWhatsApp),
-            );
-          },
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded) return child;
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: frame != null
-                  ? child
-                  : Container(
-                      color: fileColor.withValues(alpha: 0.15),
-                      child: Center(
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: fileColor,
-                          ),
-                        ),
-                      ),
-                    ),
-            );
-          },
-        ),
-      );
-    }
-    
-    // אם לא תמונה - אייקון רגיל
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: fileColor.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(borderRadius),
-      ),
-      child: Center(
-        child: _buildFileIcon(file.extension, isWhatsApp),
-      ),
-    );
-  }
-
-  Widget _buildFileIcon(String extension, bool isWhatsApp) {
-    IconData icon;
-    Color color = _getFileColor(extension);
-    
-    if (isWhatsApp) {
-      return const Icon(Icons.chat_bubble, size: 22, color: Colors.green);
-    }
-    
-    switch (extension.toLowerCase()) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'bmp': case 'heic': case 'heif':
-        icon = Icons.image; break;
-      case 'mp4': case 'mov': case 'avi': case 'mkv': case 'webm': case '3gp':
-        icon = Icons.video_file; break;
-      case 'pdf':
-        icon = Icons.picture_as_pdf; break;
-      case 'doc': case 'docx':
-        icon = Icons.description; break;
-      case 'xls': case 'xlsx':
-        icon = Icons.table_chart; break;
-      case 'txt': case 'rtf':
-        icon = Icons.article; break;
-      case 'mp3': case 'wav': case 'm4a': case 'ogg': case 'aac':
-        icon = Icons.audio_file; break;
-      default:
-        icon = Icons.insert_drive_file;
-    }
-    
-    return Icon(icon, size: 22, color: color);
-  }
-
-  /// בונה קטע טקסט OCR עם תמיכה ב-RTL
-  Widget _buildOcrSnippet(String text, String query) {
-    final snippet = _getTextSnippet(text, query);
-    final isRtl = _isHebrew(snippet);
-    
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.format_quote,
-            size: 16,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Directionality(
-              textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
-              child: _buildHighlightedText(
-                snippet,
-                query,
-                Theme.of(context).textTheme.bodySmall!.copyWith(
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// בונה טקסט עם הדגשת מונח חיפוש
-  Widget _buildHighlightedText(String text, String query, TextStyle baseStyle) {
-    if (query.isEmpty) {
-      return Text(text, style: baseStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
-    }
-
-    final lowerText = text.toLowerCase();
-    final lowerQuery = query.toLowerCase();
-    final spans = <TextSpan>[];
-    int start = 0;
-
-    while (true) {
-      final index = lowerText.indexOf(lowerQuery, start);
-      if (index == -1) {
-        spans.add(TextSpan(text: text.substring(start)));
-        break;
-      }
-
-      if (index > start) {
-        spans.add(TextSpan(text: text.substring(start, index)));
-      }
-
-      // הדגשה בצבע ובולד
-      spans.add(TextSpan(
-        text: text.substring(index, index + query.length),
-        style: TextStyle(
-          backgroundColor: Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.4),
-          color: Theme.of(context).colorScheme.onTertiaryContainer,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-
-      start = index + query.length;
-    }
-
-    return Text.rich(
-      TextSpan(style: baseStyle, children: spans),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-
-  /// מחזיר קטע טקסט סביב מונח החיפוש (30 תווים לפני ואחרי)
-  String _getTextSnippet(String text, String query) {
-    final lowerText = text.toLowerCase();
-    final lowerQuery = query.toLowerCase();
-    final index = lowerText.indexOf(lowerQuery);
-
-    // אם לא נמצא - מחזיר התחלה של הטקסט
-    if (index == -1) return text.substring(0, text.length.clamp(0, 60));
-
-    // 30 תווים לפני ו-30 אחרי מונח החיפוש
-    const charsBeforeAfter = 30;
-    int start = (index - charsBeforeAfter).clamp(0, text.length);
-    int end = (index + query.length + charsBeforeAfter).clamp(0, text.length);
-
-    String snippet = text.substring(start, end);
-    
-    // הוספת ... בהתאם לחיתוך
-    if (start > 0) snippet = '...$snippet';
-    if (end < text.length) snippet = '$snippet...';
-
-    // ניקוי רווחים מיותרים ושורות חדשות
-    return snippet.replaceAll('\n', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
-
-  /// פורמט דיבוג: ציון בתחילה, פורמולה מקוצרת
-  static const int _debugFormulaMaxLen = 40;
-  String _formatDebugScore(double score, String? breakdown) {
-    final formula = breakdown ?? '';
-    final truncated = formula.length > _debugFormulaMaxLen
-        ? '${formula.substring(0, _debugFormulaMaxLen)}...'
-        : formula;
-    return '${score.round()} : [$truncated]';
-  }
-
-  /// פורמט תאריך
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    
-    if (diff.inDays == 0) return 'היום';
-    if (diff.inDays == 1) return 'אתמול';
-    if (diff.inDays < 7) return 'לפני ${diff.inDays} ימים';
-    
-    return '${date.day}/${date.month}/${date.year}';
-  }
 }

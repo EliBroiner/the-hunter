@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../../models/search_synonym.dart';
@@ -13,15 +12,13 @@ import '../../../services/knowledge_base_service.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
 import '../../../services/prompt_admin_service.dart';
-import '../../../services/settings_service.dart';
+import 'ai_lab_constants.dart';
+import 'tabs/ai_lab_dictionary_tab.dart';
+import 'tabs/ai_lab_ocr_testing_tab.dart';
+import 'tabs/ai_lab_pipeline_tab.dart';
+import 'widgets/ai_lab_log_console.dart';
 
-/// בסיס כתובת הבקאנד — AI Lab (חשוף ל־UI לצורכי Deep Network Tracing)
-const String _kBackendBase = 'https://the-hunter-105628026575.me-west1.run.app';
-
-/// כתובת הבסיס הנוכחית — לתצוגה ובדיקת חיבור אמיתי
-String get currentBaseUrl => _kBackendBase;
-
-/// מסך דיבאג — Pipeline, Dictionary. מוגבל למשתמש Admin.
+/// מסך דיבאג — Pipeline, Dictionary, OCR Testing Lab.
 class AiLabScreen extends StatefulWidget {
   const AiLabScreen({super.key});
 
@@ -225,7 +222,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _sendingInProgress = true;
     });
 
-    final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
+    final uri = Uri.parse('$kAiLabBackendBase/api/analyze-debug');
     try {
       final userId = AuthService.instance.currentUser?.uid;
       final body = jsonEncode({
@@ -391,7 +388,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
 
     setState(() => _savingInProgress = true);
-    final uri = Uri.parse('$_kBackendBase/api/smart-categories/save-manual');
+    final uri = Uri.parse('$kAiLabBackendBase/api/smart-categories/save-manual');
     try {
       // כותרת חובה — מונע מהשרת לפרש body כמחרוזת
       final headers = await AppCheckHttpHelper.getBackendHeaders(
@@ -530,16 +527,64 @@ class _AiLabScreenState extends State<AiLabScreen> {
               child: SafeArea(
                 child: TabBarView(
                   children: [
-                    _buildDictionaryTab(),
-                    _buildPipelineTab(),
-                    _buildOcrTestingLabTab(),
+                    AiLabDictionaryTab(
+                      lastSyncTime: _lastSyncTime,
+                      synonymsCount: _synonymsCount,
+                      synonymsByCategory: _synonymsByCategory,
+                      searchController: _dictionarySearchController,
+                      onForceSync: _forceSyncFromCloud,
+                    ),
+                    AiLabPipelineTab(
+                      ocrFilePath: _ocrFilePath,
+                      ocrFileSizeBytes: _ocrFileSizeBytes,
+                      ocrExtractedText: _ocrExtractedText,
+                      garbageThreshold: _garbageThreshold,
+                      ocrFailedByThreshold: _ocrFailedByThreshold,
+                      ocrDisplayController: _ocrDisplayController,
+                      serverJsonController: _serverJsonController,
+                      adminKeyController: _adminKeyController,
+                      isAdmin: _isAdmin,
+                      customPrompt: _customPrompt,
+                      sendStatus: _sendStatus,
+                      sendSuccess: _sendSuccess,
+                      sendingInProgress: _sendingInProgress,
+                      saveStatus: _saveStatus,
+                      saveSuccess: _saveSuccess,
+                      savingInProgress: _savingInProgress,
+                      saveAsNewVersionInProgress: _saveAsNewVersionInProgress,
+                      migrateUsersInProgress: _migrateUsersInProgress,
+                      onPickAndRunOcr: _pickAndRunOcr,
+                      onSendToServer: _sendToServer,
+                      onSaveToServerDb: _saveToServerDb,
+                      onSavePromptAsNewVersion: _savePromptAsNewVersion,
+                      onRunMigrateUsers: _runMigrateUsersEnsureId,
+                      onShowOcrSettings: _showOcrSettings,
+                      onShowCustomPromptSettings: _showCustomPromptSettings,
+                      onBypassProChanged: (v) async {
+                        await SettingsService.instance.setDebugBypassPro(v);
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    AiLabOcrTestingTab(
+                      filePath: _ocrLabFilePath,
+                      bwBytes: _ocrLabBwBytes,
+                      visionText: _ocrLabVisionText,
+                      geminiJson: _ocrLabGeminiJson,
+                      visionInProgress: _ocrLabVisionInProgress,
+                      geminiInProgress: _ocrLabGeminiInProgress,
+                      onPickFile: _ocrLabPickFile,
+                      onConvertToBw: _ocrLabConvertToBw,
+                      onSendToVision: _ocrLabSendToVision,
+                      onSendToGemini: _ocrLabSendToGemini,
+                      onShowPromptSettings: () => _showCustomPromptSettings(context),
+                    ),
                   ],
                 ),
               ),
             ),
             Expanded(
               flex: 1,
-              child: _buildLogConsole(),
+              child: AiLabLogConsole(logs: _labLogs),
             ),
           ],
         ),
@@ -547,404 +592,11 @@ class _AiLabScreenState extends State<AiLabScreen> {
     );
   }
 
-  Widget _buildPipelineTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Deep Network Tracing — הצגת כתובת היעד
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.blueGrey.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.blueGrey),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.dns, color: Colors.white70, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Target Server: $currentBaseUrl',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white70,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (kDebugMode) ...[
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.amber.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Bypass PRO (דיבאג): מאפשר לחלץ Secure Folder, Tags ללא מנוי',
-                    style: TextStyle(fontSize: 12, color: Colors.amber[200]),
-                  ),
-                ),
-                Switch(
-                  value: SettingsService.instance.debugBypassPro,
-                  onChanged: (v) async {
-                    await SettingsService.instance.setDebugBypassPro(v);
-                    if (mounted) setState(() {});
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.blueGrey.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueGrey),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.key, color: Colors.white70, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _adminKeyController,
-                    obscureText: true,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                    decoration: const InputDecoration(
-                      hintText: 'Admin Key (X-Admin-Key)',
-                      hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 16),
-        _buildStage(
-          stageIndex: 1,
-          title: 'Local OCR',
-          onSettings: () => _showOcrSettings(context),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _pickAndRunOcr,
-                icon: const Icon(Icons.folder_open, size: 20),
-                label: const Text('Pick image & run OCR'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: const BorderSide(color: Colors.white24),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _ocrFilePath.isEmpty ? 'No file' : _ocrFilePath,
-                style: const TextStyle(fontSize: 12, color: Colors.white54),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (_ocrFileSizeBytes > 0 || _ocrExtractedText.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Builder(
-                  builder: (context) {
-                    final density = _textDensityScore(
-                      _ocrExtractedText.length,
-                      _ocrFileSizeBytes > 0 ? _ocrFileSizeBytes : 1,
-                    );
-                    final pass = density >= _garbageThreshold;
-                    return Text(
-                      'Score: ${density.toStringAsFixed(2)}% (Needed: > ${_garbageThreshold.toStringAsFixed(1)}%)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: pass ? Colors.greenAccent : Colors.redAccent,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    );
-                  },
-                ),
-              ],
-              const SizedBox(height: 8),
-              Builder(
-                builder: (context) {
-                  final pass = !_ocrFailedByThreshold;
-                  return Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: pass
-                          ? Colors.green.withValues(alpha: 0.15)
-                          : Colors.red.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: pass ? Colors.green : Colors.red,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: TextField(
-                      readOnly: true,
-                      maxLines: 6,
-                      controller: _ocrDisplayController,
-                      style: const TextStyle(color: Colors.black87, fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Extracted text…',
-                        border: InputBorder.none,
-                        isDense: true,
-                        filled: true,
-                        fillColor: Color(0xFFE8E8E8),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildStage(
-          stageIndex: 2,
-          title: 'Server AI (Gemini)',
-          onSettings: () => _showCustomPromptSettings(context),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Admin Badge — האם Custom Prompts פעילים
-              Row(
-                children: [
-                  Icon(
-                    _isAdmin ? Icons.shield : Icons.shield_outlined,
-                    size: 20,
-                    color: _isAdmin ? Colors.green : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isAdmin
-                          ? 'Admin Access: Granted (Custom Prompts Active)'
-                          : 'Standard User (Custom Prompts Ignored)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _isAdmin ? Colors.greenAccent : Colors.white54,
-                      ),
-                    ),
-                  ),
-                  if (_isAdmin && _customPrompt.trim().isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withValues(alpha: 0.25),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.amber, width: 1),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.science, size: 14, color: Colors.amber[700]),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Live Testing',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.amber[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 140,
-                child: TextField(
-                  controller: _serverJsonController,
-                  readOnly: false,
-                  maxLines: null,
-                  expands: true,
-                  style: const TextStyle(
-                    color: Colors.black87,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'JSON response (editable — fix before Save to DB)…',
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.all(12),
-                    filled: true,
-                    fillColor: const Color(0xFFE8E8E8),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  FilledButton.icon(
-                    onPressed: _sendingInProgress ? null : _sendToServer,
-                    icon: _sendingInProgress
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.send, size: 20),
-                    label: Text(
-                      _sendingInProgress ? 'Sending...' : 'Send to Server',
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.blue.shade700,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (_isAdmin)
-                    FilledButton.icon(
-                      onPressed: _saveAsNewVersionInProgress ? null : _savePromptAsNewVersion,
-                      icon: _saveAsNewVersionInProgress
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.save_as, size: 18),
-                      label: Text(_saveAsNewVersionInProgress ? 'Saving...' : 'Save as New Version'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  const SizedBox(width: 16),
-                  if (_sendStatus.isNotEmpty)
-                    Icon(
-                      _sendSuccess ? Icons.check_circle : Icons.error,
-                      color: _sendSuccess ? Colors.green : Colors.red,
-                      size: 24,
-                    ),
-                  if (_sendStatus.isNotEmpty)
-                    Flexible(
-                      child: Text(
-                        _sendStatus,
-                        style: TextStyle(
-                          color: _sendSuccess ? Colors.green : Colors.red,
-                          fontSize: 14,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildStage(
-          stageIndex: 3,
-          title: 'Server Database',
-          onSettings: null,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'שומר ב־DB של השרת (LearnedTerms) — לא ב־DB המקומי של הקבצים.',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  FilledButton.icon(
-                    onPressed: _savingInProgress ? null : _saveToServerDb,
-                    icon: _savingInProgress
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.save, size: 20),
-                    label: Text(_savingInProgress ? 'Saving...' : 'Save to DB'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  if (_saveStatus.isNotEmpty)
-                    Icon(
-                      _saveSuccess ? Icons.check_circle : Icons.error,
-                      color: _saveSuccess ? Colors.green : Colors.red,
-                      size: 24,
-                    ),
-                  if (_saveStatus.isNotEmpty)
-                    Text(
-                      _saveStatus,
-                      style: TextStyle(
-                        color: _saveSuccess ? Colors.green : Colors.red,
-                        fontSize: 14,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        const SizedBox(height: 16),
-        // מיגרציה חד-פעמית: הוספת שדה id לכל מסמך users
-        Card(
-          color: const Color(0xFF161B22),
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.5)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Users migration',
-                  style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'מוסיף שדה id (תואם Document ID) לכל מסמך ב-users שחסר.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _migrateUsersInProgress ? null : _runMigrateUsersEnsureId,
-                  icon: _migrateUsersInProgress
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.people_outline, size: 18),
-                  label: Text(_migrateUsersInProgress ? 'Running...' : 'Ensure user docs have id field'),
-                  style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Future<void> _runMigrateUsersEnsureId() async {
     setState(() => _migrateUsersInProgress = true);
     _labLog('Migration: POST api/users/migrate-ensure-id');
     try {
-      final uri = Uri.parse('$_kBackendBase/api/users/migrate-ensure-id');
+      final uri = Uri.parse('$kAiLabBackendBase/api/users/migrate-ensure-id');
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
       final response = await http.post(uri, headers: headers).timeout(const Duration(seconds: 30));
@@ -981,75 +633,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
     } finally {
       if (mounted) setState(() => _migrateUsersInProgress = false);
     }
-  }
-
-  Widget _buildStage({
-    required int stageIndex,
-    required String title,
-    required VoidCallback? onSettings,
-    required Widget child,
-  }) {
-    final outlineColors = [
-      Colors.blueAccent,
-      Colors.amberAccent,
-      Colors.greenAccent,
-    ];
-    final color = outlineColors[(stageIndex - 1) % outlineColors.length];
-    return Card(
-      color: const Color(0xFF161B22),
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withValues(alpha: 0.6), width: 1.5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$stageIndex',
-                    style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                if (onSettings != null)
-                  IconButton(
-                    icon: const Icon(Icons.settings, color: Colors.white54),
-                    onPressed: onSettings,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            child,
-          ],
-        ),
-      ),
-    );
   }
 
   void _showOcrSettings(BuildContext context) {
@@ -1290,275 +873,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
     return map;
   }
 
-  Widget _buildDictionaryTab() {
-    final grouped = _synonymsByCategory;
-    final categoryKeys = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Card(
-            color: const Color(0xFF161B22),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Last Sync: ${_lastSyncTime?.toIso8601String() ?? '—'}',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Total Synonyms: $_synonymsCount · ${grouped.length} categories',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _forceSyncFromCloud,
-                    icon: const Icon(Icons.cloud_download, size: 20),
-                    label: const Text('Force Sync from Cloud'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.blue.shade700,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: TextField(
-            controller: _dictionarySearchController,
-            decoration: InputDecoration(
-              hintText: 'Search local dictionary (term contains…)',
-              prefixIcon: const Icon(Icons.search, color: Colors.white54),
-              border: const OutlineInputBorder(),
-              filled: true,
-              fillColor: const Color(0xFF0D1117),
-            ),
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            itemCount: categoryKeys.length,
-            itemBuilder: (_, index) {
-              final category = categoryKeys[index];
-              final synonyms = grouped[category]!;
-              final categoryColor = _categoryColor(category.hashCode);
-              return Card(
-                color: const Color(0xFF161B22),
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: categoryColor.withValues(alpha: 0.5)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category,
-                        style: TextStyle(
-                          color: categoryColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: synonyms.map((s) {
-                          final label = s.expansions.isEmpty
-                              ? s.term
-                              : '${s.term} (${s.expansions.take(2).join(', ')}${s.expansions.length > 2 ? '…' : ''})';
-                          return Chip(
-                            label: Text(
-                              label,
-                              style: const TextStyle(fontSize: 12),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            backgroundColor: categoryColor.withValues(alpha: 0.15),
-                            side: BorderSide(color: categoryColor.withValues(alpha: 0.4)),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  static Color _categoryColor(int hash) {
-    final colors = [
-      Colors.blueAccent,
-      Colors.amberAccent,
-      Colors.greenAccent,
-      Colors.purpleAccent,
-      Colors.cyanAccent,
-      Colors.orangeAccent,
-    ];
-    return colors[hash.abs() % colors.length];
-  }
-
-  /// OCR Testing Lab — צעד אחרי צעד: קובץ → B&W → Cloud Vision → Gemini
-  Widget _buildOcrTestingLabTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildOcrLabChainVsXrayInfo(),
-        const SizedBox(height: 16),
-        _buildOcrLabStep(1, 'בחר קובץ', Icons.folder_open, [
-          OutlinedButton.icon(
-            onPressed: _ocrLabPickFile,
-            icon: const Icon(Icons.add_photo_alternate, size: 20),
-            label: const Text('Pick image'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-          ),
-          if (_ocrLabFilePath.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_ocrLabFilePath, style: const TextStyle(fontSize: 11, color: Colors.white54), maxLines: 2, overflow: TextOverflow.ellipsis),
-            ),
-        ]),
-        const SizedBox(height: 12),
-        _buildOcrLabStep(2, 'המר לשחור-לבן', Icons.filter_b_and_w, [
-          OutlinedButton.icon(
-            onPressed: _ocrLabBwBytes != null ? null : _ocrLabConvertToBw,
-            icon: _ocrLabBwBytes != null ? const Icon(Icons.check_circle, size: 20, color: Colors.green) : const Icon(Icons.filter_b_and_w, size: 20),
-            label: Text(_ocrLabBwBytes != null ? 'B&W ready (${(_ocrLabBwBytes!.length / 1024).toStringAsFixed(1)} KB)' : 'Convert to B&W'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-          ),
-        ]),
-        const SizedBox(height: 12),
-        _buildOcrLabStep(3, 'Cloud Vision', Icons.cloud, [
-          OutlinedButton.icon(
-            onPressed: _ocrLabBwBytes == null || _ocrLabVisionInProgress ? null : _ocrLabSendToVision,
-            icon: _ocrLabVisionInProgress
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.cloud_upload, size: 20),
-            label: Text(_ocrLabVisionInProgress ? 'Sending...' : 'Send to Cloud Vision'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-          ),
-          if (_ocrLabVisionText.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green)),
-              child: Text(_ocrLabVisionText, style: const TextStyle(fontSize: 12, color: Colors.black87), maxLines: 8, overflow: TextOverflow.ellipsis),
-            ),
-        ]),
-        const SizedBox(height: 12),
-        _buildOcrLabStep(4, 'Gemini (עם Prompt)', Icons.psychology, [
-          OutlinedButton.icon(
-            onPressed: (_ocrLabVisionText.isEmpty && _ocrLabGeminiJson.isEmpty) || _ocrLabGeminiInProgress ? null : _ocrLabSendToGemini,
-            icon: _ocrLabGeminiInProgress
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send, size: 20),
-            label: Text(_ocrLabGeminiInProgress ? 'Sending...' : 'Send to Gemini'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-          ),
-          if (_ocrLabGeminiJson.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: const Color(0xFFE8E8E8), borderRadius: BorderRadius.circular(8)),
-              child: Text(_ocrLabGeminiJson, style: const TextStyle(fontSize: 11, fontFamily: 'monospace'), maxLines: 10, overflow: TextOverflow.ellipsis),
-            ),
-          TextButton.icon(
-            onPressed: () => _showCustomPromptSettings(context),
-            icon: const Icon(Icons.tune, size: 18),
-            label: const Text('Edit System Prompt'),
-            style: TextButton.styleFrom(foregroundColor: Colors.amber),
-          ),
-        ]),
-      ],
-    );
-  }
-
-  Widget _buildOcrLabStep(int n, String title, IconData icon, List<Widget> children) {
-    final colors = [Colors.blueAccent, Colors.amberAccent, Colors.greenAccent, Colors.purpleAccent];
-    final c = colors[(n - 1) % colors.length];
-    return Card(
-      color: const Color(0xFF161B22),
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: c.withValues(alpha: 0.6))),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: c.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                  child: Text('$n', style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-                const SizedBox(width: 10),
-                Icon(icon, color: c, size: 20),
-                const SizedBox(width: 8),
-                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOcrLabChainVsXrayInfo() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blueGrey.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blueGrey),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.info_outline, color: Colors.blueGrey.shade300, size: 20),
-              const SizedBox(width: 8),
-              Text('Chain vs File X-Ray', style: TextStyle(color: Colors.blueGrey.shade200, fontWeight: FontWeight.bold, fontSize: 13)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'OCR Testing Lab (כאן): צעד-אחרי-צעד אינטראקטיבי — בוחרים קובץ, ממירים ל-B&W, שולחים ל-Cloud Vision, ואז ל-Gemini עם Prompt מותאם. אין documentId.',
-            style: TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'File X-Ray (Admin Web): צפייה בנתונים שמורים — מזינים documentId ומקבלים את מה שנשמר ב-Firestore (processing chain, raw/cleaned text, tags). Read-only.',
-            style: TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _ocrLabPickFile() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
     if (result == null || result.files.isEmpty) return;
@@ -1601,7 +915,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     setState(() => _ocrLabVisionInProgress = true);
     _labLog('OCR Lab: sending to Cloud Vision...');
     try {
-      final uri = Uri.parse('$_kBackendBase/api/debug/ocr-vision-only');
+      final uri = Uri.parse('$kAiLabBackendBase/api/debug/ocr-vision-only');
       final request = http.MultipartRequest('POST', uri);
       request.files.add(http.MultipartFile.fromBytes('file', _ocrLabBwBytes!, filename: 'bw.jpg'));
       request.headers.addAll(await AppCheckHttpHelper.getBackendHeaders());
@@ -1611,7 +925,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       if (response.statusCode != 200) {
         _labLog('OCR Lab Vision error: ${response.statusCode} ${response.body}');
         setState(() {
-          _ocrLabVisionText = 'Error: ${response.statusCode}\n${response.body.length > 200 ? response.body.substring(0, 200) + '...' : response.body}';
+          _ocrLabVisionText = 'Error: ${response.statusCode}\n${response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body}';
           _ocrLabVisionInProgress = false;
         });
         return;
@@ -1645,7 +959,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     setState(() => _ocrLabGeminiInProgress = true);
     _labLog('OCR Lab: sending to Gemini...');
     try {
-      final uri = Uri.parse('$_kBackendBase/api/analyze-debug');
+      final uri = Uri.parse('$kAiLabBackendBase/api/analyze-debug');
       final userId = AuthService.instance.currentUser?.uid;
       final body = jsonEncode({
         'text': text,
@@ -1683,42 +997,4 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
-  Widget _buildLogConsole() {
-    return Container(
-      color: const Color(0xFF0D1117),
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Log',
-            style: TextStyle(
-              color: Colors.white54,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _labLogs.length,
-              itemBuilder: (_, i) {
-                final line = _labLogs[_labLogs.length - 1 - i];
-                return Text(
-                  line,
-                  style: const TextStyle(
-                    color: Colors.white38,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

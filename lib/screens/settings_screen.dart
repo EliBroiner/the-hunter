@@ -14,6 +14,8 @@ import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import '../services/localization_service.dart';
 import 'package:firebase_core/firebase_core.dart' show Firebase;
+import 'settings_screen/settings_logic.dart';
+import 'settings_screen/widgets/settings_widgets.dart';
 
 /// מסך הגדרות
 class SettingsScreen extends StatefulWidget {
@@ -108,15 +110,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-            // פרופיל משתמש
-            _buildUserProfile(context, theme, user, isGuest),
+            SettingsUserProfileCard(
+              theme: theme,
+              displayName: isGuest ? tr('guest') : (user?.displayName ?? user?.email?.split('@').first ?? 'User'),
+              email: isGuest ? '' : (user?.email ?? ''),
+              photoUrl: user?.photoURL,
+              isGuest: isGuest,
+              isPremium: isPremium,
+              onUpgrade: isGuest ? () => _upgradeToGoogle(context) : null,
+            ),
             const SizedBox(height: 24),
             
-            // גיבוי ושחזור (פרימיום בלבד)
-            _buildSettingsSection(
-              context,
-              tr('section_backup'),
-              [
+            SettingsSection(
+              title: tr('section_backup'),
+              children: [
                 _buildBackupTile(context, theme, isPremium),
                 if (isPremium && _backupInfo != null)
                   _buildRestoreTile(context, theme),
@@ -129,10 +136,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
             
             // הגדרות כלליות
-            _buildSettingsSection(
-              context,
-              tr('section_general'),
-              [
+            SettingsSection(
+              title: tr('section_general'),
+              children: [
                 _buildSettingsTile(
                   context,
                   icon: Icons.language,
@@ -145,10 +151,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             
-            _buildSettingsSection(
-              context,
-              tr('section_scan'),
-              [
+            SettingsSection(
+              title: tr('section_scan'),
+              children: [
                 _buildSettingsTile(
                   context,
                   icon: Icons.folder,
@@ -191,10 +196,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            _buildSettingsSection(
-              context,
-              tr('section_danger'),
-              [
+            SettingsSection(
+              title: tr('section_danger'),
+              children: [
                 _buildSettingsTile(
                   context,
                   icon: Icons.restart_alt,
@@ -214,20 +218,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             
-            _buildSettingsSection(
-              context,
-              tr('section_tools'),
-              [
+            SettingsSection(
+              title: tr('section_tools'),
+              children: [
                 _buildDuplicatesFinderTile(context, theme, _settingsService.isPremium),
                 _buildSecureFolderTile(context, theme, _settingsService.isPremium),
               ],
             ),
             const SizedBox(height: 16),
             
-            _buildSettingsSection(
-              context,
-              tr('section_about'),
-              [
+            SettingsSection(
+              title: tr('section_about'),
+              children: [
                 _buildSettingsTile(
                   context,
                   icon: Icons.info_outline,
@@ -252,58 +254,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          if (_isReindexing) _buildReindexOverlay(theme),
-          if (_isResetting) _buildResettingOverlay(theme),
+          if (_isReindexing)
+            SettingsProgressOverlay(
+              theme: theme,
+              message: tr('reindex_progress')
+                  .replaceAll('{current}', '$_reindexCurrent')
+                  .replaceAll('{total}', '$_reindexTotal'),
+            ),
+          if (_isResetting)
+            SettingsProgressOverlay(theme: theme, message: tr('reset_all_progress')),
         ],
-      ),
-    );
-  }
-
-  Widget _buildResettingOverlay(ThemeData theme) {
-    return Positioned.fill(
-      child: Container(
-        color: theme.scaffoldBackgroundColor.withValues(alpha: 0.95),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: CircularProgressIndicator(color: theme.colorScheme.primary),
-              ),
-              const SizedBox(height: 16),
-              Text(tr('reset_all_progress'), style: theme.textTheme.titleMedium),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReindexOverlay(ThemeData theme) {
-    return Positioned.fill(
-      child: Container(
-        color: theme.scaffoldBackgroundColor.withValues(alpha: 0.95),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: CircularProgressIndicator(color: theme.colorScheme.primary),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                tr('reindex_progress')
-                    .replaceAll('{current}', '$_reindexCurrent')
-                    .replaceAll('{total}', '$_reindexTotal'),
-                style: theme.textTheme.titleMedium,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -603,7 +563,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: Text(
           _isRestoring
-              ? '\${tr("loading")} \${(_backupProgress * 100).toInt()}%'
+              ? '${tr("loading")} ${(_backupProgress * 100).toInt()}%'
               : tr('restore_info').replaceFirst('\${count}', _backupInfo!.filesCount.toString()).replaceFirst('\${size}', _backupInfo!.formattedSize),
           style: TextStyle(
             fontSize: 12,
@@ -1045,142 +1005,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// בונה פרופיל משתמש
-  Widget _buildUserProfile(
-    BuildContext context, 
-    ThemeData theme, 
-    dynamic user,
-    bool isGuest,
-  ) {
-    final displayName = isGuest 
-        ? tr('guest') 
-        : (user?.displayName ?? user?.email?.split('@').first ?? 'User');
-    final email = isGuest ? 'Guest' : (user?.email ?? '');
-    final photoUrl = user?.photoURL;
-    
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          // תמונת פרופיל
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary,
-                  theme.colorScheme.secondary,
-                ],
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: photoUrl != null
-                ? ClipOval(
-                    child: Image.network(
-                      photoUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const Icon(
-                        Icons.person,
-                        color: Colors.white,
-                        size: 30,
-                      ),
-                    ),
-                  )
-                : const Icon(
-                    Icons.person,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-          ),
-          const SizedBox(width: 16),
-          // פרטי משתמש
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      displayName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                    if (isGuest) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          tr('guest'),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.orange,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (_settingsService.isPremium) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Colors.amber, Colors.orange],
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'PRO',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                if (email.isNotEmpty)
-                  Text(
-                    email,
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 14,
-                    ),
-                  ),
-                if (isGuest)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: TextButton.icon(
-                      onPressed: () => _upgradeToGoogle(context),
-                      icon: const Icon(Icons.upgrade, size: 16),
-                      label: Text(tr('upgrade_to_google')),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// שדרוג חשבון אורח ל-Google
   Future<void> _upgradeToGoogle(BuildContext context) async {
     final result = await AuthService.instance.upgradeAnonymousToGoogle();
@@ -1202,31 +1026,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
-  }
-
-  /// בונה סקציית הגדרות
-  Widget _buildSettingsSection(
-    BuildContext context,
-    String title,
-    List<Widget> children,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(right: 4, bottom: 8),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: Colors.grey.shade400,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        ...children,
-      ],
-    );
   }
 
   /// בונה פריט בחירת מצב תצוגה (כהה/בהיר/מערכת)
@@ -1667,7 +1466,7 @@ class _AboutSheetContentState extends State<_AboutSheetContent> {
           GestureDetector(
             onTap: () {
               setState(() => _tapCount++);
-              if (_tapCount >= 7) widget.onDevModeUnlock();
+              if (isDevModeUnlock(_tapCount, 7)) widget.onDevModeUnlock();
             },
             child: FutureBuilder<PackageInfo>(
               future: PackageInfo.fromPlatform(),

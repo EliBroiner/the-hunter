@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:the_hunter/main.dart';
+import 'package:the_hunter/app/the_hunter_app.dart';
 
 void main() {
   testWidgets('TheHunter app smoke test', (WidgetTester tester) async {

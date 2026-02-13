@@ -5,7 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../services/secure_folder_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
-import 'secure_folder_screen_helper.dart';
+import 'secure_folder_screen/widgets/secure_folder_widgets.dart';
 
 /// מסך תיקייה מאובטחת
 class SecureFolderScreen extends StatefulWidget {
@@ -248,39 +248,8 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
         ],
       ),
       body: files.isEmpty
-          ? _buildEmptyState(theme)
+          ? SecureFolderEmptyState(theme: theme)
           : _buildFilesList(theme, files),
-    );
-  }
-
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.folder_off_outlined,
-            size: 80,
-            color: theme.colorScheme.primary.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            tr('folder_empty'),
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            tr('add_files_hint'),
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -290,97 +259,13 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
       itemCount: files.length,
       itemBuilder: (context, index) {
         final file = files[index];
-        return _buildFileItem(theme, file);
+        return SecureFolderFileItem(
+          theme: theme,
+          file: file,
+          onTap: () => _openFile(file),
+          onAction: (action) => _handleFileAction(action, file),
+        );
       },
-    );
-  }
-
-  Widget _buildFileItem(ThemeData theme, SecureFile file) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.2),
-        ),
-      ),
-      child: ListTile(
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: _getFileColor(file.extension).withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Center(
-            child: Icon(
-              _getFileIcon(file.extension),
-              color: _getFileColor(file.extension),
-              size: 22,
-            ),
-          ),
-        ),
-        title: Text(
-          '${file.name}.${file.extension}',
-          style: const TextStyle(fontWeight: FontWeight.w500),
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          _formatSize(file.size),
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        trailing: PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          itemBuilder: (context) => [
-            PopupMenuItem(
-              value: 'open',
-              child: Row(
-                children: [
-                  const Icon(Icons.open_in_new, size: 20),
-                  const SizedBox(width: 12),
-                  PopupMenuItemText(textKey: 'open'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'share',
-              child: Row(
-                children: [
-                  const Icon(Icons.share, size: 20),
-                  const SizedBox(width: 12),
-                  PopupMenuItemText(textKey: 'share'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'restore',
-              child: Row(
-                children: [
-                  const Icon(Icons.restore, size: 20, color: Colors.blue),
-                  const SizedBox(width: 12),
-                  PopupMenuItemText(textKey: 'restore_original', color: Colors.blue),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  const Icon(Icons.delete, size: 20, color: Colors.red),
-                  const SizedBox(width: 12),
-                  PopupMenuItemText(textKey: 'delete', color: Colors.red),
-                ],
-              ),
-            ),
-          ],
-          onSelected: (value) => _handleFileAction(value, file),
-        ),
-        onTap: () => _openFile(file),
-      ),
     );
   }
 
@@ -580,43 +465,4 @@ class _SecureFolderScreenState extends State<SecureFolderScreen> {
     }
   }
 
-  Color _getFileColor(String extension) {
-    switch (extension.toLowerCase()) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp':
-        return Colors.purple;
-      case 'mp4': case 'mov': case 'avi':
-        return Colors.pink;
-      case 'pdf':
-        return Colors.red;
-      case 'doc': case 'docx':
-        return Colors.blue;
-      case 'xls': case 'xlsx':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getFileIcon(String extension) {
-    switch (extension.toLowerCase()) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp':
-        return Icons.image;
-      case 'mp4': case 'mov': case 'avi':
-        return Icons.movie;
-      case 'pdf':
-        return Icons.picture_as_pdf;
-      case 'doc': case 'docx':
-        return Icons.description;
-      case 'xls': case 'xlsx':
-        return Icons.table_chart;
-      default:
-        return Icons.insert_drive_file;
-    }
-  }
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
 }

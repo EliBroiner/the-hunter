@@ -5,32 +5,8 @@ import '../services/auth_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
 import '../services/settings_service.dart';
-
-/// סוג מנוי
-enum SubscriptionPlan { monthly, yearly }
-
-/// חבילה (אמיתית או Mock)
-class PricingPackage {
-  final String id;
-  final String title;
-  final String titleHe;
-  final String price;
-  final String period;
-  final String? savings;
-  final SubscriptionPlan plan;
-  final Package? rcPackage; // null אם mock
-
-  PricingPackage({
-    required this.id,
-    required this.title,
-    required this.titleHe,
-    required this.price,
-    required this.period,
-    this.savings,
-    required this.plan,
-    this.rcPackage,
-  });
-}
+import 'subscription_screen/subscription_logic.dart';
+import 'subscription_screen/widgets/subscription_widgets.dart';
 
 /// מסך מנויים - Hunter Pro
 class SubscriptionScreen extends StatefulWidget {
@@ -78,12 +54,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       
       if (offerings.current != null && offerings.current!.availablePackages.isNotEmpty) {
         // יש חבילות אמיתיות מ-RevenueCat
-        _packages = _mapRealPackages(offerings.current!.availablePackages);
+        _packages = mapRealPackages(offerings.current!.availablePackages);
         _isMockMode = false;
         LogService.instance.log('RevenueCat: Loaded ${_packages.length} real packages');
       } else {
         // אין חבילות - מצב פיתוח (Mock)
-        _packages = _getMockPackages();
+        _packages = getMockPackages();
         _isMockMode = true;
         LogService.instance.log('RevenueCat: No offerings found, using MOCK mode');
       }
@@ -97,7 +73,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     } catch (e) {
       LogService.instance.log('RevenueCat Error: $e');
       // במקרה של שגיאה - מצב Mock
-      _packages = _getMockPackages();
+      _packages = getMockPackages();
       _isMockMode = true;
       _selectedPackage = _packages.last;
       _errorMessage = tr('dev_mode_active');
@@ -106,57 +82,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
     }
-  }
-
-  /// ממפה חבילות אמיתיות מ-RevenueCat
-  List<PricingPackage> _mapRealPackages(List<Package> rcPackages) {
-    final packages = <PricingPackage>[];
-    
-    for (final pkg in rcPackages) {
-      final isMonthly = pkg.packageType == PackageType.monthly;
-      final isYearly = pkg.packageType == PackageType.annual;
-      
-      if (isMonthly || isYearly) {
-        packages.add(PricingPackage(
-          id: pkg.identifier,
-          title: isMonthly ? tr('plan_monthly') : tr('plan_yearly'),
-          titleHe: isMonthly ? tr('plan_monthly_he') : tr('plan_yearly_he'),
-          price: pkg.storeProduct.priceString,
-          period: isMonthly ? '/month' : '/year',
-          savings: isYearly ? 'Save 37%' : null,
-          plan: isMonthly ? SubscriptionPlan.monthly : SubscriptionPlan.yearly,
-          rcPackage: pkg,
-        ));
-      }
-    }
-    
-    // מיון - חודשי קודם
-    packages.sort((a, b) => a.plan == SubscriptionPlan.monthly ? -1 : 1);
-    
-    return packages;
-  }
-
-  /// חבילות Mock לפיתוח
-  List<PricingPackage> _getMockPackages() {
-    return [
-      PricingPackage(
-        id: 'mock_monthly',
-        title: 'Monthly (Dev)',
-        titleHe: 'חודשי (פיתוח)',
-        price: '\$4.99',
-        period: '/month',
-        plan: SubscriptionPlan.monthly,
-      ),
-      PricingPackage(
-        id: 'mock_yearly',
-        title: 'Yearly (Dev)',
-        titleHe: 'שנתי (פיתוח)',
-        price: '\$29.99',
-        period: '/year',
-        savings: 'Save 50%',
-        plan: SubscriptionPlan.yearly,
-      ),
-    ];
   }
 
   /// לחיצה על כותרת (backdoor)
@@ -514,30 +439,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             icon: Icon(Icons.close, color: onBgVariant),
                           ),
                           const Spacer(),
-                          if (_isMockMode)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.orange),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.developer_mode, color: Colors.orange, size: 14),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    tr('dev_mode_badge'),
-                                    style: const TextStyle(
-                                      color: Colors.orange,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                          if (_isMockMode) const SubscriptionMockBadge(),
                         ],
                       ),
                       if (_errorMessage != null) ...[
@@ -559,8 +461,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         ),
                       ],
 
-                      // אייקון הכתר
-                      _buildCrownIcon(),
+                      const SubscriptionCrownIcon(),
                       const SizedBox(height: 24),
 
                       // כותרת (עם backdoor)
@@ -592,34 +493,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   ),
                 ),
               ),
-      ),
-    );
-  }
-
-  /// אייקון כתר מוזהב
-  Widget _buildCrownIcon() {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [_goldPrimary, _goldDark],
-        ),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: _goldPrimary.withValues(alpha: 0.4),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: const Icon(
-        Icons.workspace_premium,
-        color: Color(0xFF1E1E3F),
-        size: 50,
       ),
     );
   }
@@ -744,123 +617,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         return Expanded(
           child: Padding(
             padding: EdgeInsets.only(left: isFirst ? 0 : 6, right: isFirst ? 6 : 0),
-            child: _buildPricingCard(context, pkg),
+            child: SubscriptionPricingCard(
+              package: pkg,
+              isSelected: _selectedPackage?.id == pkg.id,
+              onTap: () => setState(() => _selectedPackage = pkg),
+            ),
           ),
         );
       }).toList(),
-    );
-  }
-
-  /// כרטיס מחיר בודד — צבעים דינמיים
-  Widget _buildPricingCard(BuildContext context, PricingPackage package) {
-    final theme = Theme.of(context);
-    final surface = theme.colorScheme.surfaceContainerHighest;
-    final onSurface = theme.colorScheme.onSurface;
-    final onVariant = theme.colorScheme.onSurfaceVariant;
-    final isSelected = _selectedPackage?.id == package.id;
-
-    return GestureDetector(
-      onTap: () => setState(() => _selectedPackage = package),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? _goldPrimary.withValues(alpha: 0.1) 
-              : surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? _goldPrimary : onVariant.withValues(alpha: 0.3),
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: _goldPrimary.withValues(alpha: 0.2),
-                    blurRadius: 15,
-                  ),
-                ]
-              : null,
-        ),
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                // תג חסכון / Mock
-                if (package.savings != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [_goldPrimary, _goldDark],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      package.savings!,
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  )
-                else
-                  const SizedBox(height: 22),
-                const SizedBox(height: 8),
-
-                // כותרת
-                Text(
-                  package.title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: isSelected ? _goldPrimary : onSurface,
-                  ),
-                ),
-                Text(
-                  package.titleHe,
-                  style: TextStyle(fontSize: 12, color: onVariant),
-                ),
-                const SizedBox(height: 12),
-
-                // מחיר
-                Text(
-                  package.price,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? _goldPrimary : onSurface,
-                  ),
-                ),
-                Text(
-                  package.period,
-                  style: TextStyle(fontSize: 12, color: onVariant),
-                ),
-              ],
-            ),
-
-            // אינדיקטור בחירה
-            if (isSelected)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: _goldPrimary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Colors.black,
-                    size: 14,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
     );
   }
 

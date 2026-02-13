@@ -23,6 +23,7 @@ public class AdminAiController : ControllerBase
     private readonly ISystemPromptService _systemPromptService;
     private readonly AdminFirestoreService _firestore;
     private readonly IScannerSettingsService _scannerSettings;
+    private readonly OcrService _ocrService;
     private readonly ILogger<AdminAiController> _logger;
 
     private const int MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB
@@ -34,12 +35,13 @@ public class AdminAiController : ControllerBase
 
     private const string OcrExtractionFallback = "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
 
-    public AdminAiController(GeminiService geminiService, ISystemPromptService systemPromptService, AdminFirestoreService firestore, IScannerSettingsService scannerSettings, ILogger<AdminAiController> logger)
+    public AdminAiController(GeminiService geminiService, ISystemPromptService systemPromptService, AdminFirestoreService firestore, IScannerSettingsService scannerSettings, OcrService ocrService, ILogger<AdminAiController> logger)
     {
         _geminiService = geminiService;
         _systemPromptService = systemPromptService;
         _firestore = firestore;
         _scannerSettings = scannerSettings;
+        _ocrService = ocrService;
         _logger = logger;
     }
 
@@ -235,13 +237,10 @@ public class AdminAiController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> OcrTest(IFormFile? file)
     {
-        if (file == null || file.Length == 0)
-            return BadRequest(new ErrorResponse { Error = "קובץ נדרש" });
+        if (ValidateFileRequired(file) is { } fileErr)
+            return BadRequest(fileErr);
 
-        if (file.Length > MaxFileSizeBytes)
-            return BadRequest(new ErrorResponse { Error = $"גודל מקסימלי: {MaxFileSizeBytes / 1024 / 1024}MB" });
-
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant().TrimStart('.');
+        var ext = Path.GetExtension(file!.FileName).ToLowerInvariant().TrimStart('.');
         string mimeType = ext switch
         {
             "pdf" => "application/pdf",
@@ -254,12 +253,7 @@ public class AdminAiController : ControllerBase
         if (string.IsNullOrEmpty(mimeType))
             return BadRequest(new ErrorResponse { Error = "סוג לא נתמך. נתמך: PDF, JPG, PNG, WebP" });
 
-        byte[] bytes;
-        using (var ms = new MemoryStream())
-        {
-            await file.CopyToAsync(ms);
-            bytes = ms.ToArray();
-        }
+        var bytes = await ReadFileBytesAsync(file);
 
         string? directText = null;
         double garbageRatio = 1.0;
@@ -344,6 +338,116 @@ public class AdminAiController : ControllerBase
             ReasonForUpload = "Manual Admin Request",
             BwThumbnailDataUrl = bwThumbnailDataUrl
         });
+    }
+
+    /// <summary>
+    /// POST /admin/debug/ocr-step-bw — שלב 1→2: המרת תמונה ל-B&W. מחזיר thumbnail + base64 לשלב הבא.
+    /// </summary>
+    [HttpPost("ocr-step-bw")]
+    [RequestSizeLimit(MaxFileSizeBytes)]
+    [ProducesResponseType(typeof(OcrStepBwResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> OcrStepBw(IFormFile? file)
+    {
+        if (ValidateFileRequired(file) is { } fileErr)
+            return BadRequest(fileErr);
+        if (ValidateImageExtension(file!) is { } imgErr)
+            return BadRequest(imgErr);
+
+        var bytes = await ReadFileBytesAsync(file!);
+        try
+        {
+            var (bwBytes, thumbDataUrl) = CreateBwAndThumbnail(bytes);
+            if (bwBytes == null)
+                return StatusCode(500, new ErrorResponse { Error = "B&W conversion failed" });
+            return Ok(new OcrStepBwResponse { BwThumbnailDataUrl = thumbDataUrl, BwBase64 = Convert.ToBase64String(bwBytes) });
+        }
+        finally
+        {
+            Array.Clear(bytes, 0, bytes.Length);
+        }
+    }
+
+    /// <summary>
+    /// POST /admin/debug/ocr-step-vision — שלב 2→3: Cloud Vision על תמונת B&W. מחזיר טקסט גולמי.
+    /// </summary>
+    [HttpPost("ocr-step-vision")]
+    [RequestSizeLimit(MaxFileSizeBytes)]
+    [ProducesResponseType(typeof(OcrStepVisionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> OcrStepVision([FromBody] OcrStepVisionRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.ImageBase64))
+            return BadRequest(new ErrorResponse { Error = "ImageBase64 נדרש" });
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(request.ImageBase64.Trim());
+        }
+        catch
+        {
+            return BadRequest(new ErrorResponse { Error = "Base64 לא תקין" });
+        }
+
+        try
+        {
+            var (text, error) = await _ocrService.TestCloudVisionAsync(bytes);
+            if (error != null)
+                return StatusCode(500, new ErrorResponse { Error = "Cloud Vision failed", Details = error });
+            return Ok(new OcrStepVisionResponse { Text = text ?? "", IsPureImageNoText = string.IsNullOrWhiteSpace(text) });
+        }
+        finally
+        {
+            Array.Clear(bytes, 0, bytes.Length);
+        }
+    }
+
+    /// <summary>
+    /// POST /admin/debug/ocr-step-gemini — שלב 3→4: ניתוח טקסט ב-Gemini עם פרומפט מותאם.
+    /// </summary>
+    [HttpPost("ocr-step-gemini")]
+    [ProducesResponseType(typeof(DocumentAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> OcrStepGemini([FromBody] OcrStepGeminiRequest request)
+    {
+        if (!_geminiService.IsConfigured)
+            return StatusCode(503, new ErrorResponse { Error = "Gemini API not configured" });
+        if (request == null)
+            return BadRequest(new ErrorResponse { Error = "Request body required" });
+
+        var text = request.Text ?? "";
+        var customPrompt = string.IsNullOrWhiteSpace(request.SystemPromptOverride) ? null : request.SystemPromptOverride.Trim();
+
+        var result = await _geminiService.AnalyzeDocumentWithCustomPromptAsync(text, customPrompt);
+        return Ok(result);
+    }
+
+    /// <summary>ולידציה: קובץ קיים וגודל תקין. null = OK.</summary>
+    private static ErrorResponse? ValidateFileRequired(IFormFile? file)
+    {
+        if (file == null || file.Length == 0)
+            return new ErrorResponse { Error = "קובץ נדרש" };
+        if (file.Length > MaxFileSizeBytes)
+            return new ErrorResponse { Error = $"גודל מקסימלי: {MaxFileSizeBytes / 1024 / 1024}MB" };
+        return null;
+    }
+
+    /// <summary>ולידציה: סיומת תמונה בלבד (JPG, PNG, WebP). null = OK.</summary>
+    private static ErrorResponse? ValidateImageExtension(IFormFile file)
+    {
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant().TrimStart('.');
+        return ext is "jpg" or "jpeg" or "png" or "webp" ? null : new ErrorResponse { Error = "רק תמונות: JPG, PNG, WebP" };
+    }
+
+    /// <summary>קריאת bytes מקובץ — משותף ל-ocr-test ו-ocr-step-bw.</summary>
+    private static async Task<byte[]> ReadFileBytesAsync(IFormFile file)
+    {
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        return ms.ToArray();
     }
 
     /// <summary>עיבוד B&W + thumbnail — כמו Flutter OCRService. מחזיר (bytes לשליחה, data URL ל-thumbnail).</summary>
@@ -530,6 +634,29 @@ public class OcrTestResponse
     public string ReasonForUpload { get; set; } = "Manual Admin Request";
     /// <summary>תמונת B&W שנשלחה לשרת (base64 data URL) — לתמונות בלבד</summary>
     public string? BwThumbnailDataUrl { get; set; }
+}
+
+public class OcrStepBwResponse
+{
+    public string? BwThumbnailDataUrl { get; set; }
+    public string? BwBase64 { get; set; }
+}
+
+public class OcrStepVisionRequest
+{
+    public string? ImageBase64 { get; set; }
+}
+
+public class OcrStepVisionResponse
+{
+    public string Text { get; set; } = "";
+    public bool IsPureImageNoText { get; set; }
+}
+
+public class OcrStepGeminiRequest
+{
+    public string? Text { get; set; }
+    public string? SystemPromptOverride { get; set; }
 }
 
 #endregion
