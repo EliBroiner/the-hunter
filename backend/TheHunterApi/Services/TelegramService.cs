@@ -133,6 +133,13 @@ public class TelegramService : ITelegramService
         await SendTelegramPayloadAsync("answerCallbackQuery", payload, cancellationToken);
     }
 
+    public async Task SendMessageToChatAsync(string chatId, string text, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(BotToken) || string.IsNullOrWhiteSpace(chatId)) return;
+        var payload = new { chat_id = chatId, text, parse_mode = "HTML" };
+        await SendTelegramPayloadAsync("sendMessage", payload, cancellationToken);
+    }
+
     internal async Task SendTelegramPayloadAsync(string method, object payload, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(BotToken))

@@ -44,12 +44,15 @@ public class FirebaseAppCheckMiddleware
     {
         var path = context.Request.Path.Value ?? "";
 
-        // נתיבים פטורים
+        // נתיבים פטורים — Telegram Webhook לא שולח X-Firebase-AppCheck
         if (ExemptPaths.Contains(path) ||
             path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith("/api/debug", StringComparison.OrdinalIgnoreCase))
+            path.StartsWith("/api/debug", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/telegram", StringComparison.OrdinalIgnoreCase))
         {
+            if (path.StartsWith("/api/telegram", StringComparison.OrdinalIgnoreCase))
+                _logger.LogInformation("[TELEGRAM] Webhook bypassed AppCheck successfully.");
             await _next(context);
             return;
         }

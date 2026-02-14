@@ -31,7 +31,7 @@ public class NotificationService : INotificationService
         _telegram = telegram;
     }
 
-    private int Threshold => _config.GetValue("Admin:Notification:PendingThreshold", 10);
+    private int Threshold => _config.GetValue("Admin:Notification:PendingThreshold", 5);
     private string? SmtpHost => _config["Admin:Notification:SmtpHost"];
     private int SmtpPort => _config.GetValue("Admin:Notification:SmtpPort", 587);
     private string? SmtpUser => _config["Admin:Notification:SmtpUser"];

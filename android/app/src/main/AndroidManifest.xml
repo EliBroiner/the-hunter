@@ -47,6 +47,12 @@
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="ocr" />
 
+        <!-- RemoteViewsService לרשימה גלילה בווידג'ט -->
+        <service
+            android:name=".WidgetListService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <!-- Home Screen Widget -->
         <receiver 
             android:name=".SearchWidgetProvider"

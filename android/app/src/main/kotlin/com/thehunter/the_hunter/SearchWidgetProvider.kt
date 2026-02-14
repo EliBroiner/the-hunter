@@ -12,6 +12,9 @@ import androidx.core.content.FileProvider
 import es.antonborri.home_widget.HomeWidgetPlugin
 import org.json.JSONArray
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class SearchWidgetProvider : AppWidgetProvider() {
 
@@ -142,45 +145,39 @@ fun updateAppWidget(
         return
     }
 
-    views.setViewVisibility(R.id.files_list, View.VISIBLE)
+    views.setViewVisibility(R.id.files_list_container, View.VISIBLE)
     views.setViewVisibility(R.id.start_hunting_btn, View.GONE)
 
-        val rowIds = listOf(R.id.file_row_1, R.id.file_row_2, R.id.file_row_3)
-        val nameIds = listOf(R.id.file_1_name, R.id.file_2_name, R.id.file_3_name)
-        val catIds = listOf(R.id.file_1_category, R.id.file_2_category, R.id.file_3_category)
-        val iconIds = listOf(R.id.file_1_icon, R.id.file_2_icon, R.id.file_3_icon)
-        val iconContainerIds = listOf(R.id.file_1_icon_container, R.id.file_2_icon_container, R.id.file_3_icon_container)
-
-        for (i in 0 until 3) {
-            val rowId = rowIds[i]
-            val nameId = nameIds[i]
-            val catId = catIds[i]
-            val iconId = iconIds[i]
-            val iconContainerId = iconContainerIds[i]
-            if (i < files.size) {
-                val (name, category, path) = files[i]
-                views.setViewVisibility(rowId, View.VISIBLE)
-                views.setTextViewText(nameId, name)
-                views.setTextViewText(catId, category)
-                views.setImageViewResource(iconId, getIconForCategory(category, path))
-                views.setInt(iconId, "setColorFilter", getColorForCategory(category))
-                views.setInt(iconContainerId, "setBackgroundResource", getIconBgForCategory(category))
-
-            val openFileIntent = Intent(context, SearchWidgetProvider::class.java).apply {
-                action = SearchWidgetProvider.ACTION_OPEN_FILE
-                putExtra(SearchWidgetProvider.EXTRA_FILE_PATH, path)
-            }
-            val openFilePendingIntent = PendingIntent.getBroadcast(
-                context, i + 1, openFileIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(rowId, openFilePendingIntent)
-        } else {
-            views.setViewVisibility(rowId, View.GONE)
-        }
+    val serviceIntent = Intent(context, WidgetListService::class.java).apply {
+        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
     }
+    views.setRemoteAdapter(R.id.widget_list, serviceIntent)
 
     appWidgetManager.updateAppWidget(appWidgetId, views)
+}
+
+/** מנקה שם קובץ להצגה — מסיר סיומת (כולל .pdf-2.pdf), קווים תחתונים, תאריכים */
+private fun cleanFilenameForDisplay(filename: String): String {
+    if (filename.isBlank()) return "—"
+    var s = filename
+    // הסרת כל הסיומות — document.pdf-2.pdf → document
+    while (s.contains(".")) {
+        s = s.substring(0, s.lastIndexOf('.'))
+    }
+    // הסרת סיומת עותק -2, -3
+    s = s.replace(Regex("-\\d+$"), "")
+    // הסרת תאריכים: 2024-01-15, 15_01_2024
+    s = s.replace(Regex("\\d{4}[-_]?\\d{2}[-_]?\\d{2}"), "")
+    s = s.replace(Regex("\\d{2}[-_]\\d{2}[-_]\\d{4}"), "")
+    // קווים תחתונים ומקפים → רווחים
+    s = s.replace("_", " ").replace("-", " ")
+    return s.trim().replace(Regex("\\s+"), " ").ifBlank { filename }
+}
+
+/** מנקה שם קטגוריה להצגה — קווים תחתונים → רווחים */
+private fun cleanCategoryForDisplay(category: String?): String {
+    if (category.isNullOrBlank()) return "—"
+    return category.replace("_", " ").replace("-", " ").trim()
 }
 
 /** צבע לפי קטגוריה — תמיכה דו־לשונית */
@@ -198,6 +195,8 @@ private fun getColorForCategory(category: String?): Int {
         c.contains("id") || c.contains("תעודה") || c.contains("passport") || c.contains("דרכון") ||
         c.contains("legal") || c.contains("משפטי") || c.contains("contract") || c.contains("חוזה") ->
             Color.parseColor("#FFC107")
+        c.contains("salary") || c.contains("payslip") || c.contains("תלוש") || c.contains("משכורת") ->
+            Color.parseColor("#4CAF50")
         else -> Color.parseColor("#9E9E9E")
     }
 }
@@ -217,6 +216,8 @@ private fun getIconBgForCategory(category: String?): Int {
         c.contains("id") || c.contains("תעודה") || c.contains("passport") || c.contains("דרכון") ||
         c.contains("legal") || c.contains("משפטי") || c.contains("contract") || c.contains("חוזה") ->
             R.drawable.icon_bg_amber
+        c.contains("salary") || c.contains("payslip") || c.contains("תלוש") || c.contains("משכורת") ->
+            R.drawable.icon_bg_green
         else -> R.drawable.icon_bg_grey
     }
 }
@@ -242,23 +243,37 @@ private fun getIconForCategory(category: String?, path: String): Int {
     }
 }
 
-private fun parseCachedFiles(raw: String?): List<Triple<String, String, String>> {
+private fun parseCachedFiles(raw: String?): List<WidgetFile> {
     if (raw.isNullOrEmpty()) return emptyList()
     return try {
         val arr = JSONArray(raw)
-        val list = mutableListOf<Triple<String, String, String>>()
-        for (i in 0 until minOf(arr.length(), 3)) {
+        val list = mutableListOf<WidgetFile>()
+        for (i in 0 until minOf(arr.length(), 15)) {
             val obj = arr.getJSONObject(i)
             val n = obj.optString("n", "")
             val p = obj.optString("p", "")
             if (n.isNotEmpty() && p.isNotEmpty()) {
-                list.add(Triple(n, obj.optString("c", "—"), p))
+                list.add(WidgetFile(
+                    name = n,
+                    category = obj.optString("c", "—"),
+                    path = p,
+                    timestamp = obj.optLong("t", 0L)
+                ))
             }
         }
         list
     } catch (_: Exception) {
         emptyList()
     }
+}
+
+/** פורמט תאריך קצר להצגה — dd/MM או "היום". אם אין תאריך — חץ "פתח" */
+private fun formatDateForDisplay(timestamp: Long): String {
+    if (timestamp <= 0) return "›"
+    val date = Date(timestamp)
+    val today = Date()
+    val sdf = SimpleDateFormat("dd/MM", Locale("he"))
+    return if (sdf.format(date) == sdf.format(today)) "היום" else sdf.format(date)
 }
 
 /** מצב ריק — מטמון ריק או כשל טעינה */
@@ -285,7 +300,7 @@ private fun showStartHuntingState(
     views: RemoteViews,
     openAppPendingIntent: PendingIntent
 ) {
-    views.setViewVisibility(R.id.files_list, View.GONE)
+    views.setViewVisibility(R.id.files_list_container, View.GONE)
     views.setViewVisibility(R.id.start_hunting_btn, View.VISIBLE)
     views.setOnClickPendingIntent(R.id.search_bar, openAppPendingIntent)
     views.setOnClickPendingIntent(R.id.start_hunting_btn, openAppPendingIntent)

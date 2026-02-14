@@ -105,8 +105,30 @@ using (var scope = app.Services.CreateScope())
 }
 
 // לוג הפעלה — בודק טעינת Telegram מ-IConfiguration (ללא הדפסת הסוד)
-var telegramToken = builder.Configuration["TELEGRAM_BOT_TOKEN"];
+var telegramToken = builder.Configuration["TELEGRAM_BOT_TOKEN"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
 Log.Information("Server starting... Telegram integration enabled: {Enabled}", !string.IsNullOrEmpty(telegramToken));
+
+// רישום Webhook אוטומטי — אם Token ו-APP_URL מוגדרים
+var appUrl = Environment.GetEnvironmentVariable("APP_URL") ?? builder.Configuration["Admin:AppUrl"];
+if (!string.IsNullOrEmpty(telegramToken) && !string.IsNullOrEmpty(appUrl))
+{
+    try
+    {
+        var webhookUrl = $"{appUrl.TrimEnd('/')}/api/telegram/webhook";
+        using var http = new HttpClient();
+        var setWebhookUrl = $"https://api.telegram.org/bot{telegramToken}/setWebhook?url={Uri.EscapeDataString(webhookUrl)}";
+        var response = await http.GetAsync(setWebhookUrl);
+        var body = await response.Content.ReadAsStringAsync();
+        if (response.IsSuccessStatusCode)
+            Log.Information("[TELEGRAM] Webhook registered successfully: {Url}", webhookUrl);
+        else
+            Log.Warning("[TELEGRAM] Webhook registration failed: {Status} {Body}", response.StatusCode, body);
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "[TELEGRAM] Webhook registration error");
+    }
+}
 
 // Root endpoint
 app.MapGet("/", () => new { 

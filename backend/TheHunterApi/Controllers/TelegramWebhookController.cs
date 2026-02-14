@@ -41,7 +41,23 @@ public class TelegramWebhookController : ControllerBase
         else if (update.Message != null)
             fromId = update.Message.From?.Id.ToString();
 
-        if (string.IsNullOrEmpty(AllowedAdminUserId) || string.IsNullOrEmpty(fromId) || fromId != AllowedAdminUserId)
+        // טיפול ב-/start — מגיב לכל משתמש (אדמין או לא)
+        if (update.Message != null && string.Equals(update.Message.Text?.Trim(), "/start", StringComparison.OrdinalIgnoreCase))
+        {
+            var chatId = update.Message.Chat?.Id.ToString();
+            if (!string.IsNullOrEmpty(chatId) && !string.IsNullOrEmpty(fromId))
+            {
+                if (fromId == AllowedAdminUserId)
+                    await _telegram.SendMessageToChatAsync(chatId, "Welcome back, Admin. System is active.", cancellationToken);
+                else
+                    await _telegram.SendMessageToChatAsync(chatId, $"Unauthorized access. Your ID: {fromId}", cancellationToken);
+            }
+            return Ok();
+        }
+
+        // CallbackQuery — רק אדמין מורשה
+        if (update.CallbackQuery != null &&
+            (string.IsNullOrEmpty(AllowedAdminUserId) || string.IsNullOrEmpty(fromId) || fromId != AllowedAdminUserId))
         {
             _logger.LogWarning("Telegram webhook rejected: from.id {FromId} not allowed (TELEGRAM_CHAT_ID not set or mismatch).", fromId);
             return Unauthorized();

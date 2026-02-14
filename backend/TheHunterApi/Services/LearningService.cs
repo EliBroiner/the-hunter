@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using TheHunterApi.Models;
 
 namespace TheHunterApi.Services;
 
@@ -29,11 +30,13 @@ public class LearningService : ILearningService
 
     private readonly FirestoreDb _firestore;
     private readonly ILogger<LearningService> _logger;
+    private readonly INotificationService _notification;
 
-    public LearningService(FirestoreDb firestore, ILogger<LearningService> logger)
+    public LearningService(FirestoreDb firestore, ILogger<LearningService> logger, INotificationService notification)
     {
         _firestore = firestore;
         _logger = logger;
+        _notification = notification;
     }
 
     public async Task ProcessAiResultAsync(string term, string category, string? userId = null)
@@ -72,11 +75,50 @@ public class LearningService : ILearningService
             var col = _firestore.Collection(CollectionSuggestions);
             var newDoc = await col.AddAsync(data);
             _logger.LogInformation("[Server] Successfully saved to DB. Document ID: {Id}", newDoc.Id);
+
+            // התראה בזמן אמת — אם יש >= 5 מונחים ממתינים
+            await TriggerRealtimeAlertIfNeededAsync(cancellationToken: default);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Server] CRITICAL: Failed to save to DB. Error: {Message}", ex.Message);
             throw;
+        }
+    }
+
+    private const int RealtimeAlertThreshold = 5;
+
+    private async Task TriggerRealtimeAlertIfNeededAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var col = _firestore.Collection(CollectionSuggestions);
+            var query = col.WhereEqualTo("status", StatusPendingApproval);
+            var snapshot = await query.GetSnapshotAsync(cancellationToken);
+            var count = snapshot.Count;
+            if (count < RealtimeAlertThreshold) return;
+
+            LearnedTerm? firstTerm = null;
+            var firstDoc = snapshot.Documents.OrderBy(d => d.CreateTime).FirstOrDefault();
+            if (firstDoc != null)
+            {
+                var d = firstDoc.ToDictionary();
+                static string? Get(Dictionary<string, object> dict, string key) =>
+                    dict.TryGetValue(key, out var v) ? v?.ToString() : null;
+                firstTerm = new LearnedTerm
+                {
+                    FirestoreId = firstDoc.Id,
+                    Term = Get(d, "term") ?? "",
+                    Category = Get(d, "category") ?? "",
+                    UserId = Get(d, "userId"),
+                };
+            }
+            _logger.LogInformation("[TELEGRAM] Real-time alert triggered by new AI results.");
+            await _notification.NotifyIfPendingThresholdAsync(count, firstTerm, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[LearningService] Failed to trigger real-time alert");
         }
     }
 

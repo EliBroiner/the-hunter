@@ -26,4 +26,9 @@ public interface ITelegramService
     /// עונה ל-callback_query (לאחר לחיצה על כפתור Inline).
     /// </summary>
     Task AnswerCallbackQueryAsync(string callbackQueryId, string text, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// שולח הודעה לצ'אט ספציפי (למשל תשובה ל-/start).
+    /// </summary>
+    Task SendMessageToChatAsync(string chatId, string text, CancellationToken cancellationToken = default);
 }

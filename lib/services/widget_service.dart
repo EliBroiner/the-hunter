@@ -48,7 +48,7 @@ class WidgetService {
   static const String _androidWidgetName = 'SearchWidgetProvider';
   static const String _appGroupId = 'group.com.thehunter.the_hunter';
   static const String _cacheKey = 'widget_recent_data';
-  static const int _maxCachedFiles = 3;
+  static const int _maxCachedFiles = 15;
 
   Future<void> init() async {
     try {
