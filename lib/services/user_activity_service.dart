@@ -20,7 +20,7 @@ class UserActivityService {
   Timer? _idleTimer;
   
   // זמן המתנה עד שהמשתמש נחשב "במנוחה"
-  static const Duration _idleThreshold = Duration(seconds: 2);
+  static const Duration _idleThreshold = Duration(milliseconds: 1500);
 
   /// נקרא בכל פעם שיש אינטראקציה (מגע) עם המסך
   void onUserInteraction() {

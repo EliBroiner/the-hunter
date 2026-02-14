@@ -20,6 +20,7 @@ import '../services/hybrid_search_controller.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
 import '../services/widget_service.dart';
+import '../ui/widgets/processing_spinner.dart';
 import '../services/google_drive_service.dart';
 import '../models/ai_analysis_response.dart';
 import '../services/category_manager_service.dart';
@@ -2485,6 +2486,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         const SizedBox(width: 12),
         Text('חיפוש', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
         const Spacer(),
+        const ProcessingSpinner(),
         if (_pendingService.totalCount > 0)
           Padding(
             padding: const EdgeInsets.only(right: 4),

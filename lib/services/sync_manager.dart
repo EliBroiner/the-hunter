@@ -6,7 +6,7 @@ import 'category_manager_service.dart';
 import 'knowledge_base_service.dart';
 import 'log_service.dart';
 
-/// שירות סנכרון תקופתי — בודק גרסת מילון וקטגוריות בעת חזרה ל־Foreground או כל 10 דקות.
+/// שירות סנכרון תקופתי — בודק גרסת מילון וקטגוריות בעת חזרה ל־Foreground או כל 60 דקות.
 class PeriodicSyncService {
   static PeriodicSyncService? _instance;
   static PeriodicSyncService get instance {
@@ -16,16 +16,16 @@ class PeriodicSyncService {
 
   PeriodicSyncService._();
 
-  static const Duration _interval = Duration(minutes: 10);
-  static const Duration _throttle = Duration(minutes: 5);
+  static const Duration _interval = Duration(minutes: 60);
+  static const Duration syncThrottleDuration = Duration(minutes: 30);
   Timer? _timer;
   DateTime? _lastCheck;
 
   /// מתחיל את הטיימר התקופתי. קוראים אחרי bootstrap.
   void start() {
     _timer?.cancel();
-    _timer = Timer.periodic(_interval, (_) => _runCheck());
-    if (kDebugMode) appLog('[SYNC] PeriodicSyncService started (every 10 min)');
+    _timer = Timer.periodic(_interval, (_) => _runCheck(forceSync: false));
+    if (kDebugMode) appLog('[SYNC] PeriodicSyncService started (every 60 min)');
   }
 
   /// עוצר את הטיימר.
@@ -34,20 +34,26 @@ class PeriodicSyncService {
     _timer = null;
   }
 
-  /// נקרא כשהאפליקציה חוזרת ל־Foreground (WidgetsBindingObserver.didChangeAppLifecycleState).
+  /// נקרא כשהאפליקציה חוזרת ל־Foreground.
   void onAppForeground() {
-    _runCheck();
+    _runCheck(forceSync: false);
   }
 
-  /// בודק גרסה ומבצע סנכרון רקע רק אם יש עדכונים. ללא overlay.
-  Future<void> checkDictionaryVersion() async {
-    await _runCheck();
+  /// בודק גרסה ומבצע סנכרון. [forceSync] או [hasUncategorized] — עוקף throttle.
+  Future<void> checkDictionaryVersion({
+    bool forceSync = false,
+    bool hasUncategorized = false,
+  }) async {
+    await _runCheck(forceSync: forceSync, hasUncategorized: hasUncategorized);
   }
 
-  Future<void> _runCheck() async {
-    if (_lastCheck != null &&
-        DateTime.now().difference(_lastCheck!) < _throttle) {
-      return; // דילוג — פחות מ־5 דקות מאז הסנכרון האחרון
+  Future<void> _runCheck({bool forceSync = false, bool hasUncategorized = false}) async {
+    final bypassThrottle = forceSync || hasUncategorized;
+    if (!bypassThrottle &&
+        _lastCheck != null &&
+        DateTime.now().difference(_lastCheck!) < syncThrottleDuration) {
+      appLog('[SYNC] Skipping auto-sync: last sync was less than 30 mins ago.');
+      return;
     }
     _lastCheck = DateTime.now();
 

@@ -9,6 +9,7 @@ import '../../../services/app_check_http_helper.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/database_service.dart';
 import '../../../services/knowledge_base_service.dart';
+import '../../../services/sync_manager.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
 import '../../../services/prompt_admin_service.dart';
@@ -495,7 +496,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   Future<void> _forceSyncFromCloud() async {
     _labLog('Force sync...');
     try {
-      await KnowledgeBaseService.instance.syncDictionaryWithServer();
+      await PeriodicSyncService.instance.checkDictionaryVersion(forceSync: true);
       setState(() {
         _lastSyncTime = DateTime.now();
       });

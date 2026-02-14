@@ -1,4 +1,5 @@
 import 'dart:ui' show PlatformDispatcher;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -62,9 +63,17 @@ Future<void> bootstrapApp() async {
   };
 
   await Purchases.setLogLevel(LogLevel.debug);
-  await Purchases.configure(
-    PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
-  );
+  try {
+    await Purchases.configure(
+      PurchasesConfiguration('goog_ffZaXsWeIyIjAdbRlvAwEhwTDSZ'),
+    );
+  } on PlatformException catch (e) {
+    if (e.code == '23') {
+      appLog('[SUBSCRIPTION] Pending configuration');
+    } else {
+      rethrow;
+    }
+  }
 
   await DatabaseService.instance.init();
   await KnowledgeBaseService.instance.initialize();

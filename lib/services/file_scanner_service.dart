@@ -771,17 +771,47 @@ class FileScannerService {
     return (resetCount: n, result: result);
   }
 
+  /// עיבוד מקבילי — עד [parallelism] קבצים במקביל בתוך אצווה.
+  static const int maxBatchSize = 5;
+  static const int parallelism = 3;
+
+  /// מעבד קובץ בודד — מחזיר true אם יש טקסט מחולץ.
+  Future<bool> _processOneFile(
+    FileMetadata file,
+    bool Function()? shouldPause,
+  ) async {
+    appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
+    try {
+      await FileProcessingService.instance.processFileWorkflow(
+        file,
+        isPro: SettingsService.instance.isPremium,
+        isCanceled: shouldPause,
+      );
+      _mergeContentTags(file, file.name, file.extension);
+      _databaseService.updateFile(file);
+      appLog('✅ Done processing: ${file.path}');
+      return (file.extractedText ?? '').isNotEmpty;
+    } catch (e, st) {
+      appLog('❌ CRASH on file: ${file.path} - ${sanitizeError(e, st)}');
+      file.isIndexed = true;
+      file.extractedText = '';
+      file.aiStatus = 'error';
+      _databaseService.updateFile(file);
+      return false;
+    }
+  }
+
   /// מעבד קבצים שטרם עברו אינדוקס (OCR לתמונות, חילוץ טקסט למסמכים)
-  /// עיבוד בקצב מבוקר — לא לחנוק את המעבד. ברירת מחדל: batch=1, השהיות ארוכות.
+  /// עיבוד מקבילי — עד 3 קבצים ב-Future.wait במקביל, אצוות של 5.
   /// shouldPause - פונקציה שמחזירה true אם צריך להשהות את העיבוד
   /// maxFilesPerSession - מגביל כמה קבצים לעבד במהלך קריאה אחת (למניעת חימום יתר)
   Future<ProcessResult> processPendingFiles({
     Function(int current, int total)? onProgress,
     bool Function()? shouldPause,
     int? maxFilesPerSession,
-    int batchSize = 1,  // ברקע: קובץ אחד בכל פעם — פחות עומס CPU
+    int batchSize = maxBatchSize,
     int delayBetweenBatchesMs = 800,  // השהיה בין אצוות
-    int delayBetweenFilesMs = 300,  // השהיה בין קבצים
+    int delayBetweenFilesMs = 100,   // השהיה קצרה בין קבצים בתוך אצווה
   }) async {
     try {
       // קבלת כל הקבצים שטרם עובדו
@@ -798,29 +828,25 @@ class FileScannerService {
         );
       }
 
-      // סנכרון מהיר לפני אצווה — וידוא חוקים/מילון עדכניים
-      await PeriodicSyncService.instance.checkDictionaryVersion();
+      // סנכרון מהיר לפני אצווה — עוקף throttle כי יש קבצים חדשים (אולי Uncategorized)
+      await PeriodicSyncService.instance.checkDictionaryVersion(hasUncategorized: true);
 
       appLog('PROCESS: ${pendingImages.length} images, ${pendingTextFiles.length} text files (batch: $batchSize)');
 
       int filesProcessed = 0;
       int filesWithText = 0;
-      int batchCount = 0;
+      final allPending = [...pendingImages, ...pendingTextFiles];
+      var offset = 0;
 
-      // עיבוד תמונות עם OCR - בקצב מבוקר, yield ל-UI בין קבצים
-      for (final file in pendingImages) {
+      while (offset < allPending.length) {
         if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
-        await Future.delayed(Duration.zero);  // yield למעבד — נותן ל-UI לנשום
-        appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
+        await Future.delayed(Duration.zero);
 
-        // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
         if (UserActivityService.instance.isUserActive.value) {
           appLog('PROCESS: Paused (user active), waiting for idle...');
           await UserActivityService.instance.waitForIdle();
           appLog('PROCESS: Resumed (user idle)');
         }
-
-        // בדיקה אם צריך להשהות (משתמש פעיל באפליקציה)
         if (shouldPause?.call() == true) {
           appLog('PROCESS: Paused by user activity');
           return ProcessResult(
@@ -830,99 +856,41 @@ class FileScannerService {
             message: 'עיבוד הושהה - $filesProcessed קבצים עובדו',
           );
         }
-        
-        onProgress?.call(filesProcessed + 1, totalPending);
 
-        try {
-          await FileProcessingService.instance.processFileWorkflow(
-            file,
-            isPro: SettingsService.instance.isPremium,
-            isCanceled: shouldPause,
+        final batch = allPending.skip(offset).take(batchSize).toList();
+        if (batch.isEmpty) break;
+
+        final batchStopwatch = Stopwatch()..start();
+        appLog('[PERF] Batch of ${batch.length} started in parallel.');
+
+        for (var i = 0; i < batch.length; i += parallelism) {
+          if (shouldPause?.call() == true) {
+            return ProcessResult(
+              success: true,
+              filesProcessed: filesProcessed,
+              filesWithText: filesWithText,
+              message: 'עיבוד הושהה - $filesProcessed קבצים עובדו',
+            );
+          }
+          final chunk = batch.skip(i).take(parallelism).toList();
+          final results = await Future.wait(
+            chunk.map((file) => _processOneFile(file, shouldPause)),
           );
-          _mergeContentTags(file, file.name, file.extension);
-          _databaseService.updateFile(file);
-          appLog('✅ Done processing: ${file.path}');
-
-          filesProcessed++;
-          if ((file.extractedText ?? '').isNotEmpty) filesWithText++;
-          
-          _checkAndTriggerBackup(filesProcessed);
-          
-        } catch (e, st) {
-          appLog('❌ CRASH on file: ${file.path} - ${sanitizeError(e, st)}');
-          file.isIndexed = true;
-          file.extractedText = '';
-          file.aiStatus = 'error';
-          _databaseService.updateFile(file);
-          filesProcessed++;
-          _checkAndTriggerBackup(filesProcessed);
+          for (var j = 0; j < chunk.length; j++) {
+            filesProcessed++;
+            if (results[j]) filesWithText++;
+            onProgress?.call(filesProcessed, totalPending);
+            _checkAndTriggerBackup(filesProcessed);
+          }
+          if (i + parallelism < batch.length) {
+            await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
+          }
         }
 
-        batchCount++;
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
-        if (batchCount >= batchSize) {
-          batchCount = 0;
-          await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
-        }
-      }
-
-      // עיבוד קבצי טקסט ו-PDF - בקצב מבוקר
-      for (final file in pendingTextFiles) {
-        if (maxFilesPerSession != null && filesProcessed >= maxFilesPerSession) break;
-        await Future.delayed(Duration.zero);  // yield למעבד
-        appLog('🕵️ Processing file: ${file.path} (ID: ${file.id})');
-
-        // בדיקה אם המשתמש פעיל - אם כן, ממתינים עד שיהיה במנוחה
-        if (UserActivityService.instance.isUserActive.value) {
-          appLog('PROCESS: Paused (user active), waiting for idle...');
-          await UserActivityService.instance.waitForIdle();
-          appLog('PROCESS: Resumed (user idle)');
-        }
-
-        // בדיקה אם צריך להשהות
-        if (shouldPause?.call() == true) {
-          appLog('PROCESS: Paused by user activity');
-          return ProcessResult(
-            success: true,
-            filesProcessed: filesProcessed,
-            filesWithText: filesWithText,
-            message: 'עיבוד הושהה - $filesProcessed קבצים עובדו',
-          );
-        }
-        
-        onProgress?.call(filesProcessed + 1, totalPending);
-
-        try {
-          await FileProcessingService.instance.processFileWorkflow(
-            file,
-            isPro: SettingsService.instance.isPremium,
-            isCanceled: shouldPause,
-          );
-          _mergeContentTags(file, file.name, file.extension);
-          _databaseService.updateFile(file);
-          appLog('✅ Done processing: ${file.path}');
-
-          filesProcessed++;
-          if ((file.extractedText ?? '').isNotEmpty) filesWithText++;
-          
-          _checkAndTriggerBackup(filesProcessed);
-          
-        } catch (e, st) {
-          appLog('❌ CRASH on file: ${file.path} - ${sanitizeError(e, st)}');
-          file.isIndexed = true;
-          file.extractedText = '';
-          file.aiStatus = 'error';
-          _databaseService.updateFile(file);
-          filesProcessed++;
-          _checkAndTriggerBackup(filesProcessed);
-        }
-
-        batchCount++;
-        await Future.delayed(Duration(milliseconds: delayBetweenFilesMs));
-        if (batchCount >= batchSize) {
-          batchCount = 0;
-          await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
-        }
+        batchStopwatch.stop();
+        appLog('[PERF] Total processing time for batch: ${batchStopwatch.elapsedMilliseconds}ms.');
+        offset += batch.length;
+        await Future.delayed(Duration(milliseconds: delayBetweenBatchesMs));
       }
 
       appLog('PROCESS: Done - $filesProcessed files, $filesWithText with text');

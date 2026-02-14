@@ -9,6 +9,7 @@ import 'database_service.dart';
 import 'file_scanner_service.dart';
 import 'file_watcher_service.dart';
 import 'log_service.dart';
+import 'processing_progress_service.dart';
 import 'user_activity_service.dart';
 import 'widget_service.dart';
 
@@ -27,7 +28,7 @@ class AutoScanManager with WidgetsBindingObserver {
   bool _hasLifecycleObserver = false;
   bool _appInBackground = false;
   Timer? _resumeDebounceTimer;
-  static const Duration _resumeDebounce = Duration(seconds: 3);
+  static const Duration _resumeDebounce = Duration(milliseconds: 1500);
   static const int maxFilesPerSession = 20;
 
   Function(ScanResult result)? onScanComplete;
@@ -109,11 +110,14 @@ class AutoScanManager with WidgetsBindingObserver {
     if (pendingCount > 0) {
       appLog('AutoScan: Resuming processing of $pendingCount pending files');
       _isProcessing = true;
+      ProcessingProgressService.instance.start(pendingCount);
 
       final processResult = await FileScannerService.instance.processPendingFiles(
         shouldPause: _shouldPause,
         maxFilesPerSession: maxFilesPerSession,
+        onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
       );
+      ProcessingProgressService.instance.finish();
       onProcessComplete?.call(processResult);
 
       _isProcessing = false;
@@ -153,11 +157,14 @@ class AutoScanManager with WidgetsBindingObserver {
             _isScanning = false;
             _isProcessing = true;
             onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים חדשים...');
+            ProcessingProgressService.instance.start(pendingCount);
 
             final processResult = await FileScannerService.instance.processPendingFiles(
               shouldPause: _shouldPause,
               maxFilesPerSession: maxFilesPerSession,
+              onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
             );
+            ProcessingProgressService.instance.finish();
             onProcessComplete?.call(processResult);
           }
 
@@ -181,11 +188,14 @@ class AutoScanManager with WidgetsBindingObserver {
         _isScanning = false;
         _isProcessing = true;
         onStatusUpdate?.call('מחלץ טקסט מ-$pendingCount קבצים...');
+        ProcessingProgressService.instance.start(pendingCount);
 
         final processResult = await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
           maxFilesPerSession: maxFilesPerSession,
+          onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
         );
+        ProcessingProgressService.instance.finish();
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
 
@@ -242,11 +252,15 @@ class AutoScanManager with WidgetsBindingObserver {
         _isScanning = false;
         _isProcessing = true;
         onStatusUpdate?.call('מחלץ טקסט...');
+        final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+        if (pendingCount > 0) ProcessingProgressService.instance.start(pendingCount);
 
         final processResult = await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
           maxFilesPerSession: maxFilesPerSession,
+          onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
         );
+        ProcessingProgressService.instance.finish();
         onProcessComplete?.call(processResult);
         onStatusUpdate?.call('');
       } else {
@@ -266,10 +280,14 @@ class AutoScanManager with WidgetsBindingObserver {
 
       if (!_isProcessing && !_isPaused) {
         _isProcessing = true;
+        final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+        if (pendingCount > 0) ProcessingProgressService.instance.start(pendingCount);
         await FileScannerService.instance.processPendingFiles(
           shouldPause: _shouldPause,
           maxFilesPerSession: maxFilesPerSession,
+          onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
         );
+        ProcessingProgressService.instance.finish();
         _isProcessing = false;
       }
     };
