@@ -10,6 +10,7 @@ import 'file_processing_service.dart';
 import 'log_service.dart';
 import 'permission_service.dart';
 import 'settings_service.dart';
+import 'sync_manager.dart';
 import 'user_activity_service.dart';
 
 /// מפתח לשמירת תיקיות נבחרות
@@ -796,6 +797,9 @@ class FileScannerService {
           message: 'אין קבצים לעיבוד',
         );
       }
+
+      // סנכרון מהיר לפני אצווה — וידוא חוקים/מילון עדכניים
+      await PeriodicSyncService.instance.checkDictionaryVersion();
 
       appLog('PROCESS: ${pendingImages.length} images, ${pendingTextFiles.length} text files (batch: $batchSize)');
 

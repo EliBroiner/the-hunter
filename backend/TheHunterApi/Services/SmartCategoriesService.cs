@@ -9,7 +9,9 @@ namespace TheHunterApi.Services;
 /// </summary>
 public interface ISmartCategoriesService
 {
-    Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(CancellationToken ct = default);
+    Task<int> GetCountAsync(CancellationToken ct = default);
+    Task<(int Count, string? LastModified)> GetVersionAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(DateTime? since = null, CancellationToken ct = default);
     Task<bool> AddRuleAsync(string categoryId, string type, string value, CancellationToken ct = default);
     /// <summary>מוסיף חוקים מרובים (keywords + regex) — לשימוש באישור הצעות Admin.</summary>
     Task<int> AddRulesBatchAsync(string categoryId, IReadOnlyList<string> keywords, IReadOnlyList<string> regexPatterns, CancellationToken ct = default);
@@ -32,17 +34,47 @@ public class SmartCategoriesService : ISmartCategoriesService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(CancellationToken ct = default)
+    public async Task<int> GetCountAsync(CancellationToken ct = default)
+    {
+        var col = _firestore.Collection(LearningService.CollectionSmartCategories);
+        var snapshot = await col.GetSnapshotAsync(ct);
+        return snapshot.Documents.Count;
+    }
+
+    public async Task<(int Count, string? LastModified)> GetVersionAsync(CancellationToken ct = default)
+    {
+        var list = await GetAllAsync(null, ct);
+        var withDate = list.Where(d => d.LastUpdated > DateTime.MinValue).ToList();
+        if (withDate.Count == 0) return (list.Count, null);
+        var max = withDate.Max(d => d.LastUpdated);
+        return (list.Count, max.ToUniversalTime().ToString("o"));
+    }
+
+    public async Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(DateTime? since = null, CancellationToken ct = default)
     {
         try
         {
             var col = _firestore.Collection(LearningService.CollectionSmartCategories);
-            var snapshot = await col.GetSnapshotAsync(ct);
-            var list = new List<SmartCategoryDocument>();
-            foreach (var doc in snapshot.Documents)
+            if (since.HasValue)
             {
-                var data = doc.ToDictionary();
-                list.Add(FromFirestoreDoc(doc.Id, data));
+                try
+                {
+                    var ts = Timestamp.FromDateTime(since.Value.ToUniversalTime());
+                    var query = col.WhereGreaterThan("last_updated", ts);
+                    var snapshot = await query.GetSnapshotAsync(ct);
+                    return snapshot.Documents.Select(d => FromFirestoreDoc(d.Id, d.ToDictionary())).ToList();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Firestore query with since failed. Fallback to in-memory filter.");
+                }
+            }
+            var snap = await col.GetSnapshotAsync(ct);
+            var list = new List<SmartCategoryDocument>();
+            foreach (var doc in snap.Documents)
+            {
+                var item = FromFirestoreDoc(doc.Id, doc.ToDictionary());
+                if (!since.HasValue || item.LastUpdated > since.Value) list.Add(item);
             }
             return list;
         }
@@ -79,12 +111,17 @@ public class SmartCategoriesService : ISmartCategoriesService
                     { "display_names", new Dictionary<string, string>() },
                     { "keywords", new List<string>() },
                     { "regex_patterns", new List<string>() },
+                    { "last_updated", FieldValue.ServerTimestamp },
                 };
                 await docRef.SetAsync(init, SetOptions.MergeAll, ct);
             }
 
             var field = string.Equals(type, "regex", StringComparison.OrdinalIgnoreCase) ? "regex_patterns" : "keywords";
-            await docRef.UpdateAsync(new Dictionary<string, object> { { field, FieldValue.ArrayUnion(trimmed) } });
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                { field, FieldValue.ArrayUnion(trimmed) },
+                { "last_updated", FieldValue.ServerTimestamp }
+            });
 
             _logger.LogInformation("Added rule to {CategoryId}: {Type} = {Value}", categoryId, type, trimmed);
             return true;
@@ -191,12 +228,16 @@ public class SmartCategoriesService : ISmartCategoriesService
         }
         var keywords = GetStringList(data, "keywords");
         var regexPatterns = GetStringList(data, "regex_patterns");
+        var lastUpdated = DateTime.MinValue;
+        if (data.TryGetValue("last_updated", out var lu) && lu is Timestamp ts)
+            lastUpdated = ts.ToDateTime();
         return new SmartCategoryDocument
         {
             Key = key,
             DisplayNames = displayNames,
             Keywords = keywords,
             RegexPatterns = regexPatterns,
+            LastUpdated = lastUpdated,
         };
     }
 

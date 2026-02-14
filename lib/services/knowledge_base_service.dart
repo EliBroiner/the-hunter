@@ -8,6 +8,7 @@ import '../configs/ranking_config.dart';
 import 'app_check_http_helper.dart';
 import 'database_service.dart';
 import 'log_service.dart';
+import 'sync_version_utils.dart';
 
 /// תוצאת התאמה מקומית מ-Knowledge Base (לשימוש AiAutoTaggerService)
 class AiAnalysisResult {
@@ -37,51 +38,26 @@ class KnowledgeBaseService {
   static const String _baseUrl =
       'https://the-hunter-105628026575.me-west1.run.app';
   static const String _dictionaryUpdatesPath = '/api/dictionary/updates';
+  static const String _dictionaryVersionPath = '/api/dictionary/version';
+  static const String _prefsKeyLastSyncTimestamp = 'dictionary_last_sync_timestamp';
   static const Duration _syncTimeout = Duration(seconds: 10);
+
+  /// חותמת זמן של הסנכרון האחרון (ISO8601) — מ־SharedPreferences.
+  Future<String?> get lastSyncTimestamp =>
+      SyncVersionUtils.getTimestamp(_prefsKeyLastSyncTimestamp);
 
   /// datePhrases ו-fileTypeKeywords — לחשיפה ל-SmartSearchParser
   List<DatePhraseConfig> get datePhrases => List.unmodifiable(_datePhrases);
   Map<String, List<String>> get fileTypeKeywords =>
       Map.unmodifiable(_fileTypeKeywords);
 
-  /// מאתחל: Dynamic Sync — קודם טוען מ-Isar (persistence offline), אחר כך assets, ואז סינכרון עם השרת
-  /// סדר הפעולות: 1) טעינת synonyms שמורים מ-Isar  2) smart_search_config.json  3) syncDictionaryWithServer
+  /// מאתחל: Dynamic Sync — Isar → assets → sync.
   Future<void> initialize() async {
     if (_initialized) return;
-
     try {
-      // שלב 1: טעינה מ-Isar — מונחים שסונכרנו מהשרת בעבר, זמינים גם offline בהפעלה הבאה
       await _loadSynonymsFromIsarToCache();
-
-      // שלב 2: טעינת smart_search_config.json — synonyms, datePhrases, fileTypeKeywords
-      final json =
-          await rootBundle.loadString('assets/smart_search_config.json');
-      final map = jsonDecode(json) as Map<String, dynamic>;
-
-      final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
-      final synonyms = <String, List<String>>{};
-      for (final e in synonymsRaw.entries) {
-        synonyms[e.key.toString().trim()] =
-            (e.value as List<dynamic>).map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList();
-      }
-      await _mergeSynonymsToIsarAndCache(_normalizeSynonyms(synonyms));
-
-      // DatePhrases ו-FileTypeKeywords — לזיכרון
-      final datePhrasesRaw = map['datePhrases'] as List<dynamic>? ?? [];
-      _datePhrases = datePhrasesRaw
-          .map((e) => DatePhraseConfig.fromJson(e as Map<String, dynamic>))
-          .toList();
-
-      final fileTypeRaw = map['fileTypeKeywords'] as Map<String, dynamic>? ?? {};
-      _fileTypeKeywords = <String, List<String>>{};
-      for (final e in fileTypeRaw.entries) {
-        _fileTypeKeywords[e.key.toString()] =
-            (e.value as List<dynamic>).map((x) => x.toString()).toList();
-      }
-
-      // שלב 3: סינכרון דינמי — מונחים חדשים מהשרת מתווספים ל-cache ול-Isar
+      await _loadFromAssets();
       await syncDictionaryWithServer();
-
       _initialized = true;
       appLog(
           'KnowledgeBase: loaded (Isar + assets + server), cache size: ${_synonymCache.length}');
@@ -92,72 +68,216 @@ class KnowledgeBaseService {
     }
   }
 
-  /// סינכרון מילון עם השרת — קורא GET api/dictionary/updates וממזג מונחים חדשים ל-cache ול-Isar
-  /// התשובה עשויה להיות Map או List — בדיקה דפנסיבית למניעת type `List<dynamic>` is not a subtype of `Map<String, dynamic>?`
+  Future<void> _loadFromAssets() async {
+    final json =
+        await rootBundle.loadString('assets/smart_search_config.json');
+    final map = jsonDecode(json) as Map<String, dynamic>;
+    await _mergeSynonymsFromAssets(map);
+    _loadDatePhrasesAndFileTypes(map);
+  }
+
+  Future<void> _mergeSynonymsFromAssets(Map<String, dynamic> map) async {
+    final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
+    final synonyms = <String, List<String>>{};
+    for (final e in synonymsRaw.entries) {
+      synonyms[e.key.toString().trim()] =
+          (e.value as List<dynamic>).map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList();
+    }
+    await _mergeSynonymsToIsarAndCache(_normalizeSynonyms(synonyms));
+  }
+
+  void _loadDatePhrasesAndFileTypes(Map<String, dynamic> map) {
+    _loadDatePhrases(map);
+    _loadFileTypeKeywords(map);
+  }
+
+  void _loadDatePhrases(Map<String, dynamic> map) {
+    final raw = map['datePhrases'] as List<dynamic>? ?? [];
+    _datePhrases = raw
+        .map((e) => DatePhraseConfig.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  void _loadFileTypeKeywords(Map<String, dynamic> map) {
+    final raw = map['fileTypeKeywords'] as Map<String, dynamic>? ?? {};
+    _fileTypeKeywords = <String, List<String>>{};
+    for (final e in raw.entries) {
+      _fileTypeKeywords[e.key.toString()] =
+          (e.value as List<dynamic>).map((x) => x.toString()).toList();
+    }
+  }
+
+  /// בודק גרסה קלה — אם השרת חדש יותר, מבצע סנכרון חכם. מחזיר true אם בוצע סנכרון.
+  Future<bool> checkVersionAndSyncIfNeeded({bool silent = false}) async {
+    try {
+      final version = await _fetchDictionaryVersion();
+      if (version == null) {
+        await _syncFull();
+        return true;
+      }
+      final local = await lastSyncTimestamp ?? '';
+      if (version.lastModified != null && version.lastModified == local) {
+        return false;
+      }
+      await syncDictionaryWithServer();
+      return true;
+    } catch (e) {
+      appLog('KnowledgeBase: checkVersionAndSyncIfNeeded error - $e');
+      return false;
+    }
+  }
+
+  Future<({String version, String? lastModified})?> _fetchDictionaryVersion() =>
+      SyncVersionUtils.fetchVersion('$_baseUrl$_dictionaryVersionPath');
+
+  Future<void> _saveLastSyncTimestamp(String ts) =>
+      SyncVersionUtils.saveTimestamp(_prefsKeyLastSyncTimestamp, ts);
+
+  /// סנכרון חכם: בודק גרסה, מושך רק שינויים מאז lastSyncTimestamp.
   Future<void> syncDictionaryWithServer() async {
     try {
-      final uri = Uri.parse('$_baseUrl$_dictionaryUpdatesPath');
-      final headers = await AppCheckHttpHelper.getBackendHeaders();
-      final response = await http.get(uri, headers: headers).timeout(_syncTimeout);
+      final version = await _fetchDictionaryVersion();
+      final localTs = await lastSyncTimestamp;
+      final serverLastModified = version?.lastModified;
 
-      if (response.statusCode != 200) {
-        appLog('KnowledgeBase: syncDictionary failed ${response.statusCode}');
+      if (_shouldDoIncremental(serverLastModified, localTs)) {
+        await _doSmartSync(localTs!, serverLastModified!);
         return;
       }
+      if (_hasLocalAndNoUpdates(serverLastModified, localTs)) {
+        appLog('[SYNC] No new updates found on server. Using local cache.');
+        return;
+      }
+      await _syncFull();
+    } catch (e) {
+      appLog('KnowledgeBase: syncDictionaryWithServer error - $e');
+      await _syncFull();
+    }
+  }
 
-      final data = jsonDecode(response.body);
+  bool _shouldDoIncremental(String? server, String? local) =>
+      server != null &&
+      local != null &&
+      local.isNotEmpty &&
+      SyncVersionUtils.isServerNewer(server, local);
 
-      // זרימה: תשובה List = רשימת synonyms; תשובה Map = synonyms + rankingConfig
+  bool _hasLocalAndNoUpdates(String? server, String? local) =>
+      server != null && local != null && local.isNotEmpty && server == local;
+
+  Future<void> _doSmartSync(String localTs, String serverLastModified) async {
+    appLog('[SYNC] מבצע סנכרון חכם. מושך רק שינויים מאז: $localTs');
+    final ok = await _syncIncremental(localTs);
+    if (ok && serverLastModified.isNotEmpty) {
+      await _saveLastSyncTimestamp(serverLastModified);
+    } else if (!ok) {
+      appLog('[SYNC] סנכרון אינקרמנטלי נכשל — מבצע סנכרון מלא.');
+      await _syncFull();
+    }
+  }
+
+  Future<bool> _syncIncremental(String since) async {
+    try {
+      final data = await _fetchUpdates(since: since);
+      if (data == null) return false;
+      await _applyUpdatesFromResponse(data);
+      final version = await _fetchDictionaryVersion();
+      if (version?.lastModified != null) {
+        await _saveLastSyncTimestamp(version!.lastModified!);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _syncFull() async {
+    final data = await _fetchUpdates();
+    if (data == null) return;
+    await _applyUpdatesFromResponse(data);
+    final version = await _fetchDictionaryVersion();
+    if (version?.lastModified != null) {
+      await _saveLastSyncTimestamp(version!.lastModified!);
+    }
+  }
+
+  Future<dynamic> _fetchUpdates({String? since}) async {
+    final uri = since != null
+        ? Uri.parse('$_baseUrl$_dictionaryUpdatesPath')
+            .replace(queryParameters: {'since': since})
+        : Uri.parse('$_baseUrl$_dictionaryUpdatesPath');
+    final headers = await AppCheckHttpHelper.getBackendHeaders();
+    final r = await http.get(uri, headers: headers).timeout(_syncTimeout);
+    if (r.statusCode != 200) {
+      appLog('KnowledgeBase: syncDictionary failed ${r.statusCode}');
+      return null;
+    }
+    return jsonDecode(r.body);
+  }
+
+  Future<void> _applyUpdatesFromResponse(dynamic data) async {
+    try {
       if (data is List) {
-        // השרת החזיר רשימה — מטפלים כ-synonyms (למשל [{term, category}, ...])
-        final synonyms = _parseSynonymsFromList(data);
-        final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
-        if (kDebugMode) appLog('SYNC: Received $recordCount records from API (List format)');
-        if (synonyms.isNotEmpty) {
-          await _mergeSynonymsToIsarAndCache(synonyms);
-          appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from List response');
-        }
+        await _applyListFormat(data);
         return;
       }
-
       if (data is! Map<String, dynamic>) {
         appLog('KnowledgeBase: syncDictionary — Unexpected format: ${data.runtimeType}');
         return;
       }
-
-      final map = data;
-
-      // מיזוג synonyms — חילוץ בטוח עם as Map<String, dynamic>? למניעת cast error
-      final synonymsRaw = map['synonyms'];
-      final synonyms = <String, List<String>>{};
-      if (synonymsRaw is Map<String, dynamic>) {
-        for (final e in synonymsRaw.entries) {
-          final vals = e.value;
-          synonyms[e.key.toString().trim()] = vals is List
-              ? vals.map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList()
-              : [vals.toString().trim()];
-        }
-        final normalized = _normalizeSynonyms(synonyms);
-        synonyms..clear()..addAll(normalized);
-      } else if (synonymsRaw is List) {
-        synonyms.addAll(_parseSynonymsFromList(synonymsRaw));
-      }
-      if (synonyms.isNotEmpty) {
-        final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
-        if (kDebugMode) appLog('SYNC: Received $recordCount records from API (Map format)');
-        await _mergeSynonymsToIsarAndCache(synonyms);
-        appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
-      }
-
-      // עדכון rankingConfig — בדיקת טיפוס לפני cast (מניעת List/Map cast error)
-      final rankingRaw = map['rankingConfig'];
-      final rankingData = rankingRaw is Map<String, dynamic> ? rankingRaw : null;
-      if (rankingData != null) {
-        RankingConfig.instance.applyFromServer(rankingData);
-        appLog('KnowledgeBase: syncDictionary applied rankingConfig from server');
-      }
+      await _applyMapFormat(data);
     } catch (e) {
-      appLog('KnowledgeBase: syncDictionaryWithServer error - $e');
+      appLog('KnowledgeBase: _applyUpdatesFromResponse error - $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _applyListFormat(List data) async {
+    final synonyms = _parseSynonymsFromList(data);
+    if (synonyms.isEmpty) return;
+    if (kDebugMode) {
+      final n = synonyms.values.fold<int>(0, (s, t) => s + t.length);
+      appLog('SYNC: Received $n records from API (List format)');
+    }
+    await _mergeSynonymsToIsarAndCache(synonyms);
+    appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from List response');
+  }
+
+  Future<void> _applyMapFormat(Map<String, dynamic> map) async {
+    final synonyms = _extractSynonymsFromMap(map);
+    if (synonyms.isNotEmpty) {
+      if (kDebugMode) {
+        final n = synonyms.values.fold<int>(0, (s, t) => s + t.length);
+        appLog('SYNC: Received $n records from API (Map format)');
+      }
+      await _mergeSynonymsToIsarAndCache(synonyms);
+      appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
+    }
+    _applyRankingConfig(map['rankingConfig']);
+  }
+
+  Map<String, List<String>> _extractSynonymsFromMap(Map<String, dynamic> map) {
+    final synonymsRaw = map['synonyms'];
+    final synonyms = <String, List<String>>{};
+    if (synonymsRaw is Map<String, dynamic>) {
+      for (final e in synonymsRaw.entries) {
+        final vals = e.value;
+        synonyms[e.key.toString().trim()] = vals is List
+            ? vals.map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList()
+            : [vals.toString().trim()];
+      }
+      return _normalizeSynonyms(synonyms);
+    }
+    if (synonymsRaw is List) {
+      return _parseSynonymsFromList(synonymsRaw);
+    }
+    return synonyms;
+  }
+
+  void _applyRankingConfig(dynamic rankingRaw) {
+    final data = rankingRaw is Map<String, dynamic> ? rankingRaw : null;
+    if (data != null) {
+      RankingConfig.instance.applyFromServer(data);
+      appLog('KnowledgeBase: syncDictionary applied rankingConfig from server');
     }
   }
 

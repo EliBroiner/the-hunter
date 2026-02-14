@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../services/settings_service.dart';
+import '../services/sync_manager.dart';
 import '../services/user_activity_service.dart';
 import '../ui/screens/debug/ai_lab_screen.dart';
 import '../ui/screens/debug/workflow_test_screen.dart';
@@ -40,7 +41,9 @@ class _TheHunterAppState extends State<TheHunterApp> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // לא קוראים dispose() ברקע — מונע SocketException בהעלאה אטומית
+    if (state == AppLifecycleState.resumed) {
+      PeriodicSyncService.instance.onAppForeground();
+    }
   }
 
   @override

@@ -295,10 +295,12 @@ public class AdminFirestoreService
         {
             LogWriteAttempt(ColKnowledgeBase, "Update");
             var ref_ = _db.Collection(ColKnowledgeBase).Document(documentId);
+            var now = Timestamp.FromDateTime(DateTime.UtcNow);
             await ref_.UpdateAsync(new Dictionary<string, object>
             {
                 { "isApproved", true },
-                { "lastSeen", Timestamp.FromDateTime(DateTime.UtcNow) },
+                { "lastSeen", now },
+                { "lastModified", now },
             });
             return true;
         }
@@ -738,6 +740,7 @@ public class AdminFirestoreService
                 { "term", term ?? "" },
                 { "definition", definition ?? "" },
                 { "category", category ?? "" },
+                { "lastModified", Timestamp.FromDateTime(DateTime.UtcNow) },
             });
             return true;
         }
@@ -776,7 +779,7 @@ public class AdminFirestoreService
     {
         try
         {
-            var list = await GetApprovedTermsForExportAsync();
+            var list = await GetApprovedTermsForExportAsync(null);
             var today = DateTime.UtcNow.Date;
             return list.Count(t => t.LastSeen.Date == today);
         }
@@ -803,17 +806,47 @@ public class AdminFirestoreService
         catch { return 0; }
     }
 
-    /// <summary>כל המונחים שאושרו — לייצוא Excel.</summary>
-    public async Task<List<LearnedTerm>> GetApprovedTermsForExportAsync()
+    /// <summary>מחזיר (count, lastModified ISO8601) לבדיקת גרסה.</summary>
+    public async Task<(int Count, string? LastModified)> GetDictionaryVersionAsync()
+    {
+        var terms = await GetApprovedTermsForExportAsync(null);
+        if (terms.Count == 0) return (0, null);
+        var max = terms.Max(t => t.LastSeen);
+        return (terms.Count, max.ToUniversalTime().ToString("o"));
+    }
+
+    /// <summary>כל המונחים שאושרו. since=ISO8601 — Firestore query: lastSeen > since. Fallback למסנן בזיכרון אם אין index.</summary>
+    public async Task<List<LearnedTerm>> GetApprovedTermsForExportAsync(DateTime? since)
     {
         var list = new List<LearnedTerm>();
         try
         {
-            var snap = await _db.Collection(ColKnowledgeBase).WhereEqualTo("isApproved", true).GetSnapshotAsync();
-            foreach (var doc in snap.Documents)
+            if (since.HasValue)
+            {
+                try
+                {
+                    var ts = Timestamp.FromDateTime(since.Value.ToUniversalTime());
+                    var query = _db.Collection(ColKnowledgeBase)
+                        .WhereEqualTo("isApproved", true)
+                        .WhereGreaterThan("lastSeen", ts);
+                    var snap = await query.GetSnapshotAsync();
+                    foreach (var doc in snap.Documents)
+                    {
+                        var t = MapDocToLearnedTerm(doc.Id, doc.ToDictionary());
+                        if (t != null) list.Add(t);
+                    }
+                    return list;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Firestore query with since failed (index may be missing). Fallback to in-memory filter.");
+                }
+            }
+            var fallbackSnap = await _db.Collection(ColKnowledgeBase).WhereEqualTo("isApproved", true).GetSnapshotAsync();
+            foreach (var doc in fallbackSnap.Documents)
             {
                 var t = MapDocToLearnedTerm(doc.Id, doc.ToDictionary());
-                if (t != null) list.Add(t);
+                if (t != null && (!since.HasValue || t.LastSeen > since.Value)) list.Add(t);
             }
         }
         catch { }
@@ -867,7 +900,7 @@ public class AdminFirestoreService
             var isApproved = GetField(data, "isApproved") is bool b && b;
             var userId = GetField(data, "userId")?.ToString();
             var lastSeen = DateTime.UtcNow;
-            var tsVal = GetField(data, "lastSeen") ?? GetField(data, "timestamp");
+            var tsVal = GetField(data, "lastModified") ?? GetField(data, "lastSeen") ?? GetField(data, "timestamp");
             if (tsVal is Timestamp ts)
                 lastSeen = ts.ToDateTime();
             return new LearnedTerm

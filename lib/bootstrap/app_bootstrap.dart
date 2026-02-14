@@ -14,6 +14,7 @@ import '../services/knowledge_base_service.dart';
 import '../services/log_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/secure_folder_service.dart';
+import '../services/sync_manager.dart';
 import '../services/settings_service.dart';
 import '../services/tags_service.dart';
 import '../services/widget_service.dart';
@@ -77,4 +78,5 @@ Future<void> bootstrapApp() async {
   await TagsService.instance.init();
   await WidgetService.instance.init();
   await SecureFolderService.instance.init();
+  PeriodicSyncService.instance.start();
 }

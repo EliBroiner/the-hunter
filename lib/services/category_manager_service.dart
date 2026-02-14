@@ -7,6 +7,7 @@ import '../models/smart_category.dart';
 import 'app_check_http_helper.dart';
 import 'knowledge_base_service.dart';
 import 'log_service.dart';
+import 'sync_version_utils.dart';
 
 /// שירות קטגוריות חכמות — טעינה מ-API, העשרת תגיות, והוספת חוק (Regex/Keyword) ל-Firestore דרך השרת.
 class CategoryManagerService {
@@ -20,38 +21,137 @@ class CategoryManagerService {
 
   static const String _baseUrl = 'https://the-hunter-105628026575.me-west1.run.app';
   static const String _smartCategoriesPath = '/api/smart-categories';
+  static const String _prefsKeyLastSyncTimestamp = 'smart_categories_last_sync_timestamp';
   static const Duration _timeout = Duration(seconds: 15);
 
   final Map<String, SmartCategory> _categories = {};
   bool _loaded = false;
 
+  /// חותמת זמן של הסנכרון האחרון (ISO8601) — מ־SharedPreferences.
+  Future<String?> get lastSyncTimestamp =>
+      SyncVersionUtils.getTimestamp(_prefsKeyLastSyncTimestamp);
+
   /// גישה לקריאה בלבד — אחרי loadCategories().
   Map<String, SmartCategory> get categories => Map.unmodifiable(_categories);
 
-  /// טוען את כל הקטגוריות מ-API (smart_categories).
-  Future<void> loadCategories() async {
-    if (_loaded) return;
+  /// בודק גרסה — אם השרת חדש יותר, טוען (סנכרון חכם). מחזיר true אם בוצע טעינה.
+  Future<bool> checkVersionAndSyncIfNeeded({bool silent = false}) async {
     try {
-      final uri = Uri.parse('$_baseUrl$_smartCategoriesPath');
-      final headers = await AppCheckHttpHelper.getBackendHeaders();
-      final response = await http.get(uri, headers: headers).timeout(_timeout);
-      if (response.statusCode != 200) {
-        appLog('CategoryManager: loadCategories failed ${response.statusCode}');
-        _loaded = true;
+      invalidate();
+      await loadCategories();
+      return true;
+    } catch (e) {
+      appLog('CategoryManager: checkVersionAndSyncIfNeeded error - $e');
+      return false;
+    }
+  }
+
+  Future<({String version, String? lastModified})?> _fetchCategoriesVersion() =>
+      SyncVersionUtils.fetchVersion('$_baseUrl$_smartCategoriesPath/version');
+
+  Future<void> _saveLastSyncTimestamp(String ts) =>
+      SyncVersionUtils.saveTimestamp(_prefsKeyLastSyncTimestamp, ts);
+
+  /// טוען קטגוריות — סנכרון חכם: בודק גרסה, מושך רק שינויים מאז lastSyncTimestamp.
+  Future<void> loadCategories() async {
+    try {
+      final version = await _fetchCategoriesVersion();
+      final localTs = await lastSyncTimestamp;
+
+      if (_shouldDoSmartSync(version, localTs)) {
+        await _doSmartSync(version!, localTs!);
         return;
       }
-      final list = jsonDecode(response.body) as List<dynamic>? ?? [];
-      _categories.clear();
-      for (final item in list) {
-        if (item is! Map<String, dynamic>) continue;
-        final cat = SmartCategory.fromJson(item);
-        if (cat.id.isNotEmpty) _categories[cat.id] = cat;
+      if (_hasCacheAndNoUpdates(version, localTs)) {
+        appLog('[SYNC] No new updates found on server. Using local cache.');
+        return;
       }
-      _loaded = true;
-      appLog('CategoryManager: loaded ${_categories.length} categories');
+      await _loadFull();
     } catch (e) {
       appLog('CategoryManager: loadCategories error - $e');
+      await _loadFull();
+    } finally {
       _loaded = true;
+    }
+  }
+
+  bool _shouldDoSmartSync(
+    ({String version, String? lastModified})? version,
+    String? localTs,
+  ) =>
+      _loaded &&
+      version?.lastModified != null &&
+      localTs != null &&
+      localTs.isNotEmpty &&
+      SyncVersionUtils.isServerNewer(version!.lastModified!, localTs);
+
+  bool _hasCacheAndNoUpdates(
+    ({String version, String? lastModified})? version,
+    String? localTs,
+  ) =>
+      _loaded &&
+      version?.lastModified != null &&
+      localTs != null &&
+      localTs.isNotEmpty &&
+      version!.lastModified == localTs;
+
+  Future<void> _doSmartSync(
+    ({String version, String? lastModified}) version,
+    String localTs,
+  ) async {
+    appLog('[SYNC] מבצע סנכרון חכם. מושך רק שינויים מאז: $localTs');
+    final ok = await _loadIncremental(localTs);
+    if (ok && version.lastModified != null) {
+      await _saveLastSyncTimestamp(version.lastModified!);
+    } else {
+      appLog('[SYNC] סנכרון אינקרמנטלי נכשל — מבצע טעינה מלאה.');
+      await _loadFull();
+    }
+  }
+
+  Future<bool> _loadIncremental(String since) async {
+    try {
+      final list = await _fetchCategories(since: since);
+      if (list == null) return false;
+      _mergeCategoriesIntoCache(list, clearFirst: false);
+      appLog('CategoryManager: merged ${list.length} categories (incremental)');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _loadFull() async {
+    final list = await _fetchCategories();
+    if (list == null) return;
+    _mergeCategoriesIntoCache(list, clearFirst: true);
+    final version = await _fetchCategoriesVersion();
+    if (version?.lastModified != null) {
+      await _saveLastSyncTimestamp(version!.lastModified!);
+    }
+    appLog('CategoryManager: loaded ${_categories.length} categories');
+  }
+
+  Future<List<dynamic>?> _fetchCategories({String? since}) async {
+    final uri = since != null
+        ? Uri.parse('$_baseUrl$_smartCategoriesPath')
+            .replace(queryParameters: {'since': since})
+        : Uri.parse('$_baseUrl$_smartCategoriesPath');
+    final headers = await AppCheckHttpHelper.getBackendHeaders();
+    final r = await http.get(uri, headers: headers).timeout(_timeout);
+    if (r.statusCode != 200) {
+      appLog('CategoryManager: loadCategories failed ${r.statusCode}');
+      return null;
+    }
+    return jsonDecode(r.body) as List<dynamic>? ?? [];
+  }
+
+  void _mergeCategoriesIntoCache(List<dynamic> list, {required bool clearFirst}) {
+    if (clearFirst) _categories.clear();
+    for (final item in list) {
+      if (item is! Map<String, dynamic>) continue;
+      final cat = SmartCategory.fromJson(item);
+      if (cat.id.isNotEmpty) _categories[cat.id] = cat;
     }
   }
 

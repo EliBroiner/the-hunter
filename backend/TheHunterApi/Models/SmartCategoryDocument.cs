@@ -17,4 +17,7 @@ public class SmartCategoryDocument
 
     /// <summary>תבניות Regex (חוקים חכמים).</summary>
     public List<string> RegexPatterns { get; set; } = new();
+
+    /// <summary>Firestore: last_updated — לסנכרון חכם.</summary>
+    public DateTime LastUpdated { get; set; } = DateTime.MinValue;
 }

@@ -12,17 +12,33 @@ namespace TheHunterApi.Controllers;
 public class SmartCategoriesController : ControllerBase
 {
     private readonly ISmartCategoriesService _service;
+    private readonly ILogger<SmartCategoriesController> _logger;
 
-    public SmartCategoriesController(ISmartCategoriesService service)
+    public SmartCategoriesController(ISmartCategoriesService service, ILogger<SmartCategoriesController> logger)
     {
         _service = service;
+        _logger = logger;
     }
 
+    /// <summary>בדיקת גרסה — מחזיר count ו־lastModified (ISO8601). הלקוח משווה ל־lastSyncTimestamp.</summary>
+    [HttpGet("version")]
+    [ProducesResponseType(typeof(SmartCategoriesVersionResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetVersion(CancellationToken ct)
+    {
+        _logger.LogInformation("[BACKEND] Dictionary version requested. Returning latest timestamp for incremental sync.");
+        var (count, lastModified) = await _service.GetVersionAsync(ct);
+        return Ok(new SmartCategoriesVersionResponse(count.ToString(), lastModified));
+    }
+
+    /// <summary>?since=ISO8601 — רק קטגוריות שעודכנו אחרי התאריך (סנכרון חכם).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<SmartCategoryDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    public async Task<IActionResult> GetAll([FromQuery] string? since = null, CancellationToken ct = default)
     {
-        var list = await _service.GetAllAsync(ct);
+        DateTime? sinceDt = null;
+        if (!string.IsNullOrWhiteSpace(since) && DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+            sinceDt = parsed.ToUniversalTime();
+        var list = await _service.GetAllAsync(sinceDt, ct);
         var dtos = list.Select(d => new SmartCategoryDto(
             d.Key,
             d.DisplayNames,
@@ -90,6 +106,8 @@ public record SmartCategoryDto(
     IReadOnlyDictionary<string, string> DisplayNames,
     IReadOnlyList<string> Keywords,
     IReadOnlyList<string> RegexPatterns);
+
+public record SmartCategoriesVersionResponse(string Version, string? LastModified = null);
 
 public record AddRuleRequest(string Type, string Value);
 

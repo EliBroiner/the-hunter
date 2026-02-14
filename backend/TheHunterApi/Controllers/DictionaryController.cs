@@ -9,21 +9,38 @@ public class DictionaryController : ControllerBase
 {
     private readonly AdminFirestoreService _firestore;
     private readonly IScannerSettingsService _scannerSettings;
+    private readonly ILogger<DictionaryController> _logger;
 
-    public DictionaryController(AdminFirestoreService firestore, IScannerSettingsService scannerSettings)
+    public DictionaryController(AdminFirestoreService firestore, IScannerSettingsService scannerSettings, ILogger<DictionaryController> logger)
     {
         _firestore = firestore;
         _scannerSettings = scannerSettings;
+        _logger = logger;
     }
 
     /// <summary>
-    /// מחזיר עדכוני מילון: synonyms, rankingConfig, scannerConfig (הגדרות סריקה דינמיות).
+    /// בדיקת גרסה — מחזיר count ו־lastModified (ISO8601). הלקוח משווה ל־lastSyncTimestamp.
+    /// </summary>
+    [HttpGet("version")]
+    [ProducesResponseType(typeof(DictionaryVersionResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetVersion()
+    {
+        _logger.LogInformation("[BACKEND] Dictionary version requested. Returning latest timestamp for incremental sync.");
+        var (count, lastModified) = await _firestore.GetDictionaryVersionAsync();
+        return Ok(new DictionaryVersionResponse(count.ToString(), lastModified));
+    }
+
+    /// <summary>
+    /// מחזיר עדכוני מילון. ?since=ISO8601 — רק מונחים שעודכנו אחרי התאריך (סנכרון חכם).
     /// </summary>
     [HttpGet("updates")]
     [ProducesResponseType(typeof(DictionaryUpdatesResponse), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetUpdates()
+    public async Task<IActionResult> GetUpdates([FromQuery] string? since = null)
     {
-        var terms = await _firestore.GetApprovedTermsForExportAsync();
+        DateTime? sinceDt = null;
+        if (!string.IsNullOrWhiteSpace(since) && DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+            sinceDt = parsed.ToUniversalTime();
+        var terms = await _firestore.GetApprovedTermsForExportAsync(sinceDt);
         var synonyms = terms
             .OrderByDescending(x => x.Frequency)
             .Select(x => new LearnedTermDto(x.Term, x.Category, x.Frequency))
@@ -47,6 +64,11 @@ public class DictionaryController : ControllerBase
 /// DTO למונח מאושר — ללא Id ו-IsApproved
 /// </summary>
 public record LearnedTermDto(string Term, string Category, int Frequency);
+
+/// <summary>
+/// תשובת בדיקת גרסה — count + lastModified (ISO8601)
+/// </summary>
+public record DictionaryVersionResponse(string Version, string? LastModified = null);
 
 /// <summary>
 /// תשובת עדכוני מילון — synonyms + rankingConfig + scannerConfig

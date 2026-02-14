@@ -346,7 +346,7 @@ public class AdminDashboardController : Controller
     [Route("export-approved-terms")]
     public async Task<IActionResult> ExportApprovedTerms()
     {
-        var terms = await _firestore.GetApprovedTermsForExportAsync();
+        var terms = await _firestore.GetApprovedTermsForExportAsync(null);
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("Approved Terms");
         ws.Cell(1, 1).Value = "ID";
