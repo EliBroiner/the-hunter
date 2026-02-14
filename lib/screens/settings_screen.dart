@@ -1322,10 +1322,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   label: const Text('שתף לוגים'),
                 ),
                 const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('השתמש תמיד ב-AI ללמידה'),
+                  subtitle: Text(
+                    'גם כשהמילון מצא התאמה — שולח ל-Gemini לניתוח מעמיק',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                  ),
+                  value: SettingsService.instance.alwaysAnalyzeWithGemini,
+                  onChanged: (v) async {
+                    await SettingsService.instance.setAlwaysAnalyzeWithGemini(v);
+                    if (context.mounted) setState(() {});
+                  },
+                ),
+                const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).pushNamed('/ai-lab'),
                   icon: const Icon(Icons.science, size: 18),
                   label: const Text('AI Lab (Admin)'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).pushNamed('/workflow-test'),
+                  icon: const Icon(Icons.account_tree, size: 18),
+                  label: const Text('Test Pipeline'),
                 ),
               ],
             ),

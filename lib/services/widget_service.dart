@@ -103,6 +103,16 @@ class WidgetService {
     );
   }
 
+  /// בודק אם נתיב קיים במטמון הווידג'ט (SharedPreferences)
+  Future<bool> isInCache(String path) async {
+    try {
+      final items = await _readCache();
+      return items.any((e) => e.path == path);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// רענון ווידג'ט — קורא למטמון הקיים (ללא Isar)
   Future<void> refreshWidget() async => _refreshWidget();
 

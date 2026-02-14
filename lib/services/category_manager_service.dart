@@ -121,7 +121,7 @@ class CategoryManagerService {
         if (t.isNotEmpty) keywords.add(t);
       }
       final r = s.suggestedRegex?.trim();
-      if (r != null && r.isNotEmpty && !regexPatterns.contains(r)) regexPatterns.add(r);
+      if (r != null && r.isNotEmpty && isRegexValid(r) && !regexPatterns.contains(r)) regexPatterns.add(r);
     }
     if (keywords.isEmpty && regexPatterns.isEmpty) return 0;
     try {
@@ -197,5 +197,33 @@ class CategoryManagerService {
   void invalidate() {
     _loaded = false;
     _categories.clear();
+  }
+
+  /// בודק אם מילת מפתח כבר קיימת בקטגוריה (להצגה בירוק / הסתרה)
+  Future<bool> hasKeywordInCategory(String categoryId, String keyword) async {
+    await loadCategories();
+    final cat = _categories[categoryId];
+    if (cat == null) return false;
+    final k = keyword.trim().toLowerCase();
+    return cat.synonyms.any((s) => s.trim().toLowerCase() == k);
+  }
+
+  /// בודק אם Regex כבר קיים בקטגוריה
+  Future<bool> hasRegexInCategory(String categoryId, String pattern) async {
+    await loadCategories();
+    final cat = _categories[categoryId];
+    if (cat == null) return false;
+    final p = pattern.trim();
+    return cat.regexPatterns.any((r) => r.trim() == p);
+  }
+
+  /// בודק אם Regex תקין (Dart) — לפני הוספה
+  static bool isRegexValid(String pattern) {
+    try {
+      RegExp(pattern);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -24,6 +24,8 @@ import '../services/google_drive_service.dart';
 import '../models/ai_analysis_response.dart';
 import '../services/category_manager_service.dart';
 import '../services/file_processing_service.dart';
+import '../services/pending_suggestions_service.dart';
+import '../ui/sheets/quick_learning_sheet.dart';
 import 'settings_screen.dart';
 import '../services/localization_service.dart';
 import '../ui/utils/snackbar_helper.dart';
@@ -79,8 +81,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   /// האם להציג גם תוצאות Secondary (ציון < 70% מהמקסימלי)
   bool _showAllSearchResults = false;
 
-  /// הצעות למידה מ-Gemini אחרי Re-analyze — path -> רשימת הצעות (להצגת כרטיס Smart Learning)
-  final Map<String, List<AiSuggestion>> _pendingSuggestionsByPath = {};
+  /// הצעות למידה מ-Gemini — שירות מרכזי (גישה מ־Quick Learning)
+  final _pendingService = PendingSuggestionsService.instance;
   /// החל כחוק קבוע — שמירה ל־SmartCategories בשרת (ברירת מחדל: true)
   bool _applyAsHardRule = true;
 
@@ -96,6 +98,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
+    _pendingService.addListener(_onPendingSuggestionsChanged);
     _hybridController = HybridSearchController(
       databaseService: _databaseService,
       driveService: _googleDriveService,
@@ -115,6 +118,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   }
 
   void _onHybridControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onPendingSuggestionsChanged() {
     if (mounted) setState(() {});
   }
 
@@ -174,6 +181,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   @override
   void dispose() {
+    _pendingService.removeListener(_onPendingSuggestionsChanged);
     _resultsTabController.removeListener(_onResultsTabChanged);
     _resultsTabController.dispose();
     _settingsService.isPremiumNotifier.removeListener(_onPremiumChanged);
@@ -749,7 +757,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       builder: (context) => SearchFileDetailsModal(
         file: file,
         theme: theme,
-        pendingSuggestions: _pendingSuggestionsByPath[file.path],
+        pendingSuggestions: _pendingService.all[file.path],
         detailsCard: _buildFileDetailsCard(file, theme, textColor, secondaryColor),
         onReanalyze: (report, isCanceled) => _reanalyzeFile(file, reportProgress: report, isCanceled: isCanceled),
         onClose: () => Navigator.of(context).pop(),
@@ -781,7 +789,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
           ],
           Divider(height: 20, color: dividerColor),
-          _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingSuggestionsByPath[file.path]),
+          _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingService.all[file.path]),
         ],
       ),
     );
@@ -1006,7 +1014,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             children: [
               TextButton(
                 onPressed: () {
-                  setState(() => _pendingSuggestionsByPath.remove(file.path));
+                  _pendingService.removePath(file.path);
                 },
                 child: const Text('Dismiss'),
               ),
@@ -1131,7 +1139,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final categoryId = file.category?.trim() ?? suggestions.firstOrNull?.suggestedCategory ?? '';
     if (categoryId.isEmpty) return;
     if (!mounted) return;
-    setState(() => _pendingSuggestionsByPath.remove(file.path));
+    _pendingService.removePath(file.path);
 
     if (!_applyAsHardRule) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1195,7 +1203,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       );
       if (!mounted) return;
       if (result.suggestions.isNotEmpty) {
-        setState(() => _pendingSuggestionsByPath[file.path] = result.suggestions);
+        _pendingService.setForPath(file.path, result.suggestions);
       }
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2477,6 +2485,18 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         const SizedBox(width: 12),
         Text('חיפוש', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
         const Spacer(),
+        if (_pendingService.totalCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: IconButton(
+              icon: Badge(
+                label: Text('${_pendingService.totalCount}'),
+                child: const Icon(Icons.lightbulb_outline),
+              ),
+              onPressed: () => _showQuickLearningSheet(),
+              tooltip: 'Quick Learning',
+            ),
+          ),
         _buildHeaderFavoritesButton(theme),
         IconButton(
           icon: Icon(Icons.settings, color: theme.colorScheme.primary),
@@ -2484,6 +2504,22 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           tooltip: 'הגדרות',
         ),
       ],
+    );
+  }
+
+  void _showQuickLearningSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: const QuickLearningSheet(),
+      ),
     );
   }
 

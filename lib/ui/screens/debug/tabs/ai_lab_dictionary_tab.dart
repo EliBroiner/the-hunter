@@ -11,6 +11,7 @@ class AiLabDictionaryTab extends StatelessWidget {
     required this.synonymsByCategory,
     required this.searchController,
     required this.onForceSync,
+    this.onQuickLearning,
   });
 
   final DateTime? lastSyncTime;
@@ -18,6 +19,7 @@ class AiLabDictionaryTab extends StatelessWidget {
   final Map<String, List<SearchSynonym>> synonymsByCategory;
   final TextEditingController searchController;
   final VoidCallback onForceSync;
+  final VoidCallback? onQuickLearning;
 
   @override
   Widget build(BuildContext context) {
@@ -45,14 +47,26 @@ class AiLabDictionaryTab extends StatelessWidget {
                     style: const TextStyle(color: Colors.white70),
                   ),
                   const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: onForceSync,
-                    icon: const Icon(Icons.cloud_download, size: 20),
-                    label: const Text('Force Sync from Cloud'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.blue.shade700,
-                      foregroundColor: Colors.white,
-                    ),
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed: onForceSync,
+                        icon: const Icon(Icons.cloud_download, size: 20),
+                        label: const Text('Force Sync from Cloud'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.blue.shade700,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      if (onQuickLearning != null) ...[
+                        const SizedBox(width: 12),
+                        OutlinedButton.icon(
+                          onPressed: onQuickLearning,
+                          icon: const Icon(Icons.lightbulb_outline, size: 20),
+                          label: const Text('Quick Learning'),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),

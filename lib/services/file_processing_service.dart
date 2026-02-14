@@ -11,6 +11,7 @@ import 'category_manager_service.dart';
 import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
+import 'settings_service.dart';
 import 'text_extraction_service.dart';
 import 'widget_service.dart';
 import '../utils/extracted_text_quality.dart';
@@ -195,7 +196,14 @@ class FileProcessingService {
     reportProgress?.call('מחלץ טקסט...');
     final ext = file.extension.toLowerCase();
     if (TextExtractionService.isTextExtractable(ext)) {
-      return TextExtractionService.instance.extractText(file.path);
+      final sw = Stopwatch()..start();
+      final text = await TextExtractionService.instance.extractText(file.path);
+      sw.stop();
+      _w('⏱️ [Timer] Local OCR: ${_fmtMs(sw.elapsedMilliseconds)}');
+      final poor = text.trim().length < 50 || _validator.validateQuality(text) == AnalysisStatus.unreadable;
+      _w('[Local OCR]: ${poor ? "RED" : "GREEN"} (${text.length} chars) [Text Extraction]');
+      if (poor) _w('👁️ [Action] Would trigger Vision (length < 50 or unreadable)');
+      return text;
     }
     if (OCRService.isSupportedImage(ext)) {
       return _workflowStep1OcrImage(file, reportProgress);
@@ -204,7 +212,12 @@ class FileProcessingService {
   }
 
   Future<String> _workflowStep1OcrImage(FileMetadata file, void Function(String)? reportProgress) async {
+    final sw = Stopwatch()..start();
     final ocrResult = await OCRService.instance.extractTextWithStatus(file.path);
+    sw.stop();
+    _w('⏱️ [Timer] Local OCR: ${_fmtMs(sw.elapsedMilliseconds)}');
+    final score = ocrResult.needsBackendFallback || ocrResult.text.trim().length < 50 ? 'RED' : 'GREEN';
+    _w('[Local OCR]: Score: $score (${ocrResult.text.length} chars)');
     if (ocrResult.isNoText) {
       file.aiStatus = 'no_text_detected';
       file.extractedText = null;
@@ -212,6 +225,8 @@ class FileProcessingService {
       return '';
     }
     if (ocrResult.needsBackendFallback) {
+      _w('👁️ [Action] Triggering Vision (ML Kit lowConfidence)');
+      final vSw = Stopwatch()..start();
       reportProgress?.call('מעלה לשרת...');
       appLog('[WORKFLOW] איכות ML Kit נמוכה — מעלה ל-Cloud Vision');
       final fallback = await _callOcrExtract(file.path, documentId: file.id.toString(), filename: file.name);
@@ -222,6 +237,9 @@ class FileProcessingService {
         return '';
       }
       final text = fallback.text?.trim().isNotEmpty == true ? fallback.text! : ocrResult.text;
+      vSw.stop();
+      _w('⏱️ [Timer] Google Vision API: ${_fmtMs(vSw.elapsedMilliseconds)}');
+      _w('[Vision Result]: Success (${text.length} chars)');
       file.extractedText = text.isEmpty ? null : text;
       if (fallback.geminiResult != null) {
         _applyGeminiResult(file, fallback.geminiResult!);
@@ -231,6 +249,36 @@ class FileProcessingService {
       return text;
     }
     return ocrResult.text;
+  }
+
+  /// קטגוריות "פשוטות" — תעודה, דרכון, רישיון — דילוג על Gemini לחיסכון
+  static const _simpleCategoryIds = {'id', 'passport', 'driver_license', 'driver_licence', 'teudat_zehut'};
+
+  bool _isSimpleCategory(String? categoryId) {
+    if (categoryId == null || categoryId.isEmpty) return false;
+    final lower = categoryId.toLowerCase();
+    return _simpleCategoryIds.any((s) => lower.contains(s));
+  }
+
+  /// שדרוג טקסט באיכות נמוכה דרך Google Vision — רק לתמונות
+  Future<String?> _upgradeTextViaVision(FileMetadata file, void Function(String)? reportProgress) async {
+    if (!OCRService.isSupportedImage(file.extension.toLowerCase())) return null;
+    appLog('[WORKFLOW] Low quality text detected. Forced redirect to Google Vision.');
+    reportProgress?.call('משדרג OCR...');
+    final fallback = await _callOcrExtract(file.path, documentId: file.id.toString(), filename: file.name);
+    final newText = fallback.text?.trim() ?? '';
+    appLog('[WORKFLOW] Vision OCR completed. New text length: ${newText.length}');
+    if (fallback.geminiResult != null) {
+      _applyGeminiResult(file, fallback.geminiResult!);
+      file.isAiAnalyzed = true;
+      file.aiStatus = null;
+    }
+    return newText.isEmpty ? null : newText;
+  }
+
+  bool _isTextPoorQuality(String text) {
+    if (text.trim().length < 50) return true;
+    return _validator.validateQuality(text) == AnalysisStatus.unreadable;
   }
 
   /// צינור עיבוד מרכזי — שלב 2: בדיקת איכות
@@ -247,25 +295,63 @@ class FileProcessingService {
     return true;
   }
 
-  /// צינור עיבוד מרכזי — שלב 3: Waterfall + Gemini (אם נדרש)
+  /// צינור עיבוד מרכזי — שלב 3: Dictionary + Gemini (אם נדרש)
   Future<DocumentAnalysisResult?> _workflowStep3GeminiIfNeeded(
-      FileMetadata file, String text, bool isPro, bool Function()? isCanceled) async {
+      FileMetadata file, String text, bool isPro, bool wasVisionUsed,
+      bool Function()? isCanceled) async {
     appLog('[WORKFLOW] בודק מילון וחוקים...');
-    if (text.isNotEmpty) {
-      final match = await _categoryManager.identifyCategory(text);
-      if (match != null) {
-        appLog('[WORKFLOW] התאמה מקומית — ${match.category}');
-        file.category = match.category;
-        file.tags = match.tags;
-        file.isAiAnalyzed = true;
-        file.aiStatus = 'local_match';
-        return null;
-      }
+    if (text.isEmpty) {
+      if (!isPro) return null;
+      if (isCanceled?.call() == true) return null;
+      _w('🧠 [Action] Sending to Gemini (no text, using filename)');
+      final gSw = Stopwatch()..start();
+      final r = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+      gSw.stop();
+      _w('⏱️ [Timer] Gemini AI: ${_fmtMs(gSw.elapsedMilliseconds)}');
+      return r;
     }
+    final match = await _categoryManager.identifyCategory(text);
+    if (match == null) {
+      _w('[Dictionary]: No hit — sending to Gemini');
+      if (!isPro) return null;
+      if (isCanceled?.call() == true) return null;
+      _w('🧠 [Action] Sending to Gemini (no dictionary match)');
+      final gSw = Stopwatch()..start();
+      final r = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+      gSw.stop();
+      _w('⏱️ [Timer] Gemini AI: ${_fmtMs(gSw.elapsedMilliseconds)}');
+      return r;
+    }
+    final isSimple = _isSimpleCategory(match.category);
+    final forceGemini = SettingsService.instance.alwaysAnalyzeWithGemini;
+    if (isSimple && !forceGemini) {
+      _w('[Dictionary]: Hit! "$match.category" — skipping AI (simple)');
+      appLog('[WORKFLOW] Dictionary hit - skipping AI (simple category: ${match.category})');
+      file.category = match.category;
+      file.tags = match.tags;
+      file.isAiAnalyzed = true;
+      file.aiStatus = 'local_match';
+      return null;
+    }
+    _w('[Dictionary]: Hit! "${match.category}"');
+    final learningActive = forceGemini;
+    if (learningActive) {
+      _w('🧠 [Action] Sending to Gemini (Learning Mode)');
+    }
+    appLog('[WORKFLOW] Dictionary hit - but sending to AI for deep analysis');
+    if (isSimple && forceGemini) {
+      appLog('[WORKFLOW] Dictionary matched, but forcing Gemini analysis due to Learning Mode flag.');
+    }
+    if (wasVisionUsed) appLog('[WORKFLOW] Vision text sent to Gemini for advanced tagging.');
+    file.category = match.category;
+    file.tags = match.tags;
     if (!isPro) return null;
     if (isCanceled?.call() == true) return null;
-    appLog('[WORKFLOW] שולח ל-Gemini לניתוח');
-    return _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+    final gSw = Stopwatch()..start();
+    final r = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+    gSw.stop();
+    _w('⏱️ [Timer] Gemini AI: ${_fmtMs(gSw.elapsedMilliseconds)}');
+    return r;
   }
 
   /// צינור עיבוד מרכזי — שלב 4: Vision fallback אם requiresHighResOcr
@@ -299,6 +385,13 @@ class FileProcessingService {
     appLog('Widget cache updated with valid document: ${file.name}');
   }
 
+  /// לוג דיבאג לצינור בדיקה — כשמוגדר, נקרא בכל שלב משמעותי
+  static void Function(String)? workflowTestLog;
+
+  void _w(String msg) => workflowTestLog?.call(msg);
+
+  static String _fmtMs(int ms) => ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)}s' : '${ms}ms';
+
   /// צינור עיבוד מרכזי — נקודת כניסה יחידה. מחזיר תוצאה להמרה ל־ForceReprocessResult או DocumentAnalysisResult.
   Future<ProcessWorkflowResult> processFileWorkflow(
     FileMetadata file, {
@@ -308,6 +401,7 @@ class FileProcessingService {
     void Function(String)? reportProgress,
     bool Function()? isCanceled,
   }) async {
+    final totalTimer = Stopwatch()..start();
     if (resetFirst) {
       reportProgress?.call('מאפס...');
       _db.resetFileForReanalysis(file);
@@ -320,28 +414,66 @@ class FileProcessingService {
     if (isCanceled?.call() == true) return ProcessWorkflowResult(success: false, message: 'בוטל');
 
     if (file.aiStatus == 'no_text_detected') {
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
       _workflowStep5Save(file, '');
       return ProcessWorkflowResult(success: false, message: 'לא נמצא טקסט בתמונה');
     }
 
     if (text.isEmpty && (file.extractedText ?? '').isEmpty) {
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
       _workflowStep5Save(file, '');
       return ProcessWorkflowResult(success: false, message: 'לא נמצא טקסט');
     }
 
     if (text.isEmpty) text = file.extractedText ?? '';
+    var wasVisionUsed = false;
+    if (_isTextPoorQuality(text)) {
+      final why = text.trim().length < 50
+          ? 'Local OCR length < 50'
+          : 'validateQuality unreadable (garbage ratio)';
+      _w('👁️ [Action] Triggering Vision (Low Quality: $why)');
+      final vSw = Stopwatch()..start();
+      final visionText = await _upgradeTextViaVision(file, reportProgress);
+      if (visionText != null && visionText.isNotEmpty) {
+        vSw.stop();
+        _w('⏱️ [Timer] Google Vision API: ${_fmtMs(vSw.elapsedMilliseconds)}');
+        _w('[Vision Result]: Success (${visionText.length} chars)');
+        text = visionText;
+        file.extractedText = text;
+        wasVisionUsed = true;
+      } else {
+        file.aiStatus = 'unreadable';
+        file.isAiAnalyzed = false;
+        _workflowStep5Save(file, text);
+        _w('[Vision Result]: Failed — marking Uncategorized');
+        totalTimer.stop();
+        _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
+        return ProcessWorkflowResult(success: false, message: 'איכות טקסט נמוכה גם אחרי Vision');
+      }
+    } else {
+      _w('👁️ [Action] Skipping Vision (text quality OK)');
+    }
     if (!_workflowStep2QualityCheck(file, text)) {
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
       _db.updateFile(file);
       return ProcessWorkflowResult(success: false, message: 'הטקסט לא קריא');
     }
 
     if (file.isAiAnalyzed && file.aiStatus == 'local_match') {
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
       _workflowStep5Save(file, text);
       updateWidgetCache(file);
       return ProcessWorkflowResult(success: true, message: 'זוהה מקומית: ${file.category}');
     }
 
     if (file.isAiAnalyzed && file.aiStatus == null && file.category != null) {
+      _w('🧠 [Action] Skipping Gemini (Vision already returned result)');
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
       appLog('[WORKFLOW] תוצאה מ-Vision כבר הוחלה — דילוג על Gemini');
       _workflowStep5Save(file, text);
       updateWidgetCache(file);
@@ -364,12 +496,25 @@ class FileProcessingService {
       );
     }
 
-    var result = await _workflowStep3GeminiIfNeeded(file, text, isPro, isCanceled);
-    if (isCanceled?.call() == true) return ProcessWorkflowResult(success: false, message: 'בוטל');
+    var result = await _workflowStep3GeminiIfNeeded(file, text, isPro, wasVisionUsed, isCanceled);
+    if (isCanceled?.call() == true) {
+      totalTimer.stop();
+      _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
+      return ProcessWorkflowResult(success: false, message: 'בוטל');
+    }
+
+    if (result != null) {
+      final metaCount = result.metadata != null
+          ? (result.metadata!.names.length + result.metadata!.ids.length + result.metadata!.locations.length)
+          : 0;
+      _w('[Final Result]: JSON Received (${result.tags.length} Tags, Metadata: $metaCount fields)');
+    }
 
     result = await _workflowStep4VisionIfNeeded(file, result, isPro);
     if (result != null) _saveVisionResultToFile(file, result);
 
+    totalTimer.stop();
+    _w('🏁 [Timer] TOTAL: ${_fmtMs(totalTimer.elapsedMilliseconds)}');
     _workflowStep5Save(file, text);
     updateWidgetCache(file);
     final cat = file.category ?? '—';

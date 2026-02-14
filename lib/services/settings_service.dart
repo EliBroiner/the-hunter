@@ -20,7 +20,10 @@ class SettingsService {
   static const String _keyThemeMode = 'theme_mode';
   static const String _keyDebugBypassPro = 'debug_bypass_pro';
   static const String _keyAdminKey = 'debug_admin_key';
-  
+  static const String _keyAlwaysAnalyzeWithGemini = 'always_analyze_with_gemini';
+  static const String _keyRulesLearnedDate = 'rules_learned_date';
+  static const String _keyRulesLearnedCount = 'rules_learned_count';
+
   // Notifiers לשינויים
   final ValueNotifier<bool> isPremiumNotifier = ValueNotifier(false);
   final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
@@ -93,5 +96,41 @@ class SettingsService {
     } else {
       await _prefs?.setString(_keyAdminKey, value);
     }
+  }
+
+  /// השתמש תמיד ב-AI ללמידה — גם כשהמילון מצא התאמה, שולח ל-Gemini לניתוח מעמיק
+  bool get alwaysAnalyzeWithGemini => _prefs?.getBool(_keyAlwaysAnalyzeWithGemini) ?? true;
+
+  Future<void> setAlwaysAnalyzeWithGemini(bool value) async {
+    await _prefs?.setBool(_keyAlwaysAnalyzeWithGemini, value);
+  }
+
+  /// X חוקים חדשים שנלמדו היום — מתאפס בחצות
+  int get rulesLearnedToday {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final stored = _prefs?.getString(_keyRulesLearnedDate);
+    if (stored != today) return 0;
+    return _prefs?.getInt(_keyRulesLearnedCount) ?? 0;
+  }
+
+  /// מוסיף 1 לחוקים שנלמדו היום
+  Future<void> incrementRulesLearnedToday() async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final stored = _prefs?.getString(_keyRulesLearnedDate);
+    var count = stored == today ? (_prefs?.getInt(_keyRulesLearnedCount) ?? 0) : 0;
+    count++;
+    await _prefs?.setString(_keyRulesLearnedDate, today);
+    await _prefs?.setInt(_keyRulesLearnedCount, count);
+  }
+
+  /// מוסיף N לחוקים שנלמדו היום (לאחר Batch Approve)
+  Future<void> addRulesLearnedToday(int n) async {
+    if (n <= 0) return;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final stored = _prefs?.getString(_keyRulesLearnedDate);
+    var count = stored == today ? (_prefs?.getInt(_keyRulesLearnedCount) ?? 0) : 0;
+    count += n;
+    await _prefs?.setString(_keyRulesLearnedDate, today);
+    await _prefs?.setInt(_keyRulesLearnedCount, count);
   }
 }

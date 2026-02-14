@@ -14,6 +14,7 @@ import '../../../services/user_roles_service.dart';
 import '../../../services/prompt_admin_service.dart';
 import 'ai_lab_constants.dart';
 import 'tabs/ai_lab_dictionary_tab.dart';
+import '../../../ui/sheets/quick_learning_sheet.dart';
 import 'tabs/ai_lab_ocr_testing_tab.dart';
 import 'tabs/ai_lab_pipeline_tab.dart';
 import 'widgets/ai_lab_log_console.dart';
@@ -115,6 +116,22 @@ class _AiLabScreenState extends State<AiLabScreen> {
     _serverJsonController.dispose();
     _dictionarySearchController.dispose();
     super.dispose();
+  }
+
+  void _showQuickLearningSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: const QuickLearningSheet(),
+      ),
+    );
   }
 
   void _labLog(String message) {
@@ -533,6 +550,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
                       synonymsByCategory: _synonymsByCategory,
                       searchController: _dictionarySearchController,
                       onForceSync: _forceSyncFromCloud,
+                      onQuickLearning: _showQuickLearningSheet,
                     ),
                     AiLabPipelineTab(
                       ocrFilePath: _ocrFilePath,

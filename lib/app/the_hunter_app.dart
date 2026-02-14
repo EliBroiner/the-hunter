@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../services/settings_service.dart';
 import '../services/user_activity_service.dart';
 import '../ui/screens/debug/ai_lab_screen.dart';
+import '../ui/screens/debug/workflow_test_screen.dart';
 import 'app_theme.dart';
 import 'auth_wrapper.dart';
 import '../screens/cloud_storage_screen.dart';
@@ -78,6 +79,7 @@ class _TheHunterAppState extends State<TheHunterApp> with WidgetsBindingObserver
                   '/secure': (context) => const SecureFolderScreen(),
                   '/cloud': (context) => const CloudStorageScreen(),
                   '/ai-lab': (context) => const AiLabScreen(),
+                  '/workflow-test': (context) => const WorkflowTestScreen(),
                   '/prompts': (context) => const PromptManagementScreen(),
                   '/system-logs': (context) => const SystemLogsScreen(),
                 },
