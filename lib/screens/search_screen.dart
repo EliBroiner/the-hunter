@@ -90,8 +90,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   bool _isSelectionMode = false;
   final Set<String> _selectedFiles = {};
 
-  /// Temporary: Force show score even in Release mode for QA. Change to false before publishing to Store!
-  static const bool _showDebugScore = true;
+  /// ציון דירוג מוסתר מהמשתמש — rankAndSort ממשיך לעבוד ברקע
+  static const bool _showDebugScore = false;
 
   @override
   void initState() {
@@ -534,7 +534,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       final result = await OpenFilex.open(tempPath);
       if (result.type == ResultType.done) {
         RecentFilesService.instance.addRecentFile(path: tempPath, name: file.name, extension: file.extension);
-        WidgetService.instance.updateRecentFile(file.name, tempPath, file.extension);
       } else if (mounted) {
         _showOpenErrorSnackBar(result.message);
       }
@@ -590,7 +589,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     final result = await OpenFilex.open(file.path);
     if (result.type == ResultType.done) {
       RecentFilesService.instance.addRecentFile(path: file.path, name: file.name, extension: file.extension);
-      WidgetService.instance.updateRecentFile(file.name, file.path, file.extension);
     } else if (mounted) {
       _showOpenErrorSnackBar(result.message);
     }
@@ -1416,17 +1414,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             onTap: () {
               Navigator.of(ctx).pop();
               _showFileDetails(file);
-            },
-          ),
-          const SizedBox(height: 8),
-          _buildActionTile(
-            icon: Icons.analytics_outlined,
-            title: 'ניתוח דירוג',
-            subtitle: 'ציון רלוונטיות ופירוט',
-            color: Colors.amber,
-            onTap: () {
-              Navigator.of(ctx).pop();
-              _showRankingAnalysisSheet(file);
             },
           ),
           const SizedBox(height: 8),

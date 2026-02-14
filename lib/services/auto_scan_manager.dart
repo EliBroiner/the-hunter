@@ -195,7 +195,7 @@ class AutoScanManager with WidgetsBindingObserver {
         _runAutoBackupIfNeeded();
       }
 
-      await WidgetService.instance.updateWidget();
+      await WidgetService.instance.refreshWidget();
     } finally {
       _isScanning = false;
       _isProcessing = false;

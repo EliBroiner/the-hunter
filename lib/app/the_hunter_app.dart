@@ -11,6 +11,7 @@ import '../screens/folder_selection_screen.dart';
 import '../screens/prompt_management_screen.dart';
 import '../screens/secure_folder_screen.dart';
 import '../screens/subscription_screen.dart';
+import '../screens/system_logs_screen.dart';
 
 /// האפליקציה הראשית — MaterialApp עם routing
 class TheHunterApp extends StatefulWidget {
@@ -78,6 +79,7 @@ class _TheHunterAppState extends State<TheHunterApp> with WidgetsBindingObserver
                   '/cloud': (context) => const CloudStorageScreen(),
                   '/ai-lab': (context) => const AiLabScreen(),
                   '/prompts': (context) => const PromptManagementScreen(),
+                  '/system-logs': (context) => const SystemLogsScreen(),
                 },
               );
             },

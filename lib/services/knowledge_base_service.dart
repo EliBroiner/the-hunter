@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/date_phrase_config.dart';
@@ -111,7 +112,7 @@ class KnowledgeBaseService {
         // השרת החזיר רשימה — מטפלים כ-synonyms (למשל [{term, category}, ...])
         final synonyms = _parseSynonymsFromList(data);
         final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
-        appLog('SYNC_DEBUG: Received $recordCount records from API (List format)');
+        if (kDebugMode) appLog('SYNC: Received $recordCount records from API (List format)');
         if (synonyms.isNotEmpty) {
           await _mergeSynonymsToIsarAndCache(synonyms);
           appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from List response');
@@ -143,7 +144,7 @@ class KnowledgeBaseService {
       }
       if (synonyms.isNotEmpty) {
         final recordCount = synonyms.values.fold<int>(0, (s, terms) => s + terms.length);
-        appLog('SYNC_DEBUG: Received $recordCount records from API (Map format)');
+        if (kDebugMode) appLog('SYNC: Received $recordCount records from API (Map format)');
         await _mergeSynonymsToIsarAndCache(synonyms);
         appLog('KnowledgeBase: syncDictionary merged ${synonyms.length} categories from server');
       }

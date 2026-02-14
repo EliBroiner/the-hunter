@@ -1,14 +1,45 @@
+import 'dart:convert';
+
 import 'package:home_widget/home_widget.dart';
-import 'database_service.dart';
-import 'recent_files_service.dart';
 import 'log_service.dart';
 
-/// שירות לעדכון הווידג'ט במסך הבית
+/// פריט במטמון הווידג'ט — קל משקל, ללא Isar
+class WidgetCacheItem {
+  final String name;
+  final String category;
+  final String path;
+  final int timestamp;
+
+  const WidgetCacheItem({
+    required this.name,
+    required this.category,
+    required this.path,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() =>
+      {'n': name, 'c': category, 'p': path, 't': timestamp};
+
+  static WidgetCacheItem? fromJson(Map<String, dynamic>? j) {
+    if (j == null) return null;
+    final n = j['n'] as String?;
+    final p = j['p'] as String?;
+    if (n == null || p == null) return null;
+    final t = j['t'] is int ? j['t'] as int : 0;
+    return WidgetCacheItem(
+      name: n,
+      category: j['c'] as String? ?? '—',
+      path: p,
+      timestamp: t,
+    );
+  }
+}
+
+/// שירות ווידג'ט Data-Light — SharedPreferences/AppGroup בלבד, ללא Isar
 class WidgetService {
   static WidgetService? _instance;
-  
   WidgetService._();
-  
+
   static WidgetService get instance {
     _instance ??= WidgetService._();
     return _instance!;
@@ -16,92 +47,71 @@ class WidgetService {
 
   static const String _androidWidgetName = 'SearchWidgetProvider';
   static const String _appGroupId = 'group.com.thehunter.the_hunter';
+  static const String _cacheKey = 'widget_recent_data';
+  static const int _maxCachedFiles = 3;
 
-  /// אתחול שירות הווידג'ט
   Future<void> init() async {
     try {
-      // הגדרת קבוצת אפליקציה (iOS)
       await HomeWidget.setAppGroupId(_appGroupId);
-      
-      // עדכון ראשוני
-      await updateWidget();
-      
-      appLog('WidgetService: Initialized');
+      await _refreshWidget();
+      appLog('WidgetService: Initialized (data-light)');
     } catch (e) {
       appLog('WidgetService: Init error - $e');
     }
   }
 
-  /// עדכון נתוני הווידג'ט
-  Future<void> updateWidget() async {
+  /// מעדכן את המטמון — נקרא מ־FileProcessingService.updateWidgetCache
+  Future<void> addToCache(String name, String category, String path) async {
     try {
-      final db = DatabaseService.instance;
-      final allFiles = db.getAllFiles();
-      
-      // חישוב סטטיסטיקות
-      int imagesCount = 0;
-      int pdfsCount = 0;
-      
-      for (final file in allFiles) {
-        final ext = file.extension.toLowerCase();
-        if (_isImage(ext)) {
-          imagesCount++;
-        } else if (ext == 'pdf') {
-          pdfsCount++;
-        }
-      }
-      
-      // שמירת נתונים סטטיסטיים
-      await HomeWidget.saveWidgetData<int>('files_count', allFiles.length);
-      await HomeWidget.saveWidgetData<int>('images_count', imagesCount);
-      await HomeWidget.saveWidgetData<int>('pdfs_count', pdfsCount);
-      
-      // שמירת קובץ אחרון שנפתח
-      final recentFiles = RecentFilesService.instance.recentFiles;
-      if (recentFiles.isNotEmpty) {
-        final recent = recentFiles.first;
-        await HomeWidget.saveWidgetData<String>('recent_file_name', '${recent.name}.${recent.extension}');
-        await HomeWidget.saveWidgetData<String>('recent_file_path', recent.path);
-      } else {
-        await HomeWidget.saveWidgetData<String?>('recent_file_name', null);
-        await HomeWidget.saveWidgetData<String?>('recent_file_path', null);
-      }
-      
-      // עדכון הווידג'ט
-      await HomeWidget.updateWidget(
-        androidName: _androidWidgetName,
-        qualifiedAndroidName: 'com.thehunter.the_hunter.$_androidWidgetName',
+      final current = await _readCache();
+      final item = WidgetCacheItem(
+        name: name,
+        category: category,
+        path: path,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
       );
-      
-      appLog('WidgetService: Updated - files: ${allFiles.length}, images: $imagesCount, pdfs: $pdfsCount');
+      final updated = [item, ...current.where((e) => e.path != path)]
+          .take(_maxCachedFiles)
+          .toList();
+      await _writeCache(updated);
+      await _refreshWidget();
     } catch (e) {
-      appLog('WidgetService: Update error - $e');
+      appLog('WidgetService: addToCache error - $e');
     }
   }
 
-  /// עדכון קובץ אחרון בלבד (ללא סטטיסטיקות מלאות)
-  Future<void> updateRecentFile(String name, String path, String extension) async {
+  Future<List<WidgetCacheItem>> _readCache() async {
+    final raw = await HomeWidget.getWidgetData<String>(_cacheKey, defaultValue: null);
+    if (raw == null || raw.isEmpty) return [];
     try {
-      await HomeWidget.saveWidgetData<String>('recent_file_name', '$name.$extension');
-      await HomeWidget.saveWidgetData<String>('recent_file_path', path);
-      
-      await HomeWidget.updateWidget(
-        androidName: _androidWidgetName,
-        qualifiedAndroidName: 'com.thehunter.the_hunter.$_androidWidgetName',
-      );
-      
-      appLog('WidgetService: Updated recent file - $name');
-    } catch (e) {
-      appLog('WidgetService: Update recent error - $e');
+      final list = jsonDecode(raw) as List<dynamic>?;
+      return list?.map((e) => WidgetCacheItem.fromJson(e as Map<String, dynamic>?)).whereType<WidgetCacheItem>().toList() ?? [];
+    } catch (_) {
+      return [];
     }
   }
 
-  /// בדיקה אם סיומת היא תמונה
-  bool _isImage(String ext) {
-    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif'].contains(ext);
+  Future<void> _writeCache(List<WidgetCacheItem> items) async {
+    final json = jsonEncode(items.map((e) => e.toJson()).toList());
+    await HomeWidget.saveWidgetData<String>(_cacheKey, json);
   }
 
-  /// רישום callback ללחיצה על הווידג'ט
+  Future<void> _refreshWidget() async {
+    await HomeWidget.updateWidget(
+      androidName: _androidWidgetName,
+      qualifiedAndroidName: 'com.thehunter.the_hunter.$_androidWidgetName',
+    );
+  }
+
+  /// רענון ווידג'ט — קורא למטמון הקיים (ללא Isar)
+  Future<void> refreshWidget() async => _refreshWidget();
+
+  /// ניקוי מטמון — למשל אחרי Reset All
+  Future<void> clearCache() async {
+    await HomeWidget.saveWidgetData<String?>(_cacheKey, null);
+    await _refreshWidget();
+  }
+
   Future<void> registerInteractivityCallback() async {
     try {
       await HomeWidget.registerInteractivityCallback(widgetBackgroundCallback);
@@ -111,7 +121,6 @@ class WidgetService {
   }
 }
 
-/// Callback לטיפול בלחיצות על הווידג'ט
 @pragma('vm:entry-point')
 Future<void> widgetBackgroundCallback(Uri? uri) async {
   appLog('WidgetService: Background callback triggered - $uri');

@@ -223,6 +223,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildDuplicatesFinderTile(context, theme, _settingsService.isPremium),
                 _buildSecureFolderTile(context, theme, _settingsService.isPremium),
+                _buildSettingsTile(
+                  context,
+                  icon: Icons.terminal,
+                  title: 'System Logs / לוג מערכת',
+                  subtitle: tr('logs_title'),
+                  onTap: () => Navigator.of(context).pushNamed('/system-logs'),
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -420,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FileScannerService.resetFolderSetup();
       await FavoritesService.instance.clear();
       await RecentFilesService.instance.clear();
-      await WidgetService.instance.updateWidget();
+      await WidgetService.instance.clearCache();
       if (mounted) {
         setState(() => _isResetting = false);
         ScaffoldMessenger.of(context).showSnackBar(

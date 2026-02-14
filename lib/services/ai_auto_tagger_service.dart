@@ -191,9 +191,7 @@ class AiAutoTaggerService {
         'documents': documents.map((d) => {'id': d['id'], 'filename': d['filename'], 'text': d['text']}).toList(),
       });
 
-      final sendMsg = '🚀 sending batch of ${batch.length} files to $_baseUrl';
-      debugPrint(sendMsg);
-      DevLogger.instance.log(sendMsg);
+      if (kDebugMode) DevLogger.instance.log('🚀 sending batch of ${batch.length} files to $_baseUrl');
       appLog('[SCAN] Sending batch of ${batch.length} files to Gemini.');
       final headers =
           await AppCheckHttpHelper.getBackendHeaders(existing: {'Content-Type': 'application/json'});

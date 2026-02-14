@@ -332,14 +332,14 @@ class RelevanceEngine {
       return b.file.lastModified.compareTo(a.file.lastModified);
     });
 
-    // לוג Top 5
-    final top5 = scored.take(5).toList();
-    for (var i = 0; i < top5.length; i++) {
-      final e = top5[i];
-      debugPrint(
-          '🏆 Rank #${i + 1}: ${e.file.name} - Score: ${e.score.toStringAsFixed(1)} (${e.file.debugScoreBreakdown ?? ""})');
+    if (kDebugMode) {
+      final top5 = scored.take(5).toList();
+      for (var i = 0; i < top5.length; i++) {
+        final e = top5[i];
+        debugPrint(
+            '🏆 Rank #${i + 1}: ${e.file.name} - Score: ${e.score.toStringAsFixed(1)} (${e.file.debugScoreBreakdown ?? ""})');
+      }
     }
-
     return scored.map((e) => e.file).toList();
   }
 }

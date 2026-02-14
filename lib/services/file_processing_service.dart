@@ -12,6 +12,7 @@ import 'database_service.dart';
 import 'log_service.dart';
 import 'ocr_service.dart';
 import 'text_extraction_service.dart';
+import 'widget_service.dart';
 import '../utils/extracted_text_quality.dart';
 import 'utils/file_validator.dart';
 
@@ -285,6 +286,19 @@ class FileProcessingService {
     appLog('[WORKFLOW] שמירת מטא־דאטה סופית — isIndexed=true');
   }
 
+  /// מעדכן מטמון הווידג'ט — רק לקבצים עם תוכן משמעותי. מדלג על Landscape/No-Text.
+  void updateWidgetCache(FileMetadata file) {
+    final hasCategory = file.category != null && file.category!.isNotEmpty;
+    final hasText = (file.extractedText ?? '').trim().isNotEmpty;
+    if (!hasCategory && !hasText) return;
+    WidgetService.instance.addToCache(
+      file.name,
+      file.category ?? '—',
+      file.path,
+    );
+    appLog('Widget cache updated with valid document: ${file.name}');
+  }
+
   /// צינור עיבוד מרכזי — נקודת כניסה יחידה. מחזיר תוצאה להמרה ל־ForceReprocessResult או DocumentAnalysisResult.
   Future<ProcessWorkflowResult> processFileWorkflow(
     FileMetadata file, {
@@ -323,12 +337,14 @@ class FileProcessingService {
 
     if (file.isAiAnalyzed && file.aiStatus == 'local_match') {
       _workflowStep5Save(file, text);
+      updateWidgetCache(file);
       return ProcessWorkflowResult(success: true, message: 'זוהה מקומית: ${file.category}');
     }
 
     if (file.isAiAnalyzed && file.aiStatus == null && file.category != null) {
       appLog('[WORKFLOW] תוצאה מ-Vision כבר הוחלה — דילוג על Gemini');
       _workflowStep5Save(file, text);
+      updateWidgetCache(file);
       return ProcessWorkflowResult(
         success: true,
         message: 'עובד ב-Cloud Vision + Gemini: ${file.category}',
@@ -355,6 +371,7 @@ class FileProcessingService {
     if (result != null) _saveVisionResultToFile(file, result);
 
     _workflowStep5Save(file, text);
+    updateWidgetCache(file);
     final cat = file.category ?? '—';
     return ProcessWorkflowResult(
       success: result != null || file.isAiAnalyzed,
