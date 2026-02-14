@@ -277,6 +277,10 @@ class AiAutoTaggerService {
               final newTags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
               final existing = file.tags ?? [];
               file.tags = [...existing, ...newTags.where((t) => !existing.contains(t))].toList();
+              file.requiresHighResOcr = (result['requires_high_res_ocr'] ?? result['requiresHighResOcr']) == true;
+              final meta = result['metadata'] as Map<String, dynamic>?;
+              final metadata = meta != null ? DocumentMetadata.fromJson(Map<String, dynamic>.from(meta)) : null;
+              _applyAiMetadata(file, metadata);
               file.isAiAnalyzed = true;
               file.aiStatus = null;
               _updateInIsar(file);
@@ -290,6 +294,8 @@ class AiAutoTaggerService {
                 category: file.category ?? '',
                 tags: file.tags ?? [],
                 suggestions: suggestions,
+                requiresHighResOcr: file.requiresHighResOcr,
+                metadata: metadata,
               );
               appLog('[SCAN] File: ${file.path} — 4. API Response: Success.');
             }
@@ -352,6 +358,13 @@ class AiAutoTaggerService {
         s.contains('failed host lookup') ||
         s.contains('connection') ||
         s.contains('timeout');
+  }
+
+  void _applyAiMetadata(FileMetadata file, DocumentMetadata? metadata) {
+    if (metadata == null || (metadata.names.isEmpty && metadata.ids.isEmpty && metadata.locations.isEmpty)) return;
+    file.aiMetadataNames = metadata.names.isEmpty ? null : metadata.names;
+    file.aiMetadataIds = metadata.ids.isEmpty ? null : metadata.ids;
+    file.aiMetadataLocations = metadata.locations.isEmpty ? null : metadata.locations;
   }
 
   void _updateInIsar(FileMetadata file) {

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:excel/excel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pdfx/pdfx.dart' as pdfx;
@@ -29,7 +31,11 @@ class TextExtractionService {
         final ocrText = await _extractPdfViaOcr(filePath, onProgress: () => onProgress?.call('Running OCR...'));
         if (ocrText.isNotEmpty) result = ocrText;
       }
-      final maxLen = ext == 'pdf' ? maxTextLengthForPdf : maxTextLengthForTextFiles;
+      final maxLen = ext == 'pdf'
+          ? maxTextLengthForPdf
+          : (ext == 'xlsx' || ext == 'xls')
+              ? 4000
+              : maxTextLengthForTextFiles;
       return _limitText(result, maxLen);
     } catch (e) {
       appLog('TEXT_EXTRACT ISOLATE ERROR: $e');
@@ -85,6 +91,10 @@ class TextExtractionService {
         case 'pdf':
           final text = await _extractFromPdf(filePath);
           return text; // ללא הגבלה כאן — extractText עושה OCR fallback ואז _limitText
+        case 'xlsx':
+        case 'xls':
+          final text = await _extractFromExcel(filePath);
+          return _limitText(text, 4000);
         default:
           return '';
       }
@@ -119,6 +129,68 @@ class TextExtractionService {
         return '';
       }
     }
+  }
+
+  /// חילוץ טקסט מקובץ Excel — 2–3 גיליונות ראשונים, עד 4000 תווים
+  static Future<String> _extractFromExcel(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return '';
+      final stat = await file.stat();
+      if (stat.size > 20 * 1024 * 1024) return ''; // מקסימום 20MB
+      final bytes = await file.readAsBytes();
+      return _extractExcelText(bytes);
+    } catch (e) {
+      debugPrint('TEXT_EXTRACT EXCEL ERROR: $e');
+      return '';
+    }
+  }
+
+  /// חילוץ טקסט מ-bytes של Excel — גיליונות 2–3, תאים בשורה עם רווח, שורות עם \n
+  static String _extractExcelText(Uint8List bytes) {
+    try {
+      final excel = Excel.decodeBytes(bytes);
+      final buffer = StringBuffer();
+      const maxChars = 4000;
+      var sheetCount = 0;
+      const maxSheets = 3;
+      for (final name in excel.tables.keys) {
+        if (sheetCount >= maxSheets) break;
+        final sheet = excel.tables[name];
+        if (sheet == null) continue;
+        for (final row in sheet.rows) {
+          final cells = row
+              .map((c) => _cellValueToString(c?.value))
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (cells.isNotEmpty) {
+            buffer.writeln(cells.join(' '));
+            if (buffer.length >= maxChars) return _cleanupText(buffer.toString().substring(0, maxChars));
+          }
+        }
+        sheetCount++;
+      }
+      return _cleanupText(buffer.toString());
+    } catch (e) {
+      debugPrint('TEXT_EXTRACT _extractExcelText ERROR: $e');
+      return '';
+    }
+  }
+
+  /// המרת CellValue למחרוזת
+  static String _cellValueToString(CellValue? v) {
+    if (v == null) return '';
+    return switch (v) {
+      TextCellValue(:final value) => value.toString(),
+      IntCellValue(:final value) => value.toString(),
+      DoubleCellValue(:final value) => value.toString(),
+      BoolCellValue(:final value) => value.toString(),
+      DateCellValue() => v.asDateTimeLocal().toString(),
+      TimeCellValue() => v.asDuration().toString(),
+      DateTimeCellValue() => v.asDateTimeLocal().toString(),
+      FormulaCellValue(:final formula) => formula.toString(),
+      _ => v.toString(),
+    };
   }
 
   /// חילוץ טקסט מקובץ PDF (סטטי לשימוש ב-Isolate)
@@ -187,7 +259,7 @@ class TextExtractionService {
   /// בדיקה אם הסיומת נתמכת לחילוץ טקסט
   static bool isTextExtractable(String extension) {
     const supportedExtensions = [
-      'txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf'
+      'txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls',
     ];
     return supportedExtensions.contains(extension.toLowerCase());
   }

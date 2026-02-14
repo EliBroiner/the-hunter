@@ -44,6 +44,8 @@ class HybridSearchController extends ChangeNotifier {
   bool _isSmartSearchActive = false;
   SearchIntent? _lastIntent;
   String _currentQuery = '';
+  /// true = מריץ AI Rescue גם כשיש תוצאות מקומיות (מ־triggerDeepSearch)
+  bool _forceAiRescue = false;
   /// 0 = All (מקומי תמיד; Drive רק אם אין תוצאות מקומיות), 1 = Local (מקומי בלבד), 2 = Drive (מקומי + Drive במקביל)
   int _activeTab = 0;
 
@@ -116,6 +118,13 @@ class HybridSearchController extends ChangeNotifier {
     );
   }
 
+  /// מפעיל חיפוש עמוק — מריץ AI Rescue על השאילתה הנוכחית גם כשיש תוצאות מקומיות
+  Future<void> triggerDeepSearch() async {
+    if (_currentQuery.trim().length < 2) return;
+    _forceAiRescue = true;
+    await executeSearch(_currentQuery);
+  }
+
   /// מריץ חיפוש עכשיו (ביטול debounce) — לשימוש כשמשנים פילטר/תאריך
   Future<void> runSearchNow() async {
     _debounceTimer?.cancel();
@@ -165,11 +174,14 @@ class HybridSearchController extends ChangeNotifier {
     _isSmartSearchActive = false;
     _lastIntent = null;
     _currentQuery = '';
+    _forceAiRescue = false;
   }
 
   /// מריץ חיפוש: מקומי תמיד (baseline); Drive לפי טאב — All: רק אם מקומי ריק, Local: לא, Drive: במקביל
   Future<void> executeSearch(String query) async {
+    final prevQuery = _currentQuery;
     _currentQuery = query;
+    if (query != prevQuery) _forceAiRescue = false;
     _results = [];
     _primaryResults = [];
     _secondaryResults = [];
@@ -226,8 +238,9 @@ class HybridSearchController extends ChangeNotifier {
       _isDriveSearching = false;
       _driveResults = driveResults;
 
-      // שלב ג: AI Rescue — רק אם מקומי + Drive ריקים, פרימיום, ויש רשת; לא Drive כשטאב Local
-      if (localResults.isEmpty && driveResults.isEmpty && isPro && hasNet) {
+      // שלב ג: AI Rescue — אם מקומי+Drive ריקים או forceAiRescue; פרימיום ורשת
+      if ((localResults.isEmpty && driveResults.isEmpty || _forceAiRescue) && isPro && hasNet) {
+        _forceAiRescue = false; // צריכה חד־פעמית — מתאפסת אחרי שימוש
         onAILoading?.call(true);
         _isAISearching = true;
         notifyListeners();

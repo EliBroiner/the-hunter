@@ -12,6 +12,10 @@ class AiSuggestion {
     this.confidence = 0,
   });
 
+  /// true אם יש מילות מפתח או regex — חוקים טכניים לזיהוי מקומי
+  bool get hasTechnicalRules =>
+      suggestedKeywords.isNotEmpty || (suggestedRegex != null && suggestedRegex!.trim().isNotEmpty);
+
   static AiSuggestion? fromJson(Map<String, dynamic>? json) {
     if (json == null) return null;
     final cat = json['suggested_category'] ?? json['suggestedCategory'] ?? '';
@@ -28,15 +32,46 @@ class AiSuggestion {
   }
 }
 
+/// מטא־דאטה מחולצת — שמות, מזהים, מיקומים
+class DocumentMetadata {
+  final List<String> names;
+  final List<String> ids;
+  final List<String> locations;
+
+  const DocumentMetadata({
+    this.names = const [],
+    this.ids = const [],
+    this.locations = const [],
+  });
+
+  static DocumentMetadata? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    final names = _parseList(json['names']);
+    final ids = _parseList(json['ids']);
+    final locations = _parseList(json['locations']);
+    if (names.isEmpty && ids.isEmpty && locations.isEmpty) return null;
+    return DocumentMetadata(names: names, ids: ids, locations: locations);
+  }
+
+  static List<String> _parseList(dynamic v) {
+    if (v is! List) return [];
+    return v.map((e) => e?.toString().trim() ?? '').where((s) => s.isNotEmpty).toList();
+  }
+}
+
 /// תוצאת ניתוח מסמך מהשרת — קטגוריה, תגיות והצעות למידה.
 class DocumentAnalysisResult {
   final String category;
   final List<String> tags;
   final List<AiSuggestion> suggestions;
+  final bool requiresHighResOcr;
+  final DocumentMetadata? metadata;
 
   const DocumentAnalysisResult({
     required this.category,
     required this.tags,
     this.suggestions = const [],
+    this.requiresHighResOcr = false,
+    this.metadata,
   });
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/ai_analysis_response.dart';
 import '../models/smart_category.dart';
 import 'app_check_http_helper.dart';
 import 'knowledge_base_service.dart';
@@ -106,6 +107,49 @@ class CategoryManagerService {
       return RegExp('(^|[^\\w])$escaped([^\\w]|\$)', unicode: true, caseSensitive: false).hasMatch(lowerText);
     }
     return lowerText.contains(t);
+  }
+
+  /// מאשר הצעות Admin — מאגד suggestedKeywords ו-suggestedRegex ושולח ל-Firestore.
+  /// כל המשתמשים יקבלו את החוקים החדשים בסנכרון הבא (loadCategories).
+  Future<int> approveSuggestions(String categoryId, List<AiSuggestion> suggestions) async {
+    if (categoryId.isEmpty || suggestions.isEmpty) return 0;
+    final keywords = <String>{};
+    final regexPatterns = <String>[];
+    for (final s in suggestions) {
+      for (final kw in s.suggestedKeywords) {
+        final t = kw.trim();
+        if (t.isNotEmpty) keywords.add(t);
+      }
+      final r = s.suggestedRegex?.trim();
+      if (r != null && r.isNotEmpty && !regexPatterns.contains(r)) regexPatterns.add(r);
+    }
+    if (keywords.isEmpty && regexPatterns.isEmpty) return 0;
+    try {
+      final encoded = Uri.encodeComponent(categoryId);
+      final uri = Uri.parse('$_baseUrl$_smartCategoriesPath/$encoded/rules/batch');
+      final headers = await AppCheckHttpHelper.getBackendHeaders(
+        existing: {'Content-Type': 'application/json'},
+      );
+      final body = jsonEncode({
+        'keywords': keywords.toList(),
+        'regexPatterns': regexPatterns,
+      });
+      final response = await http.post(uri, headers: headers, body: body).timeout(_timeout);
+      if (response.statusCode != 200) {
+        appLog('CategoryManager: approveSuggestions failed ${response.statusCode}');
+        return 0;
+      }
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final added = (decoded?['added'] as num?)?.toInt() ?? 0;
+      if (added > 0) {
+        invalidate();
+        appLog('CategoryManager: approveSuggestions saved $added rules to $categoryId');
+      }
+      return added;
+    } catch (e) {
+      appLog('CategoryManager: approveSuggestions error - $e');
+      return 0;
+    }
   }
 
   /// מוסיף חוק (regex או keyword) לקטגוריה — שומר ב-Firestore דרך השרת.

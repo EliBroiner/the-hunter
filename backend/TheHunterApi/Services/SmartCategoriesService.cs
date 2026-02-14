@@ -11,12 +11,18 @@ public interface ISmartCategoriesService
 {
     Task<IReadOnlyList<SmartCategoryDocument>> GetAllAsync(CancellationToken ct = default);
     Task<bool> AddRuleAsync(string categoryId, string type, string value, CancellationToken ct = default);
+    /// <summary>מוסיף חוקים מרובים (keywords + regex) — לשימוש באישור הצעות Admin.</summary>
+    Task<int> AddRulesBatchAsync(string categoryId, IReadOnlyList<string> keywords, IReadOnlyList<string> regexPatterns, CancellationToken ct = default);
     /// <summary>יוצר/מעדכן מסמך ב-smart_categories מנתוני Debugger (Manual JSON Save).</summary>
     Task<string?> SaveManualAsync(string categoryKey, IReadOnlyList<string> tags, IReadOnlyList<object> suggestions, string? summary, CancellationToken ct = default);
 }
 
 public class SmartCategoriesService : ISmartCategoriesService
 {
+    /// <summary>Firestore אוסר "/" ב-document ID — מחליף ל-"|" לפורמט רב־לשוני (Invoice / חשבונית)</summary>
+    private static string SanitizeDocId(string categoryKey) =>
+        string.IsNullOrWhiteSpace(categoryKey) ? "" : categoryKey.Trim().Replace("/", "|");
+
     private readonly FirestoreDb _firestore;
     private readonly ILogger<SmartCategoriesService> _logger;
 
@@ -57,17 +63,19 @@ public class SmartCategoriesService : ISmartCategoriesService
 
         try
         {
+            var docId = SanitizeDocId(categoryId);
+            if (string.IsNullOrWhiteSpace(docId)) return false;
             var docRef = _firestore
                 .Collection(LearningService.CollectionSmartCategories)
-                .Document(categoryId);
+                .Document(docId);
 
             var snap = await docRef.GetSnapshotAsync(ct);
             if (!snap.Exists)
             {
-                // יוצר מסמך עם שדות ברירת מחדל ואז מעדכן
+                // יוצר מסמך עם שדות ברירת מחדל — key שומר את השם המקורי (כולל /)
                 var init = new Dictionary<string, object>
                 {
-                    { "key", categoryId },
+                    { "key", categoryId.Trim() },
                     { "display_names", new Dictionary<string, string>() },
                     { "keywords", new List<string>() },
                     { "regex_patterns", new List<string>() },
@@ -86,6 +94,28 @@ public class SmartCategoriesService : ISmartCategoriesService
             _logger.LogError(ex, "AddRule failed for {CategoryId}", categoryId);
             return false;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> AddRulesBatchAsync(string categoryId, IReadOnlyList<string> keywords, IReadOnlyList<string> regexPatterns, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(categoryId)) return 0;
+        var kw = keywords?.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k!.Trim()).Distinct().ToList() ?? new List<string>();
+        var rx = regexPatterns?.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r!.Trim()).Distinct().ToList() ?? new List<string>();
+        if (kw.Count == 0 && rx.Count == 0) return 0;
+
+        var added = 0;
+        foreach (var k in kw)
+        {
+            if (await AddRuleAsync(categoryId, "keyword", k, ct)) added++;
+        }
+        foreach (var r in rx)
+        {
+            if (await AddRuleAsync(categoryId, "regex", r, ct)) added++;
+        }
+        if (added > 0)
+            _logger.LogInformation("AddRulesBatch: {CategoryId} — +{Count} rules (keywords: {Kc}, regex: {Rc})", categoryId, added, kw.Count, rx.Count);
+        return added;
     }
 
     /// <inheritdoc />
@@ -124,10 +154,16 @@ public class SmartCategoriesService : ISmartCategoriesService
         try
         {
             var col = _firestore.Collection(LearningService.CollectionSmartCategories);
-            var docRef = col.Document(key);
+            var docId = SanitizeDocId(key);
+            if (string.IsNullOrWhiteSpace(docId))
+            {
+                _logger.LogWarning("SaveManual: categoryKey invalid after sanitization");
+                return null;
+            }
+            var docRef = col.Document(docId);
             var data = new Dictionary<string, object>
             {
-                { "key", key },
+                { "key", key.Trim() },
                 { "keywords", keywords },
                 { "regex_patterns", regexStrings },
                 { "display_names", new Dictionary<string, object> { { "he", summary ?? "" } } },

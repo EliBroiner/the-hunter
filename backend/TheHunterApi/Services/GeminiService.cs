@@ -50,6 +50,7 @@ public class GeminiService
              * Hebrew: "תמצא", "חפש", "תחפש", "מצא", "דחוף", "בבקשה", "לי", "את", "של", "שלי", "קובץ", "קבצים", "איפה", "תראה"
         
         2. TERMS - LANGUAGE BRIDGE (CRITICAL):
+           When generating synonyms or related terms, if the user's language is Hebrew, provide terms in BOTH English AND Hebrew to match our bilingual metadata format (e.g., "Invoice", "חשבונית").
            If query contains Hebrew, you MUST include BOTH Hebrew AND English translations:
            - "דרכון" → ["דרכון", "passport"]
            - "חשבונית" → ["חשבונית", "invoice", "receipt"]
@@ -107,17 +108,37 @@ public class GeminiService
         7. OUTPUT: Return ONLY the raw JSON object. No explanations, no markdown code fences, no text before or after.
         """;
 
-    /// <summary>פרומפט ניתוח מסמכים — fallback אם הקובץ לא נטען.</summary>
-    /// <remarks>כלל אבטחה: אין לכלול PII ב-tags — רק קטגוריות כלליות (Receipt, Flight) ולא שמות/תאריכים מדויקים.</remarks>
+    /// <summary>פרומפט ניתוח מסמכים — fallback אם הקובץ לא נטען. תואם doc_analysis_default.txt</summary>
+    /// <remarks>כלל אבטחה: tags ללא PII — רק קטגוריות כלליות. PII רק ב-metadata.</remarks>
     private const string DocAnalysisPromptFallback = """
-        Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
-        Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
+        Analyze the following document text and output ONLY raw JSON.
+
+        === REQUIRED JSON STRUCTURE ===
+        {
+          "category": "string",
+          "date": "YYYY-MM-DD or null",
+          "tags": ["tag1", "tag2"],
+          "summary": "string",
+          "metadata": {
+            "names": ["string"],
+            "ids": ["string"],
+            "locations": ["string"]
+          },
+          "requires_high_res_ocr": boolean
+        }
+
+        === MULTILINGUAL OUTPUT (MANDATORY) ===
+        If Hebrew is detected, provide "category", "tags", and "summary" in "English / Hebrew" format.
+        Example: "Invoice / חשבונית", "Financial / פיננסי"
+
+        === REQUIRES_HIGH_RES_OCR (mandatory boolean) ===
+        Set to true ONLY if text is fragmented, garbled, or suggests complex layout (tables/handwriting) needing professional scan. Otherwise false.
 
         === STRICT RULE: NO PII IN TAGS ===
-        Do NOT include PII (Personally Identifiable Information) or specific record data in the tags array.
-        - Specific names (e.g., Ariel Broyner), IDs, exact dates, and specific locations must NOT be tags.
-        - Tags must ONLY represent general categories or document types (e.g., Ticket, Receipt, Flight, Travel, Invoice, Contract).
-        - Put specific data like names or booking codes into a separate "metadata" or "extracted_entities" field if available, or just keep them in the summary/OCR text for searchability.
+        Tags MUST contain ONLY general categories. NO names, IDs, dates, or locations in tags. Place all in metadata.
+
+        === OUTPUT ===
+        Return ONLY raw JSON. No markdown, no code blocks.
         """;
 
     private readonly ILearningService _learningService;

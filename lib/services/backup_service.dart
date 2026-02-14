@@ -812,6 +812,8 @@ class BackupService {
       'lastModified': file.lastModified.toIso8601String(),
       'extractedText': file.extractedText,
       'isIndexed': file.isIndexed,
+      'requiresHighResOcr': file.requiresHighResOcr,
+      if (file.aiMetadata != null && !file.aiMetadata!.isEmpty) 'metadata': file.aiMetadata!.toJson(),
     };
   }
 
@@ -825,6 +827,10 @@ class BackupService {
       ..lastModified = DateTime.tryParse(json['lastModified'] ?? '') ?? DateTime.now()
       ..addedAt = DateTime.now()
       ..extractedText = json['extractedText']
-      ..isIndexed = json['isIndexed'] ?? false;
+      ..isIndexed = json['isIndexed'] ?? false
+      ..requiresHighResOcr = json['requiresHighResOcr'] ?? false
+      ..aiMetadataNames = FileMetadata.parseMetadataList(json, 'names')
+      ..aiMetadataIds = FileMetadata.parseMetadataList(json, 'ids')
+      ..aiMetadataLocations = FileMetadata.parseMetadataList(json, 'locations');
   }
 }

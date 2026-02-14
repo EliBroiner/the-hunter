@@ -44,6 +44,20 @@ public class SmartCategoriesController : ControllerBase
         return ok ? Ok(new { ok = true }) : BadRequest(new { error = "AddRule failed" });
     }
 
+    /// <summary>אישור הצעות Admin — מוסיף keywords ו-regex ל-SmartCategory ב-Firestore.</summary>
+    [HttpPost("{categoryId}/rules/batch")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> AddRulesBatch(string categoryId, [FromBody] AddRulesBatchRequest body, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(categoryId))
+            return BadRequest(new { error = "categoryId required" });
+        var keywords = body?.Keywords ?? new List<string>();
+        var regexPatterns = body?.RegexPatterns ?? new List<string>();
+        var count = await _service.AddRulesBatchAsync(categoryId, keywords, regexPatterns, ct);
+        return Ok(new { ok = true, added = count });
+    }
+
     /// <summary>
     /// שמירה ידנית מ-Debugger: יוצר/מעדכן מסמך ב-smart_categories (category = document ID).
     /// </summary>
@@ -78,3 +92,5 @@ public record SmartCategoryDto(
     IReadOnlyList<string> RegexPatterns);
 
 public record AddRuleRequest(string Type, string Value);
+
+public record AddRulesBatchRequest(List<string>? Keywords, List<string>? RegexPatterns);

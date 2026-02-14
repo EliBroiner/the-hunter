@@ -54,14 +54,20 @@ public static class TermValidator
         return true;
     }
 
+    // קטגוריה: כמו term + "/" לפורמט רב־לשוני (Invoice / חשבונית)
+    private static readonly Regex AllowedCategoryRegex = new(
+        @"^[\p{L}\p{N}\s\-'/]+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(50));
+
     /// <summary>
-    /// בודק אם קטגוריה תקינה
+    /// בודק אם קטגוריה תקינה — תומך ב־"/" לפורמט רב־לשוני
     /// </summary>
     public static bool IsValidCategory(string? category)
     {
         if (string.IsNullOrWhiteSpace(category)) return true; // general יתקבל
         var c = category.Trim();
         if (c.Length > MaxCategoryLength) return false;
-        return AllowedTermRegex.IsMatch(c);
+        return AllowedCategoryRegex.IsMatch(c);
     }
 }

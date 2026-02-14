@@ -60,10 +60,10 @@ class KnowledgeBaseService {
       final synonymsRaw = map['synonyms'] as Map<String, dynamic>? ?? {};
       final synonyms = <String, List<String>>{};
       for (final e in synonymsRaw.entries) {
-        synonyms[e.key.toString()] =
-            (e.value as List<dynamic>).map((x) => x.toString()).toList();
+        synonyms[e.key.toString().trim()] =
+            (e.value as List<dynamic>).map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList();
       }
-      await _mergeSynonymsToIsarAndCache(synonyms);
+      await _mergeSynonymsToIsarAndCache(_normalizeSynonyms(synonyms));
 
       // DatePhrases ו-FileTypeKeywords — לזיכרון
       final datePhrasesRaw = map['datePhrases'] as List<dynamic>? ?? [];
@@ -132,10 +132,12 @@ class KnowledgeBaseService {
       if (synonymsRaw is Map<String, dynamic>) {
         for (final e in synonymsRaw.entries) {
           final vals = e.value;
-          synonyms[e.key] = vals is List
-              ? vals.map((x) => x.toString()).toList()
-              : [vals.toString()];
+          synonyms[e.key.toString().trim()] = vals is List
+              ? vals.map((x) => x.toString().trim()).where((s) => s.isNotEmpty).toList()
+              : [vals.toString().trim()];
         }
+        final normalized = _normalizeSynonyms(synonyms);
+        synonyms..clear()..addAll(normalized);
       } else if (synonymsRaw is List) {
         synonyms.addAll(_parseSynonymsFromList(synonymsRaw));
       }
@@ -158,17 +160,72 @@ class KnowledgeBaseService {
     }
   }
 
-  /// ממיר רשימה של פריטים ל-map synonyms — תומך ב-{term, category} או {category, terms}
+  /// מזהה זוגות למזג — "Invoice" → "Invoice / חשבונית"
+  Map<String, String> _findBilingualMergePairs(Map<String, List<String>> synonyms) {
+    final toMerge = <String, String>{};
+    for (final k in synonyms.keys) {
+      if (!k.contains(' / ')) continue;
+      final short = k.split(' / ').first.trim();
+      if (short.isEmpty || short == k) continue;
+      if (synonyms.containsKey(short)) toMerge[short] = k;
+    }
+    return toMerge;
+  }
+
+  /// ממזג קטגוריות דואליות — "Invoice" ו-"Invoice / חשבונית" → אחת
+  Map<String, List<String>> _mergeBilingualCategories(Map<String, List<String>> synonyms) {
+    final toMerge = _findBilingualMergePairs(synonyms);
+    for (final e in toMerge.entries) {
+      final terms = synonyms.remove(e.key) ?? [];
+      synonyms.putIfAbsent(e.value, () => []).addAll(terms);
+    }
+    return synonyms;
+  }
+
+  /// מסיר כפילויות ברשימה (מנרמל לפי lowercase)
+  static List<String> _deduplicateList(List<String> list) {
+    final seen = <String>{};
+    return list.where((t) {
+      if (t.isEmpty) return false;
+      final lower = t.toLowerCase();
+      if (seen.contains(lower)) return false;
+      seen.add(lower);
+      return true;
+    }).toList();
+  }
+
+  /// ממזג קטגוריות דואליות ומסיר כפילויות — שימוש חוזר
+  Map<String, List<String>> _normalizeSynonyms(Map<String, List<String>> synonyms) {
+    return _deduplicateSynonymTerms(_mergeBilingualCategories(synonyms));
+  }
+
+  /// מסיר כפילויות במונחים לכל קטגוריה
+  Map<String, List<String>> _deduplicateSynonymTerms(Map<String, List<String>> synonyms) {
+    final out = <String, List<String>>{};
+    for (final e in synonyms.entries) {
+      final terms = _deduplicateList(e.value);
+      if (terms.isNotEmpty) out[e.key] = terms;
+    }
+    return out;
+  }
+
+  /// ממיר פריט בודד ל-(category, term) או null
+  static (String, String)? _parseSynonymItem(dynamic item) {
+    if (item is! Map<String, dynamic>) return null;
+    final cat = item['category']?.toString().trim() ?? '';
+    final term = item['term']?.toString().trim() ?? '';
+    return (cat.isEmpty || term.isEmpty) ? null : (cat, term);
+  }
+
+  /// ממיר רשימה ל-map synonyms — ממזג קטגוריות דואליות, מסיר כפילויות
   Map<String, List<String>> _parseSynonymsFromList(List list) {
     final synonyms = <String, List<String>>{};
     for (final item in list) {
-      if (item is! Map<String, dynamic>) continue;
-      final cat = item['category']?.toString() ?? '';
-      final term = item['term']?.toString() ?? '';
-      if (cat.isEmpty || term.isEmpty) continue;
-      synonyms.putIfAbsent(cat, () => []).add(term);
+      final parsed = _parseSynonymItem(item);
+      if (parsed == null) continue;
+      synonyms.putIfAbsent(parsed.$1, () => []).add(parsed.$2);
     }
-    return synonyms;
+    return _normalizeSynonyms(synonyms);
   }
 
   /// טוען synonyms מ-Isar ל-cache — מאפשר שימוש במונחים שסונכרנו בעבר גם offline

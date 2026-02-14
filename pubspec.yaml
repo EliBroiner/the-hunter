@@ -40,6 +40,9 @@ dependencies:
   # PDF: חילוץ טקסט (מסמכים לא-עבריים) + רינדור דף ראשון ל-OCR (עברית)
   syncfusion_flutter_pdf: ^32.1.24
   pdfx: ^2.9.2
+
+  # Excel: חילוץ טקסט מקבצי xlsx
+  excel: ^4.0.6
   
   # Firebase - אימות משתמשים, גיבוי, Crashlytics, App Check
   firebase_core: ^4.4.0

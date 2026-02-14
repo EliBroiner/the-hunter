@@ -526,19 +526,14 @@ class DatabaseService {
       candidates = candidates.where((f) => extSet.contains(f.extension.toLowerCase())).toList();
     }
 
-    // קבוצה א': מונחים — OR; מונח קצר (< 3) או מספר = whole-word (שווה ערך ל-.equalTo)
+    // קבוצה א': מונחים — OR; בודק name, extractedText, category, tags, aiMetadata
     if (intent.terms.isNotEmpty) {
       candidates = candidates.where((f) {
-        final name = f.name.toLowerCase();
-        final text = f.extractedText?.toLowerCase() ?? '';
         return intent.terms.any((term) {
-          final t = term.toLowerCase().trim();
+          final t = term.trim();
           if (t.isEmpty) return false;
           final exactOnly = t.length < 3 || _isAllDigits(t);
-          if (exactOnly) {
-            return _wholeWordMatch(name, t) || _wholeWordMatch(text, t);
-          }
-          return name.contains(t) || text.contains(t);
+          return _termMatchesInFile(f, t, exactOnly);
         });
       }).toList();
     }
@@ -558,6 +553,50 @@ class DatabaseService {
     final results = RelevanceEngine.rankAndSort(candidates, intent);
     appLog('DB: localSmartSearch -> ${results.length} results');
     return results;
+  }
+
+  /// בודק אם מונח תואם קובץ — name, extractedText, category, tags, aiMetadata (case-insensitive)
+  static bool _termMatchesInFile(FileMetadata f, String term, bool exactOnly) {
+    if (_termMatchesString(f.name, term, exactOnly)) return true;
+    if (_termMatchesString(f.extractedText, term, exactOnly)) return true;
+    if (_termMatchesMultilingual(f.category, term, exactOnly)) return true;
+    if (_termMatchesInList(f.tags, term, exactOnly)) return true;
+    if (_termMatchesAiMetadata(f, term, exactOnly)) return true;
+    return false;
+  }
+
+  /// התאמה בשדה טקסט — null-safe, case-insensitive
+  static bool _termMatchesString(String? value, String term, bool exactOnly) {
+    if (value == null || value.isEmpty) return false;
+    final v = value.toLowerCase();
+    final t = term.toLowerCase().trim();
+    if (t.isEmpty) return false;
+    if (exactOnly) return _wholeWordMatch(v, t);
+    return v.contains(t);
+  }
+
+  /// התאמה בערך רב־לשוני (פורמט "English / Hebrew") — מפצל לפי " / " ובודק כל חלק
+  static bool _termMatchesMultilingual(String? value, String term, bool exactOnly) {
+    if (value == null || value.isEmpty) return false;
+    final parts = value.split(RegExp(r'\s*/\s*'));
+    for (final part in parts) {
+      if (_termMatchesString(part.trim(), term, exactOnly)) return true;
+    }
+    return false;
+  }
+
+  /// התאמה ברשימת מחרוזות (tags)
+  static bool _termMatchesInList(List<String>? list, String term, bool exactOnly) {
+    if (list == null || list.isEmpty) return false;
+    return list.any((s) => _termMatchesString(s, term, exactOnly));
+  }
+
+  /// התאמה ב־aiMetadata — names, ids, locations
+  static bool _termMatchesAiMetadata(FileMetadata f, String term, bool exactOnly) {
+    final meta = f.aiMetadata;
+    if (meta == null || meta.isEmpty) return false;
+    final check = (String s) => _termMatchesString(s, term, exactOnly);
+    return meta.names.any(check) || meta.ids.any(check) || meta.locations.any(check);
   }
 
   /// התאמת מונח כ־whole-word (גבולות מילה) — למניעת "מס" בתוך "מסמך"
@@ -634,9 +673,9 @@ class DatabaseService {
         .toList();
   }
 
-  /// מחזיר קבצי טקסט ו-PDF שטרם עברו אינדוקס
+  /// מחזיר קבצי טקסט, PDF ו-Excel שטרם עברו אינדוקס
   List<FileMetadata> getPendingTextFiles() {
-    const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf'];
+    const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls'];
     return isar.fileMetadatas
         .where()
         .findAll()

@@ -27,6 +27,20 @@ class ForceReprocessResult {
   });
 }
 
+/// תוצאת צינור עיבוד מרכזי — לשימוש פנימי ו־forceReprocessFile
+class ProcessWorkflowResult {
+  final bool success;
+  final String message;
+  final List<AiSuggestion> suggestions;
+  final DocumentAnalysisResult? documentResult;
+  ProcessWorkflowResult({
+    required this.success,
+    required this.message,
+    this.suggestions = const [],
+    this.documentResult,
+  });
+}
+
 /// צינור עיבוד קבצים: ולידציה → Waterfall (מילון/Regex) → AI (רק ל-PRO)
 /// מתאים לעיבוד אלפי קבצים — עוצר בשקט ב-unreadable / dictionaryMatched
 class FileProcessingService {
@@ -74,9 +88,12 @@ class FileProcessingService {
             : <String>[];
         final sugg = gr['suggestions'];
         final suggestions = sugg is List
-            ? sugg.map((e) => AiSuggestion.fromJson(e is Map ? Map<String, dynamic>.from(e as Map) : null)).whereType<AiSuggestion>().toList()
+            ? sugg.map((e) => AiSuggestion.fromJson(e is Map ? Map<String, dynamic>.from(e) : null)).whereType<AiSuggestion>().toList()
             : <AiSuggestion>[];
-        geminiResult = DocumentAnalysisResult(category: cat, tags: tags, suggestions: suggestions);
+        final requiresHighResOcr = (gr['requires_high_res_ocr'] ?? gr['requiresHighResOcr']) == true;
+        final meta = gr['metadata'] as Map<String, dynamic>?;
+        final metadata = meta != null ? DocumentMetadata.fromJson(Map<String, dynamic>.from(meta)) : null;
+        geminiResult = DocumentAnalysisResult(category: cat, tags: tags, suggestions: suggestions, requiresHighResOcr: requiresHighResOcr, metadata: metadata);
       }
       return (text: text.isEmpty ? null : text, isPureImageNoText: isPure, geminiResult: geminiResult);
     } catch (e) {
@@ -123,6 +140,230 @@ class FileProcessingService {
     if (r.statusCode != 200) appLog('ScanFailure report failed: ${r.statusCode}');
   }
 
+  /// מחיל מטא־דאטה מ-AI על הקובץ
+  void _applyAiMetadata(FileMetadata file, DocumentMetadata? metadata) {
+    if (metadata == null || (metadata.names.isEmpty && metadata.ids.isEmpty && metadata.locations.isEmpty)) return;
+    file.aiMetadataNames = metadata.names.isEmpty ? null : metadata.names;
+    file.aiMetadataIds = metadata.ids.isEmpty ? null : metadata.ids;
+    file.aiMetadataLocations = metadata.locations.isEmpty ? null : metadata.locations;
+  }
+
+  /// מחיל תוצאת Gemini על הקובץ
+  void _applyGeminiResult(FileMetadata file, DocumentAnalysisResult result) {
+    file.category = result.category;
+    file.tags = result.tags;
+    file.requiresHighResOcr = result.requiresHighResOcr;
+    _applyAiMetadata(file, result.metadata);
+  }
+
+  void _saveVisionResultToFile(FileMetadata file, DocumentAnalysisResult result) {
+    _applyGeminiResult(file, result);
+    file.isAiAnalyzed = true;
+    file.aiStatus = null;
+    _db.updateFile(file);
+  }
+
+  /// ביצוע סריקה חוזרת באמצעות Google Vision בגלל זיהוי איכות נמוכה על ידי Gemini.
+  /// מחזיר תוצאה אם הצליח; null אם לא. מונע לולאה — קורא רק כש־התוצאה מ־analyze-batch (לא מ־Vision).
+  Future<DocumentAnalysisResult?> _runVisionFallbackForLowQuality(FileMetadata file) async {
+    if (!OCRService.isSupportedImage(file.extension.toLowerCase())) return null;
+    final fallback = await _callOcrExtract(file.path, documentId: file.id.toString(), filename: file.name);
+    return fallback.geminiResult;
+  }
+
+  /// אם requiresHighResOcr מהתוצאה מ־analyze-batch — מפעיל Vision; אחרת null.
+  Future<DocumentAnalysisResult?> _tryVisionFallbackWhenLowQuality(
+      FileMetadata file, DocumentAnalysisResult? result, bool isPro) async {
+    if (result == null || !result.requiresHighResOcr || !isPro) return null;
+    appLog('[SCAN] File: ${file.path} — ביצוע סריקה חוזרת באמצעות Google Vision בגלל זיהוי איכות נמוכה על ידי Gemini.');
+    final visionResult = await _runVisionFallbackForLowQuality(file);
+    if (visionResult == null) return null;
+    _saveVisionResultToFile(file, visionResult);
+    return visionResult;
+  }
+
+  /// צינור עיבוד מרכזי — שלב 1: חילוץ טקסט (OCR/TextExtraction)
+  Future<String> _workflowStep1ExtractText(
+      FileMetadata file, void Function(String)? reportProgress, {bool useExistingIfPresent = false}) async {
+    appLog('[WORKFLOW] מתחיל תהליך עיבוד מרכזי: ${file.path}');
+    final existing = file.extractedText?.trim() ?? '';
+    if (useExistingIfPresent && existing.isNotEmpty) {
+      appLog('[WORKFLOW] משתמש בטקסט קיים — אורך: ${existing.length}');
+      return existing;
+    }
+    reportProgress?.call('מחלץ טקסט...');
+    final ext = file.extension.toLowerCase();
+    if (TextExtractionService.isTextExtractable(ext)) {
+      return TextExtractionService.instance.extractText(file.path);
+    }
+    if (OCRService.isSupportedImage(ext)) {
+      return _workflowStep1OcrImage(file, reportProgress);
+    }
+    return file.extractedText ?? '';
+  }
+
+  Future<String> _workflowStep1OcrImage(FileMetadata file, void Function(String)? reportProgress) async {
+    final ocrResult = await OCRService.instance.extractTextWithStatus(file.path);
+    if (ocrResult.isNoText) {
+      file.aiStatus = 'no_text_detected';
+      file.extractedText = null;
+      FileProcessingService.reportNoTextDetected();
+      return '';
+    }
+    if (ocrResult.needsBackendFallback) {
+      reportProgress?.call('מעלה לשרת...');
+      appLog('[WORKFLOW] איכות ML Kit נמוכה — מעלה ל-Cloud Vision');
+      final fallback = await _callOcrExtract(file.path, documentId: file.id.toString(), filename: file.name);
+      if (fallback.isPureImageNoText && fallback.text == null) {
+        file.aiStatus = 'no_text_detected';
+        file.extractedText = null;
+        FileProcessingService.reportNoTextDetected();
+        return '';
+      }
+      final text = fallback.text?.trim().isNotEmpty == true ? fallback.text! : ocrResult.text;
+      file.extractedText = text.isEmpty ? null : text;
+      if (fallback.geminiResult != null) {
+        _applyGeminiResult(file, fallback.geminiResult!);
+        file.isAiAnalyzed = true;
+        file.aiStatus = null;
+      }
+      return text;
+    }
+    return ocrResult.text;
+  }
+
+  /// צינור עיבוד מרכזי — שלב 2: בדיקת איכות
+  bool _workflowStep2QualityCheck(FileMetadata file, String text) {
+    appLog('[WORKFLOW] בדיקת איכות טקסט — אורך: ${text.length}');
+    final status = _validator.validateQuality(text);
+    if (status == AnalysisStatus.unreadable) {
+      appLog('[WORKFLOW] איכות נמוכה — UNREADABLE');
+      file.isAiAnalyzed = false;
+      file.aiStatus = 'unreadable';
+      _reportScanFailure(file, text);
+      return false;
+    }
+    return true;
+  }
+
+  /// צינור עיבוד מרכזי — שלב 3: Waterfall + Gemini (אם נדרש)
+  Future<DocumentAnalysisResult?> _workflowStep3GeminiIfNeeded(
+      FileMetadata file, String text, bool isPro, bool Function()? isCanceled) async {
+    appLog('[WORKFLOW] בודק מילון וחוקים...');
+    if (text.isNotEmpty) {
+      final match = await _categoryManager.identifyCategory(text);
+      if (match != null) {
+        appLog('[WORKFLOW] התאמה מקומית — ${match.category}');
+        file.category = match.category;
+        file.tags = match.tags;
+        file.isAiAnalyzed = true;
+        file.aiStatus = 'local_match';
+        return null;
+      }
+    }
+    if (!isPro) return null;
+    if (isCanceled?.call() == true) return null;
+    appLog('[WORKFLOW] שולח ל-Gemini לניתוח');
+    return _aiTagger.processSingleFileImmediately(file, isPro: isPro);
+  }
+
+  /// צינור עיבוד מרכזי — שלב 4: Vision fallback אם requiresHighResOcr
+  Future<DocumentAnalysisResult?> _workflowStep4VisionIfNeeded(
+      FileMetadata file, DocumentAnalysisResult? result, bool isPro) async {
+    final visionResult = await _tryVisionFallbackWhenLowQuality(file, result, isPro);
+    if (visionResult != null) {
+      appLog('[WORKFLOW] מפעיל סריקה איכותית בגלל דרישת AI — הושלם');
+    }
+    return visionResult ?? result;
+  }
+
+  /// צינור עיבוד מרכזי — שלב 5: שמירה סופית
+  void _workflowStep5Save(FileMetadata file, String text) {
+    file.extractedText = text.isEmpty ? null : text;
+    file.isIndexed = true;
+    _db.updateFile(file);
+    appLog('[WORKFLOW] שמירת מטא־דאטה סופית — isIndexed=true');
+  }
+
+  /// צינור עיבוד מרכזי — נקודת כניסה יחידה. מחזיר תוצאה להמרה ל־ForceReprocessResult או DocumentAnalysisResult.
+  Future<ProcessWorkflowResult> processFileWorkflow(
+    FileMetadata file, {
+    required bool isPro,
+    bool resetFirst = false,
+    bool useExistingText = false,
+    void Function(String)? reportProgress,
+    bool Function()? isCanceled,
+  }) async {
+    if (resetFirst) {
+      reportProgress?.call('מאפס...');
+      _db.resetFileForReanalysis(file);
+    }
+    if (isCanceled?.call() == true) {
+      return ProcessWorkflowResult(success: false, message: 'בוטל');
+    }
+
+    String text = await _workflowStep1ExtractText(file, reportProgress, useExistingIfPresent: useExistingText);
+    if (isCanceled?.call() == true) return ProcessWorkflowResult(success: false, message: 'בוטל');
+
+    if (file.aiStatus == 'no_text_detected') {
+      _workflowStep5Save(file, '');
+      return ProcessWorkflowResult(success: false, message: 'לא נמצא טקסט בתמונה');
+    }
+
+    if (text.isEmpty && (file.extractedText ?? '').isEmpty) {
+      _workflowStep5Save(file, '');
+      return ProcessWorkflowResult(success: false, message: 'לא נמצא טקסט');
+    }
+
+    if (text.isEmpty) text = file.extractedText ?? '';
+    if (!_workflowStep2QualityCheck(file, text)) {
+      _db.updateFile(file);
+      return ProcessWorkflowResult(success: false, message: 'הטקסט לא קריא');
+    }
+
+    if (file.isAiAnalyzed && file.aiStatus == 'local_match') {
+      _workflowStep5Save(file, text);
+      return ProcessWorkflowResult(success: true, message: 'זוהה מקומית: ${file.category}');
+    }
+
+    if (file.isAiAnalyzed && file.aiStatus == null && file.category != null) {
+      appLog('[WORKFLOW] תוצאה מ-Vision כבר הוחלה — דילוג על Gemini');
+      _workflowStep5Save(file, text);
+      return ProcessWorkflowResult(
+        success: true,
+        message: 'עובד ב-Cloud Vision + Gemini: ${file.category}',
+        documentResult: DocumentAnalysisResult(
+          category: file.category!,
+          tags: file.tags ?? [],
+          suggestions: const [],
+          requiresHighResOcr: file.requiresHighResOcr,
+          metadata: file.aiMetadata != null
+              ? DocumentMetadata(
+                  names: file.aiMetadataNames ?? [],
+                  ids: file.aiMetadataIds ?? [],
+                  locations: file.aiMetadataLocations ?? [],
+                )
+              : null,
+        ),
+      );
+    }
+
+    var result = await _workflowStep3GeminiIfNeeded(file, text, isPro, isCanceled);
+    if (isCanceled?.call() == true) return ProcessWorkflowResult(success: false, message: 'בוטל');
+
+    result = await _workflowStep4VisionIfNeeded(file, result, isPro);
+    if (result != null) _saveVisionResultToFile(file, result);
+
+    _workflowStep5Save(file, text);
+    final cat = file.category ?? '—';
+    return ProcessWorkflowResult(
+      success: result != null || file.isAiAnalyzed,
+      message: result != null ? 'נותח ב-AI: $cat' : (file.aiStatus != null ? 'שגיאה: ${file.aiStatus}' : 'לא נותח'),
+      suggestions: result?.suggestions ?? const [],
+      documentResult: result,
+    );
+  }
+
   /// מריץ צינור עיבוד לפי נתיב. מחזיר תוצאת AI (כולל suggestions) אם immediate ו-PRO ונשלח לשרת.
   Future<DocumentAnalysisResult?> processFileByPath(String filePath, {required bool isPro, bool immediate = false}) async {
     final file = _db.getFileByPath(filePath);
@@ -133,170 +374,31 @@ class FileProcessingService {
     return processFile(file, isPro: isPro, immediate: immediate);
   }
 
-  /// מריץ את צינור העיבוד על קובץ בודד (לאחר חילוץ טקסט).
-  /// מחזיר תוצאת ניתוח מהשרת (כולל suggestions) רק כאשר immediate ו-PRO ונשלח ל-AI.
+  /// מריץ את צינור העיבוד על קובץ בודד (משתמש בטקסט קיים). מפנה ל־processFileWorkflow.
   Future<DocumentAnalysisResult?> processFile(FileMetadata file, {required bool isPro, bool immediate = false}) async {
-    final text = file.extractedText ?? '';
-    final path = file.path;
-
-    appLog('[SCAN] File: $path — 1. OCR finished. Text length: ${text.length}');
-
-    // שלב 1: ולידציה איכות — קבצים unreadable לא נשלחים ל-Gemini, dropped
-    final status = _validator.validateQuality(text);
-    if (status == AnalysisStatus.unreadable) {
-      file.isAiAnalyzed = false;
-      file.aiStatus = 'unreadable';
-      _db.updateFile(file);
-      _reportScanFailure(file, text);
-      appLog('[SCAN] File: $path — 2. Quality: UNREADABLE (low confidence / too short). 3. DECISION: Skipping AI (file dropped, not sent to Gemini).');
+    if (!immediate) {
+      appLog('[SCAN] File: ${file.path} — הוספה לתור AI');
+      await _aiTagger.addToQueue(file, skipLocalHeuristic: true);
       return null;
     }
-
-    appLog('[SCAN] File: $path — 2. Checking AI eligibility (isPro: $isPro, Quota: server-side).');
-
-    // שלב 2: Waterfall (קטגוריות חכמות + מילון ישן)
-    if (text.isNotEmpty) {
-      final match = await _categoryManager.identifyCategory(text);
-      if (match != null) {
-        file.category = match.category;
-        file.tags = match.tags;
-        file.isAiAnalyzed = true;
-        file.aiStatus = 'local_match';
-        _db.updateFile(file);
-        appLog('[SCAN] File: $path — 3. DECISION: Local match (waterfall). Skipping AI.');
-        return null;
-      }
-    }
-
-    // שלב 3: AI רק ל-PRO
-    if (!isPro) {
-      appLog('[SCAN] File: $path — 3. DECISION: Skipping AI because not PRO.');
-      return null;
-    }
-
-    if (immediate) {
-      appLog('[SCAN] File: $path — 3. DECISION: Sending to Gemini (immediate).');
-      final result = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
-      appLog('[SCAN] File: $path — 4. API Response: ${result != null ? "Success" : "Fail/empty"}');
-      return result;
-    }
-
-    appLog('[SCAN] File: $path — 3. DECISION: Adding to AI queue (batch send).');
-    await _aiTagger.addToQueue(file, skipLocalHeuristic: true);
-    return null;
+    final r = await processFileWorkflow(file, isPro: isPro, useExistingText: true);
+    return r.documentResult;
   }
 
-  /// ניתוח מחדש סינכרוני לקובץ בודד: איפוס → OCR → Waterfall → AI (ללא תור). מחזיר תוצאה להצגה.
+  /// ניתוח מחדש סינכרוני — מפנה ל־processFileWorkflow עם resetFirst.
   Future<ForceReprocessResult> forceReprocessFile(
     FileMetadata file, {
     required bool isPro,
     void Function(String)? reportProgress,
     bool Function()? isCanceled,
   }) async {
-    final path = file.path;
-    bool canceled() => isCanceled?.call() ?? false;
-
-    reportProgress?.call('מאפס...');
-    _db.resetFileForReanalysis(file);
-    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
-
-    reportProgress?.call('מחלץ טקסט...');
-    final ext = file.extension.toLowerCase();
-    String text;
-    if (TextExtractionService.isTextExtractable(ext)) {
-      text = await TextExtractionService.instance.extractText(path);
-    } else if (OCRService.isSupportedImage(ext)) {
-      final ocrResult = await OCRService.instance.extractTextWithStatus(path);
-      if (ocrResult.isNoText) {
-        file.aiStatus = 'no_text_detected';
-        file.extractedText = null;
-        file.isIndexed = true;
-        _db.updateFile(file);
-        FileProcessingService.reportNoTextDetected();
-        return const ForceReprocessResult(success: false, message: 'לא נמצא טקסט בתמונה');
-      }
-      if (ocrResult.needsBackendFallback) {
-        reportProgress?.call('מעלה לשרת...');
-        final fallback = await _callOcrExtract(path, documentId: file.id.toString(), filename: file.name);
-        if (fallback.isPureImageNoText && fallback.text == null) {
-          file.aiStatus = 'no_text_detected';
-          file.extractedText = null;
-          file.isIndexed = true;
-          _db.updateFile(file);
-          FileProcessingService.reportNoTextDetected();
-          return const ForceReprocessResult(success: false, message: 'לא נמצא טקסט בתמונה');
-        }
-        text = fallback.text?.trim().isNotEmpty == true ? fallback.text! : ocrResult.text;
-        file.extractedText = text.isEmpty ? null : text;
-        file.isIndexed = true;
-        if (fallback.geminiResult != null) {
-          file.category = fallback.geminiResult!.category;
-          file.tags = fallback.geminiResult!.tags;
-          file.isAiAnalyzed = true;
-          file.aiStatus = null;
-          _db.updateFile(file);
-          return ForceReprocessResult(
-            success: true,
-            message: 'עובד ב-Cloud Vision + Gemini: ${fallback.geminiResult!.category}',
-            suggestions: fallback.geminiResult!.suggestions,
-          );
-        }
-      } else {
-        text = ocrResult.text;
-      }
-    } else {
-      text = file.extractedText ?? '';
-    }
-    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
-
-    file.extractedText = text.isEmpty ? null : text;
-    file.isIndexed = true;
-    _db.saveFile(file);
-
-    final status = _validator.validateQuality(text);
-    if (status == AnalysisStatus.unreadable) {
-      file.isAiAnalyzed = false;
-      file.aiStatus = 'unreadable';
-      _db.updateFile(file);
-      _reportScanFailure(file, text);
-      appLog('[FORCE] File: $path — UNREADABLE.');
-      return const ForceReprocessResult(success: false, message: 'הטקסט לא קריא');
-    }
-
-    reportProgress?.call('בודק מילון וחוקים...');
-    if (text.isNotEmpty) {
-      final match = await _categoryManager.identifyCategory(text);
-      if (match != null) {
-        file.category = match.category;
-        file.tags = match.tags;
-        file.isAiAnalyzed = true;
-        file.aiStatus = 'local_match';
-        _db.updateFile(file);
-        appLog('[FORCE] File: $path — Local match: ${match.category}');
-        return ForceReprocessResult(success: true, message: 'זוהה מקומית: ${match.category}');
-      }
-    }
-
-    if (!isPro) {
-      return const ForceReprocessResult(success: false, message: 'ניתוח AI זמין למשתמש PRO בלבד');
-    }
-
-    reportProgress?.call('שולח ל-AI...');
-    final result = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
-    if (canceled()) return const ForceReprocessResult(success: false, message: 'בוטל');
-
-    if (result != null) {
-      final cat = file.category ?? '—';
-      appLog('[FORCE] File: $path — AI: $cat');
-      return ForceReprocessResult(
-        success: true,
-        message: 'נותח ב-AI: $cat',
-        suggestions: result.suggestions,
-      );
-    }
-    return ForceReprocessResult(
-      success: false,
-      message: 'שגיאה בניתוח AI${file.aiStatus != null ? ' (${file.aiStatus})' : ''}',
+    final r = await processFileWorkflow(
+      file,
+      isPro: isPro,
+      resetFirst: true,
+      reportProgress: reportProgress,
+      isCanceled: isCanceled,
     );
+    return ForceReprocessResult(success: r.success, message: r.message, suggestions: r.suggestions);
   }
 }

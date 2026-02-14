@@ -8,7 +8,9 @@ class RelevanceEngine {
   RelevanceEngine._();
 
   static const double _synonymFactor = 0.7;
-  static const int _aiMetadataBonus = 80;
+  static const int _aiCategoryBonus = 150;
+  static const int _aiTagsBonus = 80;
+  static const int _aiMetadataBonus = 70;
   /// בונוס ל-Drive: אין תוכן מחולץ — התאמות בשם קובץ שוקלות יותר כדי לאזן מול מקומי
   static const double _driveMetadataBonus = 55.0;
   /// בונוס סמיכות: זוגות מונחי שאילתה שמופיעים consecutively בתוכן (מקסימום 4 זוגות = 100 נקודות)
@@ -23,6 +25,29 @@ class RelevanceEngine {
 
   static bool _isAllDigits(String s) =>
       s.isNotEmpty && s.split('').every((c) => c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39);
+
+  /// בודק אם מונח תואם אחד משדות aiMetadata (names, ids, locations)
+  static bool _termMatchesAiMetadata(AiMetadata meta, String term) {
+    final t = _norm(term);
+    if (t.isEmpty) return false;
+    final check = (String s) => _norm(s).contains(t) || _norm(s) == t;
+    return meta.names.any(check) || meta.ids.any(check) || meta.locations.any(check);
+  }
+
+  /// בודק אם מונח תואם ערך רב־לשוני (פורמט "English / Hebrew") — מפצל לפי " / " ובודק כל חלק
+  static bool _termMatchesMultilingual(String value, String term) {
+    final v = _norm(value);
+    final t = _norm(term);
+    if (t.isEmpty) return false;
+    if (v == t || v.contains(t)) return true;
+    final parts = v.split(RegExp(r'\s*/\s*'));
+    for (final part in parts) {
+      final p = part.trim();
+      if (p.isEmpty) continue;
+      if (p == t || p.contains(t)) return true;
+    }
+    return false;
+  }
 
   /// התאמת מונח — אחרי נרמול. מונחים קצרים (< 4): מילה שלמה בלבד (מניעת "ID" ב-"DAVID").
   static bool _termMatches(String text, String term) {
@@ -183,18 +208,23 @@ class RelevanceEngine {
       }
     }
 
-    // AI Metadata — התאמה ל־category או tags
-    final cat = file.category?.toLowerCase();
-    final aiTags = file.tags?.map((t) => t.toLowerCase()).toList();
-    if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
+    // AI Metadata — התאמה ל־category (150), tags (80), או aiMetadata (70); תומך בפורמט "English / Hebrew"
+    final cat = file.category;
+    final aiTags = file.tags;
+    final meta = file.aiMetadata;
+    if (cat != null || (aiTags != null && aiTags.isNotEmpty) || (meta != null && !meta.isEmpty)) {
       for (final term in rawTerms) {
         final t = _norm(term);
         if (t.isEmpty) continue;
-        if (cat != null && (cat == t || cat.contains(t))) {
-          score += _aiMetadataBonus;
+        if (cat != null && _termMatchesMultilingual(cat, term)) {
+          score += _aiCategoryBonus;
           break;
         }
-        if (aiTags != null && aiTags.any((tag) => tag == t || tag.contains(t))) {
+        if (aiTags != null && aiTags.any((tag) => _termMatchesMultilingual(tag, term))) {
+          score += _aiTagsBonus;
+          break;
+        }
+        if (meta != null && _termMatchesAiMetadata(meta, term)) {
           score += _aiMetadataBonus;
           break;
         }
@@ -229,15 +259,17 @@ class RelevanceEngine {
     } else if (_pdfDotNumbers.hasMatch(fnLower)) {
       parts.add('Cryptic($_crypticNamePenalty)');
     }
-    if (cat != null || (aiTags != null && aiTags.isNotEmpty)) {
+    if (cat != null || (aiTags != null && aiTags.isNotEmpty) || (meta != null && !meta.isEmpty)) {
       var aiMatch = false;
+      var aiBonus = 0;
       for (final term in rawTerms) {
         final t = _norm(term);
         if (t.isEmpty) continue;
-        if (cat != null && (cat == t || cat.contains(t))) { aiMatch = true; break; }
-        if (aiTags != null && aiTags.any((tag) => tag == t || tag.contains(t))) { aiMatch = true; break; }
+        if (cat != null && _termMatchesMultilingual(cat, term)) { aiMatch = true; aiBonus = _aiCategoryBonus; break; }
+        if (aiTags != null && aiTags.any((tag) => _termMatchesMultilingual(tag, term))) { aiMatch = true; aiBonus = _aiTagsBonus; break; }
+        if (meta != null && _termMatchesAiMetadata(meta, term)) { aiMatch = true; aiBonus = _aiMetadataBonus; break; }
       }
-      if (aiMatch) parts.add('AI($_aiMetadataBonus)');
+      if (aiMatch) parts.add('AI($aiBonus)');
     }
     if (file.isCloud && namePts > 0) parts.add('Drive+$_driveMetadataBonus');
 

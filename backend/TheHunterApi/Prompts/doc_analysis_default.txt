@@ -1,24 +1,41 @@
-# כלל אבטחה: tags ללא PII — רק קטגוריות כלליות (חשבונית, טיסה, כרטיס). לא שמות, תאריכים מדויקים, מזהים או מיקומים.
-Analyze the following document text. Output JSON with: category, date (YYYY-MM-DD or null if unknown), tags (list of keywords), summary (brief).
-Return ONLY raw JSON - no markdown, no code blocks. Format: {"category":"...","date":"yyyy-MM-dd or null","tags":["..."],"summary":"..."}
+# Document Analysis Prompt — Output ONLY raw JSON
+
+Analyze the following document text and output ONLY raw JSON.
+
+=== REQUIRED JSON STRUCTURE ===
+{
+  "category": "string",
+  "date": "YYYY-MM-DD or null",
+  "tags": ["tag1", "tag2"],
+  "summary": "string",
+  "metadata": {
+    "names": ["string"],
+    "ids": ["string"],
+    "locations": ["string"]
+  },
+  "requires_high_res_ocr": boolean
+}
+
+=== MULTILINGUAL OUTPUT (MANDATORY) ===
+If Hebrew is detected, provide "category", "tags", and "summary" in "English / Hebrew" format.
+- Example category: "Invoice / חשבונית"
+- Example tag: "Financial / פיננסי"
+- Example summary: "Electricity bill for January / חשבון חשמל לינואר"
+
+=== REQUIRES_HIGH_RES_OCR (mandatory boolean) ===
+Set "requires_high_res_ocr" to true ONLY if the text is fragmented, garbled, or suggests a complex layout (tables/handwriting) that needs a professional scan (Google Vision). Otherwise, set to false.
 
 === STRICT RULE: NO PII IN TAGS ===
-Do NOT include PII (Personally Identifiable Information) or specific record data in the tags array.
-- Specific names (e.g., Ariel Broyner), IDs, exact dates, and specific locations must NOT be tags.
-- Tags must ONLY represent general categories or document types (e.g., Ticket, Receipt, Flight, Travel, Invoice, Contract).
-- Put specific data like names or booking codes into a separate "metadata" or "extracted_entities" field if available, or just keep them in the summary/OCR text for searchability.
+- The "tags" array MUST contain ONLY general categories (e.g., Receipt, Medical, Contract).
+- ABSOLUTELY NO names, personal IDs, specific dates, or specific locations in tags.
+- Place all detected names, IDs, and locations ONLY in the "metadata" object.
+
+=== OUTPUT ===
+Return ONLY raw JSON. No markdown, no code blocks.
 
 === FEW-SHOT EXAMPLES ===
-Strictly follow this tagging pattern. NEVER put names, IDs, locations, or specific codes in tags.
+Input: "Invoice #555 for John Smith, Tel Aviv"
+Output: {"category":"Invoice","date":null,"tags":["Invoice","Financial"],"summary":"Invoice for John Smith","metadata":{"names":["John Smith"],"ids":["555"],"locations":["Tel Aviv"]},"requires_high_res_ocr":false}
 
-Example 1:
-Input Text: "Invoice #555 for John Smith, Tel Aviv"
-BAD Tags: ["Invoice", "John Smith", "Tel Aviv", "555"]
-GOOD Tags: ["Invoice", "Financial", "Payment"]
-
-Example 2:
-Input Text: "Flight Ticket LY323 to Paris for Ariel Broyner"
-BAD Tags: ["Flight", "Paris", "Ariel Broyner", "LY323"]
-GOOD Tags: ["Flight Ticket", "Travel", "Confirmation"]
-
-Always output tags in the GOOD format—general categories only, no PII.
+Input: "כרטיס טיסה לפריז עבור אריאל בתאריך 2024-05-20"
+Output: {"category":"Flight Ticket / כרטיס טיסה","date":"2024-05-20","tags":["Travel / נסיעות","Flight / טיסה"],"summary":"Flight ticket to Paris for Ariel / כרטיס טיסה לפריז עבור אריאל","metadata":{"names":["אריאל"],"ids":[],"locations":["Paris"]},"requires_high_res_ocr":false}

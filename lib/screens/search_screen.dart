@@ -10,6 +10,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/file_metadata.dart';
 import '../utils/file_type_helper.dart';
 import '../utils/path_utils.dart';
+import '../utils/regex_tester.dart';
 import '../services/database_service.dart';
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
@@ -80,6 +81,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   /// הצעות למידה מ-Gemini אחרי Re-analyze — path -> רשימת הצעות (להצגת כרטיס Smart Learning)
   final Map<String, List<AiSuggestion>> _pendingSuggestionsByPath = {};
+  /// החל כחוק קבוע — שמירה ל־SmartCategories בשרת (ברירת מחדל: true)
+  bool _applyAsHardRule = true;
 
   late TabController _resultsTabController;
   
@@ -957,6 +960,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     Color textColor,
     Color secondaryColor,
   ) {
+    final hasAnyTechnicalRules = suggestions.any((s) => s.hasTechnicalRules);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -982,26 +986,23 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
             'Gemini suggests a new rule to automate this category:',
             style: TextStyle(color: secondaryColor, fontSize: 12),
           ),
-          const SizedBox(height: 10),
-          ...suggestions.take(3).expand((s) {
-            final widgets = <Widget>[];
-            if (s.suggestedRegex != null && s.suggestedRegex!.isNotEmpty) {
-              widgets.add(Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('Regex: ${s.suggestedRegex}', style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: textColor)),
-              ));
-            }
-            for (final kw in s.suggestedKeywords.take(3)) {
-              if (kw.isNotEmpty) {
-                widgets.add(Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text('Keyword: $kw', style: TextStyle(fontSize: 12, color: textColor)),
-                ));
-              }
-            }
-            return widgets;
-          }),
+          if (hasAnyTechnicalRules) ...[
+            const SizedBox(height: 12),
+            _buildSuggestedRulesSection(suggestions, textColor, secondaryColor),
+          ],
           const SizedBox(height: 12),
+          CheckboxListTile(
+            value: _applyAsHardRule,
+            onChanged: (v) => setState(() => _applyAsHardRule = v ?? true),
+            title: Text(
+              'Apply as Hard Rule / החל כחוק קבוע',
+              style: TextStyle(fontSize: 12, color: textColor),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -1024,29 +1025,132 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
+  /// סעיף "חוקים מוצעים" — Chips למילות מפתח, קוד ל-Regex
+  Widget _buildSuggestedRulesSection(
+    List<AiSuggestion> suggestions,
+    Color textColor,
+    Color secondaryColor,
+  ) {
+    final allKeywords = suggestions.expand((s) => s.suggestedKeywords).where((k) => k.isNotEmpty).toSet().toList();
+    final allRegex = suggestions
+        .map((s) => s.suggestedRegex)
+        .whereType<String>()
+        .where((r) => r.trim().isNotEmpty)
+        .toList();
+    if (allKeywords.isEmpty && allRegex.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Suggested Rules / חוקים מוצעים',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: secondaryColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (allKeywords.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: allKeywords.map((kw) => Chip(
+              label: Text(kw, style: TextStyle(fontSize: 11, color: textColor)),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            )).toList(),
+          ),
+        if (allRegex.isNotEmpty) ...[
+          if (allKeywords.isNotEmpty) const SizedBox(height: 8),
+          ...allRegex.map((r) => _buildRegexRow(r, textColor, secondaryColor)),
+        ],
+      ],
+    );
+  }
+
+  /// שורת Regex — טקסט, Copy, Test
+  Widget _buildRegexRow(String regex, Color textColor, Color secondaryColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: SelectableText(
+              regex,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: regex));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Regex copied to clipboard'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: Duration(seconds: 1),
+                ),
+              );
+            },
+            child: const Text('Copy', style: TextStyle(fontSize: 11)),
+          ),
+          TextButton(
+            onPressed: () => _showRegexTestDialog(regex),
+            child: const Text('Test', style: TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRegexTestDialog(String pattern) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _RegexTestDialog(
+        pattern: pattern,
+        sampleController: controller,
+        onClose: () => Navigator.of(ctx).pop(),
+      ),
+    );
+  }
+
   Future<void> _onAddRule(FileMetadata file, List<AiSuggestion> suggestions) async {
     final categoryId = file.category?.trim() ?? suggestions.firstOrNull?.suggestedCategory ?? '';
     if (categoryId.isEmpty) return;
-    final catManager = CategoryManagerService.instance;
-    int added = 0;
-    for (final s in suggestions) {
-      final cat = s.suggestedCategory.isNotEmpty ? s.suggestedCategory : categoryId;
-      if (s.suggestedRegex != null && s.suggestedRegex!.isNotEmpty) {
-        final ok = await catManager.addRuleToCategory(cat, 'regex', s.suggestedRegex!);
-        if (ok) added++;
-      }
-      for (final kw in s.suggestedKeywords) {
-        if (kw.isNotEmpty) {
-          final ok = await catManager.addRuleToCategory(cat, 'keyword', kw);
-          if (ok) added++;
-        }
-      }
+    if (!mounted) return;
+    setState(() => _pendingSuggestionsByPath.remove(file.path));
+
+    if (!_applyAsHardRule) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Suggestions dismissed (Apply as Hard Rule was unchecked).'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
     }
+
+    final catManager = CategoryManagerService.instance;
+    final added = await catManager.approveSuggestions(categoryId, suggestions);
     if (mounted) {
-      setState(() => _pendingSuggestionsByPath.remove(file.path));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(added > 0 ? 'Rule saved! Future documents will be detected locally.' : 'No rule added.'),
+          content: Text(added > 0 ? 'Rule saved to SmartCategories! Future documents will be detected locally.' : 'No rule added.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -2842,6 +2946,19 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                       ),
                     ),
                 ],
+                if (_settingsService.isPremium && _searchController.text.trim().length >= 2)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: FilledButton.icon(
+                        onPressed: _isAILoading
+                            ? null
+                            : () => _hybridController.triggerDeepSearch(),
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('Deep AI Search / חיפוש AI עמוק'),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -3404,5 +3521,102 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       ),
     );
   }
-  
+}
+
+/// דיאלוג בדיקת Regex — שדה טקסט לדוגמה + אינדיקציה בזמן אמת
+class _RegexTestDialog extends StatefulWidget {
+  const _RegexTestDialog({
+    required this.pattern,
+    required this.sampleController,
+    required this.onClose,
+  });
+
+  final String pattern;
+  final TextEditingController sampleController;
+  final VoidCallback onClose;
+
+  @override
+  State<_RegexTestDialog> createState() => _RegexTestDialogState();
+}
+
+class _RegexTestDialogState extends State<_RegexTestDialog> {
+  @override
+  void initState() {
+    super.initState();
+    widget.sampleController.addListener(_onSampleChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.sampleController.removeListener(_onSampleChanged);
+    super.dispose();
+  }
+
+  void _onSampleChanged() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final sample = widget.sampleController.text;
+    final matches = RegexTester.test(widget.pattern, sample);
+    final theme = Theme.of(context);
+
+    return AlertDialog(
+      title: const Text('Regex Test'),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Pattern:', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.7))),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: SelectableText(
+                widget.pattern,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Sample Text:', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.7))),
+            const SizedBox(height: 4),
+            TextField(
+              controller: widget.sampleController,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'Paste OCR text here...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  matches ? Icons.check_circle : Icons.cancel,
+                  size: 24,
+                  color: matches ? Colors.green : Colors.red,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  matches ? 'Match' : 'No match',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: matches ? Colors.green : Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: widget.onClose, child: const Text('Close')),
+      ],
+    );
+  }
 }
