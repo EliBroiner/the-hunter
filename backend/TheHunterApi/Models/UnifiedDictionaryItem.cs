@@ -21,4 +21,6 @@ public class UnifiedDictionaryItem
     public Dictionary<string, string> DisplayNames { get; set; } = new();
     public List<string> Keywords { get; set; } = new();
     public List<string> RegexPatterns { get; set; } = new();
+    /// <summary>דירוג לכל keyword — ברירת מחדל Medium.</summary>
+    public Dictionary<string, string> KeywordRanks { get; set; } = new();
 }

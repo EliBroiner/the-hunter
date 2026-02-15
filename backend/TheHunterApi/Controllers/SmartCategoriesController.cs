@@ -43,7 +43,8 @@ public class SmartCategoriesController : ControllerBase
             d.Key,
             d.DisplayNames,
             d.Keywords,
-            d.RegexPatterns
+            d.RegexPatterns,
+            d.KeywordRanks ?? new Dictionary<string, string>()
         )).ToList();
         return Ok(dtos);
     }
@@ -105,7 +106,8 @@ public record SmartCategoryDto(
     string Key,
     IReadOnlyDictionary<string, string> DisplayNames,
     IReadOnlyList<string> Keywords,
-    IReadOnlyList<string> RegexPatterns);
+    IReadOnlyList<string> RegexPatterns,
+    IReadOnlyDictionary<string, string>? KeywordRanks = null);
 
 public record SmartCategoriesVersionResponse(string Version, string? LastModified = null);
 

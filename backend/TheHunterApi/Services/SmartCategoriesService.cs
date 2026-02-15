@@ -19,6 +19,8 @@ public interface ISmartCategoriesService
     Task<string?> AddTermAsync(string term, string category, string? definition, string? userId, CancellationToken ct = default);
     Task<bool> AddRuleAsync(string categoryId, string type, string value, CancellationToken ct = default);
     Task<int> AddRulesBatchAsync(string categoryId, IReadOnlyList<string> keywords, IReadOnlyList<string> regexPatterns, CancellationToken ct = default);
+    /// <summary>מעדכן keyword_ranks למסמך קיים — לשימוש ב-seed/migration.</summary>
+    Task SetKeywordRanksAsync(string categoryId, IReadOnlyDictionary<string, string> keywordRanks, CancellationToken ct = default);
     Task<string?> SaveManualAsync(string categoryKey, IReadOnlyList<string> tags, IReadOnlyList<object> suggestions, string? summary, CancellationToken ct = default);
     Task<bool> DeleteTermAsync(string documentId, CancellationToken ct = default);
     Task<LearnedTerm?> GetTermByIdAsync(string documentId, CancellationToken ct = default);
@@ -163,6 +165,19 @@ public class SmartCategoriesService : ISmartCategoriesService
         return added;
     }
 
+    public async Task SetKeywordRanksAsync(string categoryId, IReadOnlyDictionary<string, string> keywordRanks, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(categoryId) || keywordRanks == null || keywordRanks.Count == 0) return;
+        var docId = SanitizeDocId(categoryId);
+        if (string.IsNullOrWhiteSpace(docId)) return;
+        var docRef = _firestore.Collection(Col).Document(docId);
+        var snap = await docRef.GetSnapshotAsync(ct);
+        if (!snap.Exists) return;
+        var dict = keywordRanks.ToDictionary(kv => kv.Key, kv => (object)kv.Value);
+        await docRef.UpdateAsync(new Dictionary<string, object> { { "keyword_ranks", dict }, { "last_updated", FieldValue.ServerTimestamp } });
+        _logger.LogInformation("SetKeywordRanks: {CategoryId} — {Count} ranks", categoryId, keywordRanks.Count);
+    }
+
     public async Task<string?> SaveManualAsync(string categoryKey, IReadOnlyList<string> tags, IReadOnlyList<object> suggestions, string? summary, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(categoryKey)) return null;
@@ -284,6 +299,9 @@ public class SmartCategoriesService : ISmartCategoriesService
             var displayNames = new Dictionary<string, string>();
             if (data.TryGetValue("display_names", out var dn) && dn is IDictionary<string, object> dnMap)
                 foreach (var e in dnMap) displayNames[e.Key] = e.Value?.ToString() ?? "";
+            var keywordRanks = new Dictionary<string, string>();
+            if (data.TryGetValue("keyword_ranks", out var kr) && kr is IDictionary<string, object> krMap)
+                foreach (var e in krMap) keywordRanks[e.Key] = e.Value?.ToString()?.ToLowerInvariant() ?? "medium";
             return new UnifiedDictionaryItem
             {
                 SourceType = SourceTypeRule,
@@ -292,6 +310,7 @@ public class SmartCategoriesService : ISmartCategoriesService
                 DisplayNames = displayNames,
                 Keywords = GetStringList(data, "keywords"),
                 RegexPatterns = GetStringList(data, "regex_patterns"),
+                KeywordRanks = keywordRanks,
                 LastModified = GetTimestamp(data, "last_updated") ?? DateTime.UtcNow,
             };
         }
@@ -304,6 +323,7 @@ public class SmartCategoriesService : ISmartCategoriesService
         DisplayNames = item.DisplayNames,
         Keywords = item.Keywords,
         RegexPatterns = item.RegexPatterns,
+        KeywordRanks = item.KeywordRanks ?? new Dictionary<string, string>(),
         LastUpdated = item.LastModified,
     };
 

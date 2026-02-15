@@ -91,7 +91,7 @@ class AiAutoTaggerService {
     // שלב Waterfall (מילון/Regex) — דילוג אם הקריאה מ-FileProcessingService (כבר נבדק)
     if (!skipLocalHeuristic && text.isNotEmpty) {
       final match = await CategoryManagerService.instance.identifyCategory(text);
-      if (match != null) {
+      if (match != null && !match.isAmbiguous) {
         file.tags = match.tags;
         file.category = match.category;
         file.isAiAnalyzed = true;
@@ -273,8 +273,8 @@ class AiAutoTaggerService {
 
               file.category = result['category'] as String?;
               final newTags = (result['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-              final existing = file.tags ?? [];
-              file.tags = [...existing, ...newTags.where((t) => !existing.contains(t))].toList();
+              // Pure AI Mode: כשגמיני עבד — לא למזג tags מקומיים (Weak/Medium). סומכים על ניתוח הקשר.
+              file.tags = newTags;
               file.requiresHighResOcr = (result['requires_high_res_ocr'] ?? result['requiresHighResOcr']) == true;
               final meta = result['metadata'] as Map<String, dynamic>?;
               final metadata = meta != null ? DocumentMetadata.fromJson(Map<String, dynamic>.from(meta)) : null;

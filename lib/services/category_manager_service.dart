@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../configs/ranking_config.dart';
 import '../models/ai_analysis_response.dart';
 import '../models/date_phrase_config.dart';
+import '../models/rule_rank.dart';
 import '../models/search_synonym.dart';
 import '../models/smart_category.dart';
 import 'app_check_http_helper.dart';
@@ -13,12 +14,23 @@ import 'database_service.dart';
 import 'log_service.dart';
 import 'sync_version_utils.dart';
 
+/// מועמד התאמה — ל־knockout logic
+class _MatchCandidate {
+  final String category;
+  final List<String> tags;
+  final RuleRank rank;
+
+  _MatchCandidate(this.category, this.tags, this.rank);
+}
+
 /// תוצאת התאמה מקומית — לשימוש AiAutoTaggerService
 class AiAnalysisResult {
   final String category;
   final List<String> tags;
+  /// true = רק Weak matches — לשלוח ל-AI במקום להשתמש בתוצאה
+  final bool isAmbiguous;
 
-  const AiAnalysisResult({required this.category, required this.tags});
+  const AiAnalysisResult({required this.category, required this.tags, this.isAmbiguous = false});
 }
 
 /// שירות מאוחד — synonyms + categories מ-smart_categories. מקור אמת יחיד: /api/dictionary/updates.
@@ -246,6 +258,7 @@ class CategoryManagerService {
     }
     _applyRankingConfig(data['rankingConfig']);
     _applySmartCategories(data['smartCategories']);
+    await _mergeSmartCategoriesKeywordsIntoSearchSynonyms();
   }
 
   Map<String, List<String>> _extractSynonyms(Map<String, dynamic> map) {
@@ -315,6 +328,22 @@ class CategoryManagerService {
       final cat = SmartCategory.fromJson(item);
       if (cat.id.isNotEmpty) _categories[cat.id] = cat;
     }
+  }
+
+  /// ממזג keywords מ-smartCategories ל-SearchSynonym עם rank — לתצוגה ב-Dictionary tab
+  Future<void> _mergeSmartCategoriesKeywordsIntoSearchSynonyms() async {
+    final toPut = <SearchSynonym>[];
+    for (final entry in _categories.entries) {
+      final cat = entry.value;
+      for (final kw in cat.synonyms) {
+        if (kw.isEmpty) continue;
+        final rank = cat.keywordRanks[kw] ?? 'medium';
+        toPut.add(SearchSynonym.fromMap(kw, cat.synonyms, entry.key, rank));
+      }
+    }
+    if (toPut.isEmpty) return;
+    final isar = DatabaseService.instance.isar;
+    isar.write((isar) => isar.searchSynonyms.putAll(toPut));
   }
 
   Future<void> _mergeSynonymsToIsarAndCache(Map<String, List<String>> synonyms) async {
@@ -395,47 +424,79 @@ class CategoryManagerService {
   }
 
   /// Waterfall: synonyms → categories (keywords) → categories (regex).
+  /// Knockout: Strong דורס Weak; רק Weak → isAmbiguous (שליחה ל-AI).
   Future<AiAnalysisResult?> identifyCategory(String rawText) async {
     if (rawText.isEmpty) return null;
     await initialize();
     final lower = rawText.toLowerCase();
+    final matches = <_MatchCandidate>[];
 
     for (final entry in _synonymCache.entries) {
       final term = entry.key;
       final expansions = entry.value;
       if (term.length < 2) continue;
       final shortTerm = term.length < 4;
+      final cat = _termToCategory[_keyFor(term)] ?? _termToCategory[term] ?? term;
       if (_termMatches(lower, term, shortTerm)) {
-        return AiAnalysisResult(category: term, tags: expansions.take(5).toList());
-      }
-      for (final exp in expansions) {
-        if (exp.length < 2) continue;
-        if (_termMatches(lower, exp, exp.length < 4)) {
-          return AiAnalysisResult(category: term, tags: expansions.take(5).toList());
-        }
-      }
-    }
-
-    for (final entry in _categories.entries) {
-      for (final syn in entry.value.synonyms) {
-        if (syn.length < 2) continue;
-        if (_termMatches(lower, syn, syn.length < 4)) {
-          return AiAnalysisResult(category: entry.key, tags: getEnrichedTags(entry.key));
-        }
-      }
-    }
-
-    for (final entry in _categories.entries) {
-      for (final pattern in entry.value.regexPatterns) {
-        if (pattern.isEmpty) continue;
-        try {
-          if (RegExp(pattern).hasMatch(rawText)) {
-            return AiAnalysisResult(category: entry.key, tags: getEnrichedTags(entry.key));
+        matches.add(_MatchCandidate(cat, expansions.take(5).toList(), RuleRank.medium));
+      } else {
+        for (final exp in expansions) {
+          if (exp.length < 2) continue;
+          if (_termMatches(lower, exp, exp.length < 4)) {
+            matches.add(_MatchCandidate(cat, expansions.take(5).toList(), RuleRank.medium));
+            break;
           }
-        } catch (_) {}
+        }
       }
     }
-    return null;
+
+    if (matches.isEmpty) {
+      for (final entry in _categories.entries) {
+        final cat = entry.value;
+        for (final syn in cat.synonyms) {
+          if (syn.length < 2) continue;
+          if (_termMatches(lower, syn, syn.length < 4)) {
+            final rank = RuleRankExt.fromString(cat.keywordRanks[syn]);
+            matches.add(_MatchCandidate(entry.key, getEnrichedTags(entry.key), rank));
+          }
+        }
+      }
+    }
+
+    if (matches.isEmpty) {
+      for (final entry in _categories.entries) {
+        for (final pattern in entry.value.regexPatterns) {
+          if (pattern.isEmpty) continue;
+          try {
+            if (RegExp(pattern).hasMatch(rawText)) {
+              matches.add(_MatchCandidate(entry.key, getEnrichedTags(entry.key), RuleRank.medium));
+              break;
+            }
+          } catch (_) {}
+        }
+        if (matches.isNotEmpty) break;
+      }
+    }
+
+    return _applyKnockout(matches);
+  }
+
+  AiAnalysisResult? _applyKnockout(List<_MatchCandidate> matches) {
+    if (matches.isEmpty) return null;
+    final hasStrong = matches.any((m) => m.rank == RuleRank.strong);
+    final filtered = hasStrong
+        ? matches.where((m) => m.rank != RuleRank.weak).toList()
+        : matches;
+    if (filtered.isEmpty) return null;
+    final onlyWeak = filtered.every((m) => m.rank == RuleRank.weak);
+    final order = [RuleRank.strong, RuleRank.medium, RuleRank.weak];
+    final best = filtered.reduce((a, b) =>
+        order.indexOf(a.rank) <= order.indexOf(b.rank) ? a : b);
+    return AiAnalysisResult(
+      category: best.category,
+      tags: best.tags,
+      isAmbiguous: onlyWeak,
+    );
   }
 
   Future<int> approveSuggestions(String categoryId, List<AiSuggestion> suggestions) async {
@@ -483,9 +544,9 @@ class CategoryManagerService {
         final cat = _categories[categoryId];
         if (cat != null) {
           if (type.toLowerCase() == 'regex') {
-            _categories[categoryId] = SmartCategory(id: cat.id, labels: cat.labels, synonyms: cat.synonyms, regexPatterns: [...cat.regexPatterns, rule.trim()]);
+            _categories[categoryId] = SmartCategory(id: cat.id, labels: cat.labels, synonyms: cat.synonyms, regexPatterns: [...cat.regexPatterns, rule.trim()], keywordRanks: cat.keywordRanks);
           } else {
-            _categories[categoryId] = SmartCategory(id: cat.id, labels: cat.labels, synonyms: [...cat.synonyms, rule.trim()], regexPatterns: cat.regexPatterns);
+            _categories[categoryId] = SmartCategory(id: cat.id, labels: cat.labels, synonyms: [...cat.synonyms, rule.trim()], regexPatterns: cat.regexPatterns, keywordRanks: cat.keywordRanks);
           }
         }
         return true;

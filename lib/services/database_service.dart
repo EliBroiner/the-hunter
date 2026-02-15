@@ -166,7 +166,7 @@ class DatabaseService {
     }
   }
 
-  /// מאפס קובץ לניתוח מחדש: אינדוקס + AI — משמש ל־Re-analyze
+  /// מאפס קובץ לניתוח מחדש: אינדוקס + AI — משמש ל־Re-analyze. מנקה את כל התגיות והמטא־דאטה.
   void resetFileForReanalysis(FileMetadata file) {
     file.isIndexed = false;
     file.isAiAnalyzed = false;
@@ -174,6 +174,10 @@ class DatabaseService {
     file.tags = null;
     file.category = null;
     file.aiStatus = null;
+    file.aiMetadataNames = null;
+    file.aiMetadataIds = null;
+    file.aiMetadataLocations = null;
+    file.requiresHighResOcr = false;
     saveFile(file);
   }
 

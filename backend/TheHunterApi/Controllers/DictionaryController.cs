@@ -62,7 +62,8 @@ public class DictionaryController : ControllerBase
             r.Key ?? "",
             r.DisplayNames,
             r.Keywords,
-            r.RegexPatterns
+            r.RegexPatterns,
+            r.KeywordRanks ?? new Dictionary<string, string>()
         )).ToList();
 
         var (weights, ok) = await _firestore.GetRankingWeightsAsync();

@@ -85,6 +85,7 @@ class AutoScanManager with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         _appInBackground = false;
+        _onAppResumed();
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
@@ -104,6 +105,38 @@ class AutoScanManager with WidgetsBindingObserver {
   }
 
   bool _shouldPause() => _isPaused && !AiAutoTaggerService.instance.isUploading;
+
+  /// כשהאפליקציה חוזרת לרקע — סריקה מיידית לקבצים חדשים
+  void _onAppResumed() {
+    if (_isScanning || _isProcessing) return;
+    appLog('AutoScan: App resumed — triggering scanForNewFiles');
+    unawaited(_scanForNewFilesOnResume());
+  }
+
+  Future<void> _scanForNewFilesOnResume() async {
+    try {
+      final result = await FileScannerService.instance.scanNewFilesOnly(runCleanup: true);
+      if (result.newFilesAdded > 0) {
+        appLog('AutoScan: Resume scan found ${result.newFilesAdded} new files');
+        onScanComplete?.call(result);
+        final pendingCount = DatabaseService.instance.getAllPendingFiles().length;
+        if (pendingCount > 0 && !_shouldPause()) {
+          _isProcessing = true;
+          ProcessingProgressService.instance.start(pendingCount);
+          final processResult = await FileScannerService.instance.processPendingFiles(
+            shouldPause: _shouldPause,
+            maxFilesPerSession: maxFilesPerSession,
+            onProgress: (c, t) => ProcessingProgressService.instance.update(c, t),
+          );
+          ProcessingProgressService.instance.finish();
+          onProcessComplete?.call(processResult);
+        }
+        await WidgetService.instance.refreshWidget();
+      }
+    } catch (e) {
+      appLog('AutoScan: scanForNewFiles on resume failed - $e');
+    }
+  }
 
   Future<void> _resumeProcessingIfNeeded() async {
     if (_isProcessing || _shouldPause()) return;
@@ -295,6 +328,7 @@ class AutoScanManager with WidgetsBindingObserver {
         );
         ProcessingProgressService.instance.finish();
         _isProcessing = false;
+        await WidgetService.instance.refreshWidget();
       }
     };
 

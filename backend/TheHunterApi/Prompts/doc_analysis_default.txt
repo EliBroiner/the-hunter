@@ -2,6 +2,10 @@
 
 Analyze the following document text and output ONLY raw JSON.
 
+=== PRIMARY PURPOSE (CRITICAL) ===
+Classify by the document's PRIMARY PURPOSE (header, main content, document type).
+Do NOT classify as "Receipt" or "Invoice" just because "payment" or "total" appears in fine print or footer.
+
 === REQUIRED JSON STRUCTURE ===
 {
   "category": "string",

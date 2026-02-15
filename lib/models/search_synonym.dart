@@ -18,13 +18,17 @@ class SearchSynonym {
   /// קטגוריה לסיווג
   late String category;
 
+  /// דירוג: strong | medium | weak — ברירת מחדל medium
+  String rank = 'medium';
+
   SearchSynonym();
 
-  factory SearchSynonym.fromMap(String key, List<String> expansions, [String? category]) {
+  factory SearchSynonym.fromMap(String key, List<String> expansions, [String? category, String? rank]) {
     final s = SearchSynonym()
       ..term = key
       ..expansions = expansions
-      ..category = category ?? key;
+      ..category = category ?? key
+      ..rank = rank ?? 'medium';
     return s;
   }
 }

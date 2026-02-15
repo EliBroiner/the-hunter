@@ -448,22 +448,29 @@ public class AdminFirestoreService
         return await PurgeCollectionAsync(LearningService.CollectionSmartCategories, ct);
     }
 
-    /// <summary>מזריע חוקי בסיס ל-smart_categories אחרי TRUNCATE.</summary>
+    /// <summary>מזריע חוקי בסיס ל-smart_categories אחרי TRUNCATE. כולל דירוגים (Strong/Weak).</summary>
     public async Task<int> SeedSmartCategoriesAsync(CancellationToken ct = default)
     {
         var count = 0;
         var seedRules = new Dictionary<string, string[]>
         {
             ["general"] = ["document", "doc", "מסמך", "קובץ", "file", "scan", "סריקה"],
-            ["receipt"] = ["invoice", "receipt", "קבלה", "חשבונית", "bill", "inv"],
-            ["id"] = ["id", "identity", "תעודת זהות", "דרכון", "passport"],
+            ["receipt"] = ["invoice", "receipt", "קבלה", "חשבונית", "bill", "inv", "payment", "transfer", "bit", "date"],
+            ["id"] = ["id", "identity", "תעודת זהות", "ת.ז", "דרכון", "passport", "teudat zehut"],
+            ["flight"] = ["boarding pass", "flight", "טיסה", "כרטיס טיסה"],
+            ["salary"] = ["form 106", "106", "טופס 106", "משכורת", "תלוש", "payslip"],
         };
         foreach (var kv in seedRules)
         {
             var added = await _smartCategories.AddRulesBatchAsync(kv.Key, kv.Value, [], ct);
             count += added;
         }
-        _logger.LogInformation("SeedSmartCategories: added {Count} rules", count);
+        // דירוגים: Strong דורס Weak, רק Weak → ambiguous (שליחה ל-AI)
+        await _smartCategories.SetKeywordRanksAsync("flight", new Dictionary<string, string> { ["boarding pass"] = "strong", ["flight"] = "strong" }, ct);
+        await _smartCategories.SetKeywordRanksAsync("id", new Dictionary<string, string> { ["teudat zehut"] = "strong", ["תעודת זהות"] = "strong" }, ct);
+        await _smartCategories.SetKeywordRanksAsync("salary", new Dictionary<string, string> { ["form 106"] = "strong", ["טופס 106"] = "strong", ["106"] = "strong" }, ct);
+        await _smartCategories.SetKeywordRanksAsync("receipt", new Dictionary<string, string> { ["payment"] = "weak", ["transfer"] = "weak", ["bit"] = "weak", ["invoice"] = "weak", ["receipt"] = "weak", ["date"] = "weak", ["העברה"] = "weak", ["ביט"] = "weak" }, ct);
+        _logger.LogInformation("SeedSmartCategories: added {Count} rules with ranks", count);
         return count;
     }
 

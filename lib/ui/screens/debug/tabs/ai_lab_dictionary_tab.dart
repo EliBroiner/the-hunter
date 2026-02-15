@@ -211,13 +211,23 @@ class AiLabDictionaryTab extends StatelessWidget {
           ...items.map((s) {
             final rule = s.expansions.isEmpty ? s.term : '${s.term} → [${s.expansions.join(', ')}]';
             final color = categoryColor(s.category.hashCode);
+            final rankIcon = _rankIcon(s.rank);
             return TableRow(
               children: [
                 TableCell(
                   verticalAlignment: TableCellVerticalAlignment.middle,
                   child: Padding(
                     padding: const EdgeInsets.all(8),
-                    child: Icon(Icons.bookmark, size: 20, color: color.withValues(alpha: 0.8)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.bookmark, size: 20, color: color.withValues(alpha: 0.8)),
+                        if (rankIcon != null) ...[
+                          const SizedBox(width: 4),
+                          rankIcon,
+                        ],
+                      ],
+                    ),
                   ),
                 ),
                 TableCell(
@@ -249,6 +259,25 @@ class AiLabDictionaryTab extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// אייקון דירוג: 💪 Strong, ⚠️ Weak (Medium ללא אייקון)
+  Widget? _rankIcon(String? rank) {
+    if (rank == null || rank.isEmpty) return null;
+    switch (rank.toLowerCase()) {
+      case 'strong':
+        return Tooltip(
+          message: 'Strong',
+          child: Text('💪', style: TextStyle(fontSize: 14, color: Colors.green.shade300)),
+        );
+      case 'weak':
+        return Tooltip(
+          message: 'Weak',
+          child: Text('⚠️', style: TextStyle(fontSize: 14, color: Colors.orange.shade300)),
+        );
+      default:
+        return null;
+    }
   }
 
   Widget _headerCell(dynamic content) {

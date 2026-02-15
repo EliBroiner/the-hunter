@@ -313,8 +313,8 @@ class FileProcessingService {
       return r;
     }
     final match = await _categoryManager.identifyCategory(text);
-    if (match == null) {
-      _w('[Dictionary]: No hit — sending to Gemini');
+    if (match == null || match.isAmbiguous) {
+      _w('[Dictionary]: ${match == null ? "No hit" : "Only weak matches (ambiguous)"} — sending to Gemini');
       if (!isPro) return null;
       if (isCanceled?.call() == true) return null;
       _w('🧠 [Action] Sending to Gemini (no dictionary match)');
