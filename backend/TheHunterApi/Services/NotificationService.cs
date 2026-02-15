@@ -39,7 +39,7 @@ public class NotificationService : INotificationService
     private string? AdminEmail => _config["Admin:Notification:AdminEmail"];
     private string? WebhookUrl => _config["Admin:Notification:WebhookUrl"];
 
-    public async Task NotifyIfPendingThresholdAsync(int pendingCount, LearnedTerm? firstTerm = null, CancellationToken cancellationToken = default)
+    public async Task NotifyIfPendingThresholdAsync(int pendingCount, LearnedTerm? firstTerm = null, int uniqueFiles = 0, CancellationToken cancellationToken = default)
     {
         if (pendingCount < Threshold) return;
 
@@ -51,7 +51,7 @@ public class NotificationService : INotificationService
         {
             try
             {
-                await _telegram.SendPendingTermsAlertAsync(pendingCount, firstTerm, cancellationToken);
+                await _telegram.SendPendingTermsAlertAsync(pendingCount, firstTerm, uniqueFiles, cancellationToken);
                 _lastTelegramSentAt = DateTime.UtcNow;
                 sent = true;
                 _logger.LogInformation("Admin alert sent via Telegram");

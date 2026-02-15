@@ -53,6 +53,18 @@
                     <i class="bi bi-database"></i> מיגרציה KB→SC
                 </button>
             </form>
+            <form asp-action="CleanupLowQualitySuggestions" method="post" class="d-inline" onsubmit="return confirm('ניקוי: מחיקת הצעות עם snippet ריק או מונח תו/ספרה בודד. להמשיך?');">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash"></i> ניקוי הצעות
+                </button>
+            </form>
+            <form asp-action="DatabaseReset" method="post" class="d-inline" onsubmit="return confirm('איפוס DB: מחיקת suggestions, processing_chains, scan_stats, scan_failures, search_history, smart_categories. users לא יימחק. להמשיך?');">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-dark btn-sm">
+                    <i class="bi bi-database-x"></i> איפוס DB
+                </button>
+            </form>
         </div>
     </div>
     <div class="col-12 col-md-4">

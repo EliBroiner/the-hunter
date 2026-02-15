@@ -14,12 +14,18 @@ class AiLabDictionaryTab extends StatelessWidget {
     required this.searchController,
     required this.onForceSync,
     this.onQuickLearning,
+    this.onNukeAndResync,
+    this.onResetToDefaults,
   });
 
   final DateTime? lastSyncTime;
   final TextEditingController searchController;
   final VoidCallback onForceSync;
   final VoidCallback? onQuickLearning;
+  /// Nuke & Re-Sync — מנקה Isar, מאפס timestamp, מריץ Force Sync.
+  final Future<void> Function()? onNukeAndResync;
+  /// Reset to Defaults — מנקה searchSynonyms וטוען מ-assets.
+  final Future<void> Function()? onResetToDefaults;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +34,7 @@ class AiLabDictionaryTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildHeaderCard(),
+          _buildHeaderCard(context),
           _buildSearchField(),
           Expanded(
             child: ListenableBuilder(
@@ -43,7 +49,8 @@ class AiLabDictionaryTab extends StatelessWidget {
                         ? all
                         : all.where((s) => s.term.toLowerCase().contains(query)).toList();
                     if (kDebugMode) {
-                      debugPrint('[ADMIN-UI] Found ${items.length} items in local Isar dictionary.');
+                      final count = DatabaseService.instance.isar.searchSynonyms.count();
+                      debugPrint('DEBUG: Isar has $count synonyms. StreamBuilder showing ${items.length} items.');
                     }
                     return _buildTable(items);
                   },
@@ -56,7 +63,7 @@ class AiLabDictionaryTab extends StatelessWidget {
     );
   }
 
-  Widget _buildHeaderCard() {
+  Widget _buildHeaderCard(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Card(
@@ -88,6 +95,62 @@ class AiLabDictionaryTab extends StatelessWidget {
                       onPressed: onQuickLearning,
                       icon: const Icon(Icons.lightbulb_outline, size: 20),
                       label: const Text('Quick Learning'),
+                    ),
+                  ],
+                  if (onResetToDefaults != null) ...[
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Reset to Defaults?'),
+                            content: const Text(
+                              'מוחק את searchSynonyms וטוען מחדש את 174 ברירות המחדל מ-assets/smart_search_config.json.',
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('Reset to Defaults'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true && context.mounted) await onResetToDefaults!();
+                      },
+                      icon: const Icon(Icons.restore, size: 18),
+                      label: const Text('Reset to Defaults', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                  if (kDebugMode && onNukeAndResync != null) ...[
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Nuke & Re-Sync?'),
+                            content: const Text(
+                              'מוחק את כל הנתונים המקומיים (Isar), מאפס lastSyncTimestamp, ומריץ Force Sync. לא נוגע ב-user preferences.',
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                                child: const Text('Nuke & Re-Sync'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true && context.mounted) await onNukeAndResync!();
+                      },
+                      icon: const Icon(Icons.delete_forever, size: 18, color: Colors.redAccent),
+                      label: const Text('Nuke & Re-Sync', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                      ),
                     ),
                   ],
                 ],

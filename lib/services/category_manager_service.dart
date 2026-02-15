@@ -35,7 +35,8 @@ class CategoryManagerService {
   static const String _dictionaryUpdatesPath = '/api/dictionary/updates';
   static const String _dictionaryVersionPath = '/api/dictionary/version';
   static const String _smartCategoriesPath = '/api/smart-categories';
-  static const String _prefsKeyLastSyncTimestamp = 'dictionary_last_sync_timestamp';
+  static const String prefsKeyLastSyncTimestamp = 'dictionary_last_sync_timestamp';
+  static const String _prefsKeyLastSyncTimestamp = prefsKeyLastSyncTimestamp;
   static const Duration _timeout = Duration(seconds: 15);
 
   final Map<String, List<String>> _synonymCache = {};
@@ -65,12 +66,39 @@ class CategoryManagerService {
     return set;
   }
 
+  /// סף מינימלי — אם Isar מתחת לזה, טוענים מחדש מ-assets.
+  static const int _minDefaultSynonymsCount = 50;
+
+  /// טוען מילון התחלתי מ-assets. Merge, don't Overwrite. נקרא בכל הפעלה.
+  Future<void> loadInitialDictionary() async {
+    await _loadFromAssets();
+    final count = DatabaseService.instance.isar.searchSynonyms.count();
+    if (count > 0) {
+      appLog('[RECOVERY] Successfully merged default dictionary into Isar.');
+    }
+  }
+
+  /// משלב מחדש defaults מ-assets (ללא מחיקה). לשימוש לפני Force Sync.
+  Future<void> reLoadDefaults() async {
+    await _loadFromAssets();
+    final count = DatabaseService.instance.isar.searchSynonyms.count();
+    appLog('[RECOVERY] Successfully merged default dictionary into Isar. ($count synonyms)');
+    await _loadSynonymsFromIsarToCache();
+  }
+
   /// מאתחל: assets → sync מ-dictionary/updates (synonyms + categories).
   Future<void> initialize() async {
     if (_initialized) return;
     try {
-      await _loadFromAssets();
+      await loadInitialDictionary();
       await _loadSynonymsFromIsarToCache();
+      final isarCount = DatabaseService.instance.isar.searchSynonyms.count();
+      if (isarCount == 0 || isarCount < _minDefaultSynonymsCount) {
+        appLog('[RECOVERY] Isar has $isarCount items (< $_minDefaultSynonymsCount) — forcing reload of defaults.');
+        await _loadFromAssets();
+        appLog('[RECOVERY] Successfully merged default dictionary into Isar.');
+        await _loadSynonymsFromIsarToCache();
+      }
       await syncWithServer();
       _initialized = true;
       appLog('CategoryManager: loaded synonyms=${_synonymCache.length} categories=${_categories.length}');
@@ -171,13 +199,32 @@ class CategoryManagerService {
         return;
       }
       final data = await _fetchUpdates(since: localTs);
-      if (data == null) return;
+      if (data == null) {
+        appLog('[SYNC] Server fetch failed — keeping local/defaults.');
+        return;
+      }
       await _applyUpdates(data);
       if (version?.lastModified != null) {
         await SyncVersionUtils.saveTimestamp(_prefsKeyLastSyncTimestamp, version!.lastModified!);
       }
+      final afterCount = DatabaseService.instance.isar.searchSynonyms.count();
+      if (afterCount == 0) {
+        appLog('[RECOVERY] Isar empty after sync — re-loading defaults from assets.');
+        await _loadFromAssets();
+        final count = DatabaseService.instance.isar.searchSynonyms.count();
+        appLog('[RECOVERY] Re-loaded $count default synonyms into Isar.');
+        await _loadSynonymsFromIsarToCache();
+      }
     } catch (e) {
       appLog('CategoryManager: syncWithServer error - $e');
+      final count = DatabaseService.instance.isar.searchSynonyms.count();
+      if (count == 0) {
+        appLog('[RECOVERY] Isar empty after sync error — re-loading defaults.');
+        await _loadFromAssets();
+        final reloaded = DatabaseService.instance.isar.searchSynonyms.count();
+        appLog('[RECOVERY] Re-loaded $reloaded default synonyms into Isar.');
+        await _loadSynonymsFromIsarToCache();
+      }
     }
   }
 
@@ -286,6 +333,16 @@ class CategoryManagerService {
     if (list.isEmpty) return;
     final isar = DatabaseService.instance.isar;
     isar.write((isar) => isar.searchSynonyms.putAll(list));
+  }
+
+  /// מנקה searchSynonyms וטוען מחדש מ-assets (smart_search_config.json). להרצה ידנית.
+  Future<int> resetToDefaults() async {
+    DatabaseService.instance.isar.write((isar) => isar.searchSynonyms.clear());
+    await _loadFromAssets();
+    final count = DatabaseService.instance.isar.searchSynonyms.count();
+    await _loadSynonymsFromIsarToCache();
+    appLog('[RECOVERY] Re-loaded $count default synonyms into Isar.');
+    return count;
   }
 
   String _keyFor(String term) =>

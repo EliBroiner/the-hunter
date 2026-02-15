@@ -61,7 +61,7 @@ public class AdminDashboardController : Controller
             }
 
             var totalUsers = await _firestore.GetUsersCountAsync();
-            var pendingCount = await _firestore.GetPendingTermsCountAsync();
+            var (pendingCount, uniqueFiles, _) = await _firestore.GetPendingTermsStatsAsync();
             var approvedCount = await _firestore.GetApprovedTermsCountAsync();
             var newTermsPerDay = await _firestore.GetNewTermsPerDayAsync(30);
             var (scanFailures, _) = await _firestore.GetScanFailuresAsync(10);
@@ -73,7 +73,7 @@ public class AdminDashboardController : Controller
                 CloudVisionFallbackEnabled = await _scannerSettings.GetCloudVisionFallbackEnabledAsync()
             };
 
-            await _notification.NotifyIfPendingThresholdAsync(pendingCount, terms.FirstOrDefault());
+            await _notification.NotifyIfPendingThresholdAsync(pendingCount, terms.FirstOrDefault(), uniqueFiles);
             var threshold = _config.GetValue("Admin:Notification:PendingThreshold", 10);
             if (pendingCount >= threshold)
                 ViewBag.PendingAlert = $"Action Required: {pendingCount} terms are waiting for your approval in The Hunter Admin.";
@@ -394,6 +394,38 @@ public class AdminDashboardController : Controller
         if (migrator == null) return BadRequest("Migration service not registered");
         var (migrated, deleted) = await migrator.MigrateAndDeleteAsync(ct);
         TempData["WeightsMessage"] = $"מיגרציה הושלמה: {migrated} מסמכים הועתקו ל-smart_categories, {deleted} נמחקו מ-knowledge_base.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(Index));
+    }
+
+    /// <summary>איפוס DB מלא — מוחק suggestions, processing_chains, scan_stats, scan_failures, smart_categories. מזריע חוקי בסיס. שולח הודעת Telegram. לא נוגע ב-users.</summary>
+    [HttpPost]
+    [Route("database-reset")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DatabaseReset(CancellationToken ct)
+    {
+        var purgeResult = await _firestore.PurgeDatabaseCollectionsAsync(ct);
+        var scDeleted = await _firestore.PurgeSmartCategoriesAsync(ct);
+        var seedCount = await _firestore.SeedSmartCategoriesAsync(ct);
+        var summary = string.Join(", ", purgeResult.Select(kv => $"{kv.Key}: {kv.Value}")) + $", smart_categories: {scDeleted} (seeded: {seedCount})";
+        TempData["WeightsMessage"] = $"איפוס DB הושלם. נמחק: {summary}";
+        TempData["WeightsMessageSuccess"] = true;
+
+        var telegram = HttpContext.RequestServices.GetService<ITelegramService>();
+        if (telegram != null)
+            await telegram.SendAdminAlertAsync("System Reset Complete. Ready for clean scan.");
+
+        return RedirectToAction(nameof(Index));
+    }
+
+    /// <summary>ניקוי הצעות באיכות נמוכה — snippet ריק או מונח תו/ספרה בודד. להרצה חד־פעמית.</summary>
+    [HttpPost]
+    [Route("cleanup-low-quality-suggestions")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CleanupLowQualitySuggestions()
+    {
+        var deleted = await _firestore.CleanupLowQualitySuggestionsAsync();
+        TempData["WeightsMessage"] = $"ניקוי הושלם: {deleted} מסמכים נמחקו (snippet ריק או מונח תו/ספרה בודד).";
         TempData["WeightsMessageSuccess"] = true;
         return RedirectToAction(nameof(Index));
     }

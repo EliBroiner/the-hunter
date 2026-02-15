@@ -351,7 +351,7 @@ public class GeminiService
                 documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
 
             var safeResult = result ?? new DocumentAnalysisResult();
-            await LearnFromDocumentResultAsync(safeResult, userId, text);
+            await LearnFromDocumentResultAsync(safeResult, userId, text, documentId);
 
             var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = safeResult }, _jsonOptions);
             _logger.LogInformation("[GEMINI_TO_CLIENT] Doc {Id} — Sending result: {Preview}", documentId, TruncateForLog(finalJson));
@@ -696,8 +696,10 @@ public class GeminiService
     /// <summary>
     /// לומד מניתוח מסמך — קטגוריה, תגיות, והצעות (suggestions) עם הקשר מהטקסט.
     /// </summary>
-    /// <param name="documentText">טקסט המסמך — לחילוץ snippet של ≥100 תווים סביב כל מונח.</param>
-    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null, string? documentText = null)
+    /// <param name="sourceDocumentId">מזהה המסמך — נשמר ל-sourceDocumentId לספירת קבצים ייחודיים.</param>
+    private const int MaxSuggestionsPerDocument = 15;
+
+    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null, string? documentText = null, string? sourceDocumentId = null)
     {
         var category = result.Category ?? "—";
         var tagCount = (result.Tags ?? []).Count(t => !string.IsNullOrWhiteSpace(t));
@@ -705,18 +707,31 @@ public class GeminiService
         _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}, Suggestions: {SuggCount}. Saving to suggestions...",
             category, tagCount, suggCount);
 
+        var saved = 0;
         try
         {
-            if (!string.IsNullOrWhiteSpace(result.Category))
-                await _learningService.ProcessAiResultAsync(result.Category, "category", userId, ExtractSnippet(documentText, result.Category), 1.0);
+            if (saved < MaxSuggestionsPerDocument && !string.IsNullOrWhiteSpace(result.Category))
+            {
+                await _learningService.ProcessAiResultAsync(result.Category, "category", userId, ExtractSnippet(documentText, result.Category), 1.0, sourceDocumentId);
+                saved++;
+            }
             foreach (var tag in (result.Tags ?? []).Where(t => !string.IsNullOrWhiteSpace(t)))
-                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId, ExtractSnippet(documentText, tag), 1.0);
+            {
+                if (saved >= MaxSuggestionsPerDocument) break;
+                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId, ExtractSnippet(documentText, tag), 1.0, sourceDocumentId);
+                saved++;
+            }
             foreach (var sugg in (result.Suggestions ?? []))
             {
+                if (saved >= MaxSuggestionsPerDocument) break;
                 var cat = string.IsNullOrWhiteSpace(sugg.SuggestedCategory) ? (result.Category ?? "general") : sugg.SuggestedCategory;
                 var conf = Math.Clamp(sugg.Confidence, 0, 1);
                 foreach (var kw in (sugg.SuggestedKeywords ?? []).Where(k => !string.IsNullOrWhiteSpace(k)))
-                    await _learningService.ProcessAiResultAsync(kw.Trim(), cat, userId, ExtractSnippet(documentText, kw), conf);
+                {
+                    if (saved >= MaxSuggestionsPerDocument) break;
+                    await _learningService.ProcessAiResultAsync(kw.Trim(), cat, userId, ExtractSnippet(documentText, kw), conf, sourceDocumentId);
+                    saved++;
+                }
             }
         }
         catch (Exception ex)

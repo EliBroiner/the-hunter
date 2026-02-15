@@ -13,9 +13,9 @@ public interface ITelegramService
     Task SendAdminAlertAsync(string message, InlineKeyboardMarkup? replyMarkup = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// שולח התראת "מונחים ממתינים לאישור". אם firstTerm מועבר — מוסיף כפתורי אשר/דחה למונח הראשון.
+    /// שולח התראת "מונחים ממתינים לאישור". uniqueFiles — מספר קבצים ייחודיים (להצגה בהודעה).
     /// </summary>
-    Task SendPendingTermsAlertAsync(int count, LearnedTerm? firstTerm = null, CancellationToken cancellationToken = default);
+    Task SendPendingTermsAlertAsync(int count, LearnedTerm? firstTerm = null, int uniqueFiles = 0, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// שולח דוח יומי: משתמשים חדשים, מונחים שאושרו היום, Top 3 חיפושים.

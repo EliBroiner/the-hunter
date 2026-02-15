@@ -10,10 +10,10 @@ public interface ILearningService
 {
     /// <summary>
     /// מעבד תוצאה מ-AI: כותב מסמך חדש ל-collection suggestions ב-Firestore עם status pending_approval.
+    /// אם קיים כבר מונח זהה (term+category) — מעדכן lastSeen במקום ליצור כפילות.
     /// </summary>
-    /// <param name="originalTextSnippet">מינימום 100 תווים סביב המונח מהמסמך (אופציונלי)</param>
-    /// <param name="confidenceScore">ציון ביטחון — לדירוג ב-Admin UI (0–1)</param>
-    Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0);
+    /// <param name="sourceDocumentId">מזהה המסמך המקור — לספירת קבצים ייחודיים בהודעת Telegram</param>
+    Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0, string? sourceDocumentId = null);
 
     /// <summary>
     /// כותב מסמך בדיקה ל-Firestore — לאבחון חיבור DB (Database Doctor).
@@ -32,15 +32,17 @@ public class LearningService : ILearningService
     private readonly FirestoreDb _firestore;
     private readonly ILogger<LearningService> _logger;
     private readonly INotificationService _notification;
+    private readonly AdminFirestoreService _adminFirestore;
 
-    public LearningService(FirestoreDb firestore, ILogger<LearningService> logger, INotificationService notification)
+    public LearningService(FirestoreDb firestore, ILogger<LearningService> logger, INotificationService notification, AdminFirestoreService adminFirestore)
     {
         _firestore = firestore;
         _logger = logger;
         _notification = notification;
+        _adminFirestore = adminFirestore;
     }
 
-    public async Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0)
+    public async Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0, string? sourceDocumentId = null)
     {
         if (!TermValidator.IsValidTerm(term))
         {
@@ -58,28 +60,37 @@ public class LearningService : ILearningService
         var snippet = (originalTextSnippet ?? "").Trim();
         var conf = Math.Clamp(confidenceScore, 0, 1);
 
-        var data = new Dictionary<string, object>
-        {
-            { "term", t },
-            { "category", cat },
-            { "confidence_score", conf },
-            { "original_text_snippet", snippet },
-            { "created_at", Timestamp.FromDateTime(DateTime.UtcNow) },
-            { "status", StatusPendingApproval },
-        };
-        if (!string.IsNullOrWhiteSpace(userId))
-            data["userId"] = userId;
-
         _logger.LogInformation("[Server] Attempting to save to Firestore. Collection: {Collection}. Term: {Term}, Category: {Category}",
             CollectionSuggestions, t.Length > 40 ? t[..40] + "…" : t, cat);
 
         try
         {
             var col = _firestore.Collection(CollectionSuggestions);
+            var existing = await col.WhereEqualTo("term", t).WhereEqualTo("category", cat).WhereEqualTo("status", StatusPendingApproval).Limit(1).GetSnapshotAsync();
+            if (existing.Count > 0)
+            {
+                var doc = existing.Documents[0];
+                await doc.Reference.UpdateAsync(new Dictionary<string, object> { { "lastSeen", Timestamp.FromDateTime(DateTime.UtcNow) } });
+                _logger.LogDebug("[Server] Dedup: updated lastSeen for existing term {Term}", t);
+                return;
+            }
+
+            var data = new Dictionary<string, object>
+            {
+                { "term", t },
+                { "category", cat },
+                { "confidence_score", conf },
+                { "original_text_snippet", snippet },
+                { "created_at", Timestamp.FromDateTime(DateTime.UtcNow) },
+                { "status", StatusPendingApproval },
+                { "userId", userId ?? "" },
+            };
+            if (!string.IsNullOrWhiteSpace(sourceDocumentId))
+                data["sourceDocumentId"] = sourceDocumentId.Trim();
+
             var newDoc = await col.AddAsync(data);
             _logger.LogInformation("[Server] Successfully saved to DB. Document ID: {Id}", newDoc.Id);
 
-            // התראה בזמן אמת — אם יש >= 5 מונחים ממתינים
             await TriggerRealtimeAlertIfNeededAsync(cancellationToken: default);
         }
         catch (Exception ex)
@@ -95,29 +106,11 @@ public class LearningService : ILearningService
     {
         try
         {
-            var col = _firestore.Collection(CollectionSuggestions);
-            var query = col.WhereEqualTo("status", StatusPendingApproval);
-            var snapshot = await query.GetSnapshotAsync(cancellationToken);
-            var count = snapshot.Count;
+            var (count, uniqueFiles, firstTerm) = await _adminFirestore.GetPendingTermsStatsAsync();
             if (count < RealtimeAlertThreshold) return;
 
-            LearnedTerm? firstTerm = null;
-            var firstDoc = snapshot.Documents.OrderBy(d => d.CreateTime).FirstOrDefault();
-            if (firstDoc != null)
-            {
-                var d = firstDoc.ToDictionary();
-                static string? Get(Dictionary<string, object> dict, string key) =>
-                    dict.TryGetValue(key, out var v) ? v?.ToString() : null;
-                firstTerm = new LearnedTerm
-                {
-                    FirestoreId = firstDoc.Id,
-                    Term = Get(d, "term") ?? "",
-                    Category = Get(d, "category") ?? "",
-                    UserId = Get(d, "userId"),
-                };
-            }
             _logger.LogInformation("[TELEGRAM] Real-time alert triggered by new AI results.");
-            await _notification.NotifyIfPendingThresholdAsync(count, firstTerm, cancellationToken);
+            await _notification.NotifyIfPendingThresholdAsync(count, firstTerm, uniqueFiles, cancellationToken);
         }
         catch (Exception ex)
         {

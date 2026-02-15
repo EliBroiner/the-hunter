@@ -874,6 +874,14 @@ class DatabaseService {
     });
   }
 
+  /// מוחק את כל הנתונים המקומיים — fileMetadatas + searchSynonyms. לא נוגע ב-user preferences (SharedPreferences).
+  void nukeLocalDb() {
+    isar.write((isar) {
+      isar.fileMetadatas.clear();
+      isar.searchSynonyms.clear();
+    });
+  }
+
   /// בודק אם קובץ קיים במסד לפי נתיב ותאריך שינוי
   bool fileExists(String path, DateTime lastModified) {
     final existing = isar.fileMetadatas

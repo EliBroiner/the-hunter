@@ -8,7 +8,7 @@ namespace TheHunterApi.Services;
 public interface INotificationService
 {
     /// <summary>
-    /// בודק אם יש לשלוח התראה (מספיק מונחים ממתינים). firstTerm מועבר ל-Telegram לכפתורי אשר/דחה.
+    /// בודק אם יש לשלוח התראה (מספיק מונחים ממתינים). uniqueFiles — להצגה בהודעת Telegram.
     /// </summary>
-    Task NotifyIfPendingThresholdAsync(int pendingCount, LearnedTerm? firstTerm = null, CancellationToken cancellationToken = default);
+    Task NotifyIfPendingThresholdAsync(int pendingCount, LearnedTerm? firstTerm = null, int uniqueFiles = 0, CancellationToken cancellationToken = default);
 }

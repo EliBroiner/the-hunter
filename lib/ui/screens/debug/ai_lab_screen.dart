@@ -8,6 +8,8 @@ import '../../../services/app_check_http_helper.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/database_service.dart';
 import '../../../services/sync_manager.dart';
+import '../../../services/sync_version_utils.dart';
+import '../../../services/category_manager_service.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
 import '../../../services/prompt_admin_service.dart';
@@ -452,12 +454,29 @@ class _AiLabScreenState extends State<AiLabScreen> {
   Future<void> _forceSyncFromCloud() async {
     _labLog('Force sync...');
     try {
+      await CategoryManagerService.instance.reLoadDefaults();
       await PeriodicSyncService.instance.checkDictionaryVersion(forceSync: true);
-      setState(() => _lastSyncTime = DateTime.now());
+      if (mounted) setState(() => _lastSyncTime = DateTime.now());
       _labLog('Force sync done');
     } catch (e) {
       _labLog('Force sync error: $e');
     }
+  }
+
+  Future<void> _resetToDefaults() async {
+    final count = await CategoryManagerService.instance.resetToDefaults();
+    _labLog('[RECOVERY] Re-loaded $count default synonyms into Isar.');
+    if (mounted) setState(() => _lastSyncTime = null);
+  }
+
+  Future<void> _nukeAndResync() async {
+    DatabaseService.instance.nukeLocalDb();
+    await SyncVersionUtils.resetTimestamp(CategoryManagerService.prefsKeyLastSyncTimestamp);
+    CategoryManagerService.instance.invalidate();
+    _labLog('Nuke & Re-Sync: cleared Isar, reset lastSyncTimestamp');
+    if (mounted) setState(() => _lastSyncTime = null);
+    await _forceSyncFromCloud();
+    _labLog('Force Sync completed');
   }
 
   @override
@@ -503,6 +522,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
                       searchController: _dictionarySearchController,
                       onForceSync: _forceSyncFromCloud,
                       onQuickLearning: _showQuickLearningSheet,
+                      onNukeAndResync: _nukeAndResync,
+                      onResetToDefaults: _resetToDefaults,
                     ),
                     AiLabPipelineTab(
                       ocrFilePath: _ocrFilePath,

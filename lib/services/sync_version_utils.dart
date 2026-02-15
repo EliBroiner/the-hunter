@@ -38,4 +38,10 @@ class SyncVersionUtils {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(prefsKey);
   }
+
+  /// מאפס את ה-timestamp — מאפשר סנכרון מלא מחדש.
+  static Future<void> resetTimestamp(String prefsKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(prefsKey);
+  }
 }

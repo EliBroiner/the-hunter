@@ -45,7 +45,7 @@ public class TelegramService : ITelegramService
         _logger.LogInformation("Telegram SendAdminAlert sent.");
     }
 
-    public async Task SendPendingTermsAlertAsync(int count, LearnedTerm? firstTerm = null, CancellationToken cancellationToken = default)
+    public async Task SendPendingTermsAlertAsync(int count, LearnedTerm? firstTerm = null, int uniqueFiles = 0, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(BotToken) || string.IsNullOrWhiteSpace(ChatId))
         {
@@ -55,7 +55,9 @@ public class TelegramService : ITelegramService
 
         var sb = new StringBuilder();
         sb.Append("<b>🔔 התראת המערכת: The Hunter</b>\n\n");
-        sb.Append("הצטברו ").Append(count).Append(" מונחים חדשים שמחכים לאישור שלך.\nהגיע הזמן לעבור עליהם!");
+        sb.Append(uniqueFiles > 0
+            ? $"נמצאו {count} מונחים חדשים ב-{uniqueFiles} קבצים שונים."
+            : $"נמצאו {count} מונחים חדשים שמחכים לאישור.");
         if (firstTerm != null)
             sb.Append("\n\n<b>מונח ראשון בתור:</b> <code>").Append(EscapeHtml(firstTerm.Term ?? "")).Append("</code>");
         var message = sb.ToString();

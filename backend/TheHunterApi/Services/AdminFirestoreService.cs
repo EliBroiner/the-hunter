@@ -24,6 +24,7 @@ public class AdminFirestoreService
     private const string ColScanStats = "scan_stats";
     /// <summary>לוג בלבד — File X-Ray. אין לוגיקת עסקים או סנכרון Flutter.</summary>
     private const string ColProcessingChains = "processing_chains";
+    private const string ColSearchHistory = "search_history";
 
     private readonly FirestoreDb _db;
     private readonly ILogger<AdminFirestoreService> _logger;
@@ -400,6 +401,106 @@ public class AdminFirestoreService
             _logger.LogError(ex, "ERROR setting isBanned in Firestore: {Message}", ex.Message);
             return false;
         }
+    }
+
+    /// <summary>מוחק את כל המסמכים ב-collection. מחזיר מספר המסמכים שנמחקו.</summary>
+    private async Task<int> PurgeCollectionAsync(string collectionName, CancellationToken ct = default)
+    {
+        var col = _db.Collection(collectionName);
+        var snap = await col.GetSnapshotAsync(ct);
+        var refs = snap.Documents.Select(d => d.Reference).ToList();
+        const int batchSize = 500;
+        var deleted = 0;
+        for (var i = 0; i < refs.Count; i += batchSize)
+        {
+            var batch = _db.StartBatch();
+            foreach (var docRef in refs.Skip(i).Take(batchSize))
+                batch.Delete(docRef);
+            await batch.CommitAsync(ct);
+            deleted += Math.Min(batchSize, refs.Count - i);
+        }
+        _logger.LogInformation("PurgeCollection: {Collection} — deleted {Count} documents", collectionName, deleted);
+        return deleted;
+    }
+
+    /// <summary>מנקה אוספים: suggestions, processing_chains, scan_stats, scan_failures. לא נוגע ב-users, search_history.</summary>
+    public async Task<Dictionary<string, int>> PurgeDatabaseCollectionsAsync(CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var col in new[] { ColSuggestions, ColProcessingChains, ColScanStats, ColScanFailures })
+        {
+            try
+            {
+                result[col] = await PurgeCollectionAsync(col, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "PurgeCollection failed: {Collection}", col);
+                result[col] = -1;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>מנקה smart_categories ומחזיר מספר המסמכים שנמחקו.</summary>
+    public async Task<int> PurgeSmartCategoriesAsync(CancellationToken ct = default)
+    {
+        return await PurgeCollectionAsync(LearningService.CollectionSmartCategories, ct);
+    }
+
+    /// <summary>מזריע חוקי בסיס ל-smart_categories אחרי TRUNCATE.</summary>
+    public async Task<int> SeedSmartCategoriesAsync(CancellationToken ct = default)
+    {
+        var count = 0;
+        var seedRules = new Dictionary<string, string[]>
+        {
+            ["general"] = ["document", "doc", "מסמך", "קובץ", "file", "scan", "סריקה"],
+            ["receipt"] = ["invoice", "receipt", "קבלה", "חשבונית", "bill", "inv"],
+            ["id"] = ["id", "identity", "תעודת זהות", "דרכון", "passport"],
+        };
+        foreach (var kv in seedRules)
+        {
+            var added = await _smartCategories.AddRulesBatchAsync(kv.Key, kv.Value, [], ct);
+            count += added;
+        }
+        _logger.LogInformation("SeedSmartCategories: added {Count} rules", count);
+        return count;
+    }
+
+    /// <summary>מנקה הצעות באיכות נמוכה — snippet ריק או מונח תו/ספרה בודד. להרצה חד־פעמית.</summary>
+    public async Task<int> CleanupLowQualitySuggestionsAsync()
+    {
+        var deleted = 0;
+        try
+        {
+            var snap = await _db.Collection(ColSuggestions).GetSnapshotAsync();
+            var toDelete = new List<DocumentReference>();
+            foreach (var doc in snap.Documents)
+            {
+                var data = doc.ToDictionary();
+                var term = GetField(data, "term")?.ToString() ?? "";
+                var snippet = GetField(data, "original_text_snippet")?.ToString() ?? "";
+                var snippetEmpty = string.IsNullOrWhiteSpace(snippet);
+                var termSingleCharOrDigit = term.Length == 1;
+                if (snippetEmpty || termSingleCharOrDigit)
+                    toDelete.Add(doc.Reference);
+            }
+            const int batchSize = 500;
+            for (var i = 0; i < toDelete.Count; i += batchSize)
+            {
+                var batch = _db.StartBatch();
+                foreach (var docRef in toDelete.Skip(i).Take(batchSize))
+                    batch.Delete(docRef);
+                await batch.CommitAsync();
+                deleted += Math.Min(batchSize, toDelete.Count - i);
+            }
+            _logger.LogInformation("CleanupLowQualitySuggestions: deleted {Count} documents", deleted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CleanupLowQualitySuggestions failed");
+        }
+        return deleted;
     }
 
     /// <summary>מוחק מונח — מנסה suggestions, אחר כך smart_categories (sourceType=term).</summary>
@@ -867,14 +968,42 @@ public class AdminFirestoreService
         catch { return 0; }
     }
 
+    /// <summary>ספירת מונחים ממתינים — רק status=pending_approval ו-created_at ב-7 הימים האחרונים.</summary>
     public async Task<int> GetPendingTermsCountAsync()
+    {
+        var (count, _, _) = await GetPendingTermsStatsAsync();
+        return count;
+    }
+
+    /// <summary>מחזיר (ספירה, מספר קבצים ייחודיים, מונח ראשון) — מונחים ממתינים ב-7 הימים האחרונים.</summary>
+    public async Task<(int Count, int UniqueFiles, LearnedTerm? FirstTerm)> GetPendingTermsStatsAsync()
     {
         try
         {
-            var snap = await _db.Collection(ColSuggestions).WhereEqualTo("status", "pending_approval").GetSnapshotAsync();
-            return snap.Count;
+            var sevenDaysAgo = Timestamp.FromDateTime(DateTime.UtcNow.AddDays(-7));
+            var query = _db.Collection(ColSuggestions)
+                .WhereEqualTo("status", "pending_approval")
+                .WhereGreaterThanOrEqualTo("created_at", sevenDaysAgo);
+            var snap = await query.GetSnapshotAsync();
+            var fileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            LearnedTerm? firstTerm = null;
+            var firstDoc = snap.Documents.OrderBy(d => d.CreateTime).FirstOrDefault();
+            foreach (var doc in snap.Documents)
+            {
+                var data = doc.ToDictionary();
+                var sid = GetField(data, "sourceDocumentId")?.ToString();
+                if (!string.IsNullOrWhiteSpace(sid))
+                    fileIds.Add(sid.Trim());
+            }
+            if (firstDoc != null)
+                firstTerm = MapSuggestionDocToLearnedTerm(firstDoc.Id, firstDoc.ToDictionary());
+            return (snap.Count, fileIds.Count, firstTerm);
         }
-        catch { return 0; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GetPendingTermsStatsAsync failed");
+            return (0, 0, null);
+        }
     }
 
     public async Task<int> GetApprovedTermsCountAsync()
