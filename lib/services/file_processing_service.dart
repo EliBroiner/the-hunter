@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/ai_analysis_response.dart';
@@ -364,10 +366,12 @@ class FileProcessingService {
     return visionResult ?? result;
   }
 
-  /// צינור עיבוד מרכזי — שלב 5: שמירה סופית
+  /// צינור עיבוד מרכזי — שלב 5: שמירה סופית (isIndexed + isProcessing באותה טרנזקציה)
   void _workflowStep5Save(FileMetadata file, String text) {
     file.extractedText = text.isEmpty ? null : text;
     file.isIndexed = true;
+    file.isProcessing = false;
+    file.processingStartedAt = null;
     _db.updateFile(file);
     appLog('[WORKFLOW] שמירת מטא־דאטה סופית — isIndexed=true');
   }
@@ -392,6 +396,24 @@ class FileProcessingService {
 
   static String _fmtMs(int ms) => ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)}s' : '${ms}ms';
 
+  static const int _maxHashFileBytes = 10 * 1024 * 1024; // 10MB — מניעת OOM
+
+  /// מחשב SHA-256 של קובץ — סינכרוני (לפני async). מדלג על קבצים > 10MB.
+  static String? _computeFileHash(String path) {
+    try {
+      final f = File(path);
+      if (!f.existsSync()) return null;
+      final len = f.lengthSync();
+      if (len > _maxHashFileBytes) return null;
+      final bytes = f.readAsBytesSync();
+      if (bytes.isEmpty) return null;
+      final digest = sha256.convert(bytes);
+      return digest.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// צינור עיבוד מרכזי — נקודת כניסה יחידה. מחזיר תוצאה להמרה ל־ForceReprocessResult או DocumentAnalysisResult.
   Future<ProcessWorkflowResult> processFileWorkflow(
     FileMetadata file, {
@@ -401,6 +423,39 @@ class FileProcessingService {
     void Function(String)? reportProgress,
     bool Function()? isCanceled,
   }) async {
+    final hash = _computeFileHash(file.path);
+    final duplicate = hash != null
+        ? _db.getIndexedFileByContentHash(hash, excludeId: file.id)
+        : null;
+    final isDuplicate = duplicate != null;
+    appLog('[FLOW] Processing ${file.id}. Checksum status: ${isDuplicate ? 'Duplicate' : 'New Content'}.');
+    if (isDuplicate) {
+      file.category = duplicate.category;
+      file.tags = duplicate.tags;
+      file.extractedText = duplicate.extractedText;
+      file.aiMetadataNames = duplicate.aiMetadataNames;
+      file.aiMetadataIds = duplicate.aiMetadataIds;
+      file.aiMetadataLocations = duplicate.aiMetadataLocations;
+      file.isAiAnalyzed = duplicate.isAiAnalyzed;
+      file.requiresHighResOcr = duplicate.requiresHighResOcr;
+      file.contentHash = hash;
+      file.isIndexed = true;
+      file.isProcessing = false;
+      file.processingStartedAt = null;
+      _db.updateFile(file);
+      appLog('[CHECKSUM] Metadata recovered from identical file. Saved API costs.');
+      updateWidgetCache(file);
+      return ProcessWorkflowResult(
+        success: true,
+        message: 'הועתק מכפיל: ${duplicate.category ?? '—'}',
+      );
+    }
+    file.isProcessing = true;
+    file.processingStartedAt = DateTime.now();
+    if (hash != null) file.contentHash = hash;
+    _db.updateFile(file);
+    appLog('[REPAIR] Marked ${file.id} as processing to prevent duplicates.');
+    try {
     final totalTimer = Stopwatch()..start();
     if (resetFirst) {
       reportProgress?.call('מאפס...');
@@ -524,6 +579,11 @@ class FileProcessingService {
       suggestions: result?.suggestions ?? const [],
       documentResult: result,
     );
+    } finally {
+      file.isProcessing = false;
+      file.processingStartedAt = null;
+      _db.updateFile(file);
+    }
   }
 
   /// מריץ צינור עיבוד לפי נתיב. מחזיר תוצאת AI (כולל suggestions) אם immediate ו-PRO ונשלח לשרת.

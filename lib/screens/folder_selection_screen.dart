@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/auto_scan_manager.dart';
 import '../services/file_scanner_service.dart';
 import '../services/log_service.dart';
 import '../services/localization_service.dart';
@@ -83,7 +84,11 @@ class _FolderSelectionScreenState extends State<FolderSelectionScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_selectedFoldersKey, _selectedPaths.toList());
     await FileScannerService.markFolderSetupCompleted();
+    appLog('[UI] Folders updated. Triggering immediate scan and UI refresh.');
     appLog('FolderSelection: Saved ${_selectedPaths.length} folders');
+    AutoScanManager.instance.runFullScan().catchError((e) {
+      appLog('FolderSelection: Scan after save failed - $e');
+    });
   }
 
   Future<void> _addFolderViaBrowse() async {

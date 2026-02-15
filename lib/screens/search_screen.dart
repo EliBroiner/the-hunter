@@ -11,6 +11,7 @@ import '../models/file_metadata.dart';
 import '../utils/file_type_helper.dart';
 import '../utils/path_utils.dart';
 import '../utils/regex_tester.dart';
+import '../services/auto_scan_manager.dart';
 import '../services/database_service.dart';
 import '../services/favorites_service.dart';
 import '../services/recent_files_service.dart';
@@ -2772,7 +2773,27 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           return _buildSmartSearchResults(theme);
         }
 
-        if (results.isEmpty) return _buildEmptyState();
+        if (results.isEmpty) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AutoScanManager.instance.isScanningNotifier,
+            builder: (_, isScanning, __) {
+              final dbCount = _databaseService.getFilesCount();
+              if (dbCount == 0 && isScanning) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: theme.colorScheme.primary),
+                      const SizedBox(height: 16),
+                      Text(tr('empty_state_desc_scanning'), style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                    ],
+                  ),
+                );
+              }
+              return _buildEmptyState();
+            },
+          );
+        }
 
         return Column(
           children: [

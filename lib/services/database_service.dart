@@ -65,6 +65,7 @@ class DatabaseService {
       directory: dir.path,
       name: 'the_hunter_db',
     );
+    cleanupStaleLocks();
   }
 
   Isar get isar {
@@ -663,33 +664,90 @@ class DatabaseService {
     return candidates;
   }
 
-  /// מחזיר קבצי תמונות שטרם עברו אינדוקס
+  static const _stuckProcessingThreshold = Duration(minutes: 5);
+
+  /// מנקה נעילות ישנות — מאפס כל isProcessing (לאתחול אפליקציה אחרי קריסה)
+  int cleanupStaleLocks() {
+    final stuck = isar.fileMetadatas
+        .where()
+        .findAll()
+        .where((f) => f.isProcessing)
+        .toList();
+    for (final f in stuck) {
+      f.isProcessing = false;
+      f.processingStartedAt = null;
+      updateFile(f);
+    }
+    if (stuck.isNotEmpty) appLog('DB: cleanupStaleLocks — reset ${stuck.length} stale processing locks');
+    return stuck.length;
+  }
+
+  /// מאפס קבצים שתקועים בעיבוד מעל 5 דקות (קריסה)
+  int resetStuckProcessingFiles() {
+    final now = DateTime.now();
+    final stuck = isar.fileMetadatas
+        .where()
+        .findAll()
+        .where((f) {
+          if (!f.isProcessing || f.processingStartedAt == null) return false;
+          return now.difference(f.processingStartedAt!) > _stuckProcessingThreshold;
+        })
+        .toList();
+    for (final f in stuck) {
+      f.isProcessing = false;
+      f.processingStartedAt = null;
+      updateFile(f);
+    }
+    if (stuck.isNotEmpty) appLog('DB: Reset ${stuck.length} stuck processing files');
+    return stuck.length;
+  }
+
+  /// מחזיר קבצי תמונות שטרם עברו אינדוקס (מדלג על isProcessing)
   List<FileMetadata> getPendingImageFiles() {
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
     return isar.fileMetadatas
         .where()
         .findAll()
-        .where((f) => !f.isIndexed && imageExtensions.contains(f.extension.toLowerCase()))
+        .where((f) =>
+            !f.isIndexed &&
+            !f.isProcessing &&
+            imageExtensions.contains(f.extension.toLowerCase()))
         .toList();
   }
 
-  /// מחזיר קבצי טקסט, PDF ו-Excel שטרם עברו אינדוקס
+  /// מחזיר קבצי טקסט, PDF ו-Excel שטרם עברו אינדוקס (מדלג על isProcessing)
   List<FileMetadata> getPendingTextFiles() {
     const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls'];
     return isar.fileMetadatas
         .where()
         .findAll()
-        .where((f) => !f.isIndexed && textExtensions.contains(f.extension.toLowerCase()))
+        .where((f) =>
+            !f.isIndexed &&
+            !f.isProcessing &&
+            textExtensions.contains(f.extension.toLowerCase()))
         .toList();
   }
 
-  /// מחזיר את כל הקבצים שטרם עברו אינדוקס (תמונות + טקסט)
+  /// מחזיר את כל הקבצים שטרם עברו אינדוקס (מדלג על isProcessing)
   List<FileMetadata> getAllPendingFiles() {
     return isar.fileMetadatas
         .where()
         .findAll()
-        .where((f) => !f.isIndexed)
+        .where((f) => !f.isIndexed && !f.isProcessing)
         .toList();
+  }
+
+  /// מחזיר קובץ אחר עם אותו contentHash שמוגדר כ־isIndexed (לדה־דופליקציה)
+  FileMetadata? getIndexedFileByContentHash(String hash, {int? excludeId}) {
+    if (hash.isEmpty) return null;
+    return isar.fileMetadatas
+        .where()
+        .findAll()
+        .where((f) =>
+            f.contentHash == hash &&
+            f.isIndexed &&
+            (excludeId == null || f.id != excludeId))
+        .firstOrNull;
   }
 
   static const _imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];

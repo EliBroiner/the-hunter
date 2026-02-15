@@ -82,6 +82,7 @@ dependencies:
   googleapis: ^13.1.0
   googleapis_auth: ^1.6.0
   image: 4.0.0
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

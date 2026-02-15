@@ -116,6 +116,12 @@ class FileMetadata {
   /// האם הקובץ עבר אינדוקס (חילוץ טקסט)
   bool isIndexed = false;
 
+  /// האם הקובץ בעיבוד כרגע — מונע כפילות בין אצוות
+  bool isProcessing = false;
+
+  /// מתי החל העיבוד — לבדיקת תקיעות (5 דקות)
+  DateTime? processingStartedAt;
+
   /// האם הקובץ נמצא בענן (Google Drive)
   bool isCloud = false;
 
@@ -136,8 +142,8 @@ class FileMetadata {
   @Ignore()
   String? debugScoreBreakdown;
 
-  /// גיבוב תוכן (אופציונלי) — לדה־דופליקציה כשמוגדר
-  @Ignore()
+  /// SHA-256 של תוכן הקובץ — לדה־דופליקציה וחיסכון ב-API
+  @Index()
   String? contentHash;
 
   FileMetadata();

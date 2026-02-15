@@ -814,7 +814,7 @@ class FileScannerService {
     int delayBetweenFilesMs = 100,   // השהיה קצרה בין קבצים בתוך אצווה
   }) async {
     try {
-      // קבלת כל הקבצים שטרם עובדו
+      _databaseService.resetStuckProcessingFiles();
       final pendingImages = _databaseService.getPendingImageFiles();
       final pendingTextFiles = _databaseService.getPendingTextFiles();
       final totalPending = pendingImages.length + pendingTextFiles.length;

@@ -28,8 +28,10 @@ class AutoScanManager with WidgetsBindingObserver {
   bool _hasLifecycleObserver = false;
   bool _appInBackground = false;
   Timer? _resumeDebounceTimer;
-  static const Duration _resumeDebounce = Duration(milliseconds: 1500);
+  static const Duration _resumeDebounce = Duration(milliseconds: 3000);
   static const int maxFilesPerSession = 20;
+
+  final ValueNotifier<bool> isScanningNotifier = ValueNotifier(false);
 
   Function(ScanResult result)? onScanComplete;
   Function(ProcessResult result)? onProcessComplete;
@@ -127,6 +129,7 @@ class AutoScanManager with WidgetsBindingObserver {
   Future<void> _runBackgroundScanAndProcess() async {
     if (_isScanning) return;
     _isScanning = true;
+    isScanningNotifier.value = true;
 
     try {
       final isFirstRun = DatabaseService.instance.getFilesCount() == 0;
@@ -209,6 +212,7 @@ class AutoScanManager with WidgetsBindingObserver {
     } finally {
       _isScanning = false;
       _isProcessing = false;
+      isScanningNotifier.value = false;
     }
   }
 
@@ -241,6 +245,7 @@ class AutoScanManager with WidgetsBindingObserver {
   Future<void> runFullScan() async {
     if (_isScanning || _isProcessing) return;
     _isScanning = true;
+    isScanningNotifier.value = true;
 
     try {
       onStatusUpdate?.call('סריקה מלאה...');
@@ -269,6 +274,7 @@ class AutoScanManager with WidgetsBindingObserver {
     } finally {
       _isScanning = false;
       _isProcessing = false;
+      isScanningNotifier.value = false;
     }
   }
 
