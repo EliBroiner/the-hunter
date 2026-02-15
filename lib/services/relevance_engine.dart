@@ -11,6 +11,8 @@ class RelevanceEngine {
   static const int _aiCategoryBonus = 150;
   static const int _aiTagsBonus = 80;
   static const int _aiMetadataBonus = 70;
+  /// בונוס נמוך — התאמה רק לפי קטגוריה ממילון (ללא מונח בתוכן)
+  static const int _synonymCategoryOnlyBonus = 40;
   /// בונוס ל-Drive: אין תוכן מחולץ — התאמות בשם קובץ שוקלות יותר כדי לאזן מול מקומי
   static const double _driveMetadataBonus = 55.0;
   /// בונוס סמיכות: זוגות מונחי שאילתה שמופיעים consecutively בתוכן (מקסימום 4 זוגות = 100 נקודות)
@@ -111,7 +113,7 @@ class RelevanceEngine {
   /// משקלים דינמיים: RankingConfig מתעדכן מ-syncDictionaryWithServer (rankingConfig מהשרת)
   static (double, String) _scoreWithBreakdown(FileMetadata file, List<String> rawTerms,
       List<String> synonymTerms, String fnLower, String locLower, String extLower,
-      String extRaw, String exactPhrase) {
+      String extRaw, String exactPhrase, List<String> synonymCategories) {
     final config = RankingConfig.instance;
     final ptsFilename = config.filenameWeight;
     final ptsLocation = config.pathWeight;
@@ -175,6 +177,29 @@ class RelevanceEngine {
     // Drive: בונוס מטאדאטה — התאמות בשם קובץ שוקלות יותר (אין OCR)
     if (file.isCloud && namePts > 0) {
       score += _driveMetadataBonus;
+    }
+
+    // התאמה רק לפי קטגוריה ממילון — ציון נמוך (מתחת להתאמת מונח)
+    var synonymCatMatch = false;
+    if (score < 1 && synonymCategories.isNotEmpty && file.category != null) {
+      final cat = file.category!.toLowerCase();
+      outer:
+      for (final key in synonymCategories) {
+        if (key.trim().isEmpty) continue;
+        final k = key.trim().toLowerCase();
+        if (cat.contains(k)) {
+          score += _synonymCategoryOnlyBonus;
+          synonymCatMatch = true;
+          break;
+        }
+        for (final part in cat.split(RegExp(r'\s*/\s*'))) {
+          if (part.trim().contains(k)) {
+            score += _synonymCategoryOnlyBonus;
+            synonymCatMatch = true;
+            break outer;
+          }
+        }
+      }
     }
 
     // עדיפות שפה: בונוס לשם עברי נקי, קנס לשם מערכת (GUID, pdf.123)
@@ -272,6 +297,7 @@ class RelevanceEngine {
       if (aiMatch) parts.add('AI($aiBonus)');
     }
     if (file.isCloud && namePts > 0) parts.add('Drive+$_driveMetadataBonus');
+    if (synonymCatMatch) parts.add('SynCat($_synonymCategoryOnlyBonus)');
 
     final breakdown = parts.isEmpty ? 'No match' : parts.join(' + ');
     return (score, breakdown);
@@ -298,7 +324,7 @@ class RelevanceEngine {
   /// מדרג ומיין קבצים לפי ציון רלוונטיות; ממלא debugScore/debugScoreBreakdown; לוג Top 5
   static List<FileMetadata> rankAndSort(List<FileMetadata> files, SearchIntent intent) {
     if (files.isEmpty) return files;
-    if (intent.rawTerms.isEmpty && intent.terms.isEmpty) {
+    if (intent.rawTerms.isEmpty && intent.terms.isEmpty && intent.synonymCategories.isEmpty) {
       for (final f in files) {
         f.debugScore = null;
         f.debugScoreBreakdown = null;
@@ -320,7 +346,8 @@ class RelevanceEngine {
       final locLower = _norm(loc);
       final extLower = _norm(ext);
       final (score, breakdown) = _scoreWithBreakdown(
-          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower, extRaw, exactPhrase);
+          file, intent.rawTerms, synonymTerms, fnLower, locLower, extLower, extRaw, exactPhrase,
+          intent.synonymCategories);
       file.debugScore = score;
       file.debugScoreBreakdown = breakdown;
       return _ScoredFile(file, score);

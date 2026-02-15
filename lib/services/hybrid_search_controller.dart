@@ -115,6 +115,7 @@ class HybridSearchController extends ChangeNotifier {
       dateTo: dateTo,
       useDateRangeFilter: useDateRange,
       fileTypes: fileTypes,
+      synonymCategories: parserIntent.synonymCategories,
     );
   }
 

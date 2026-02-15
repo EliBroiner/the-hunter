@@ -3516,6 +3516,13 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 _buildContentPreviewSubtitle(file),
                 const SizedBox(height: 6),
                 SearchResultSourceTag(folderName: folderName, isWhatsApp: isWhatsApp, isCloud: file.isCloud),
+                if (file.debugScoreBreakdown != null && file.debugScoreBreakdown!.contains('SynCat') && file.category != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${tr('found_via_dictionary')} ${file.category}',
+                    style: TextStyle(fontSize: 11, color: theme.colorScheme.primary.withValues(alpha: 0.8)),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 SearchResultMetaRow(file: file, showDebugScore: _showDebugScore),
                 if (fileTags.isNotEmpty) ...[

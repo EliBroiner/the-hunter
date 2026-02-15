@@ -39,6 +39,7 @@ class CategoryManagerService {
   static const Duration _timeout = Duration(seconds: 15);
 
   final Map<String, List<String>> _synonymCache = {};
+  final Map<String, String> _termToCategory = {}; // term/expansion -> category (מילון מקומי)
   final Map<String, SmartCategory> _categories = {};
   List<DatePhraseConfig> _datePhrases = [];
   Map<String, List<String>> _fileTypeKeywords = {};
@@ -130,15 +131,34 @@ class CategoryManagerService {
       final q = isar.searchSynonyms.buildQuery<SearchSynonym>();
       final all = q.findAll();
       q.close();
+      _termToCategory.clear();
       for (final s in all) {
         if (s.term.isEmpty || s.expansions.isEmpty) continue;
         final terms = s.expansions;
+        final cat = (s.category ?? '').trim();
         _synonymCache[_keyFor(s.term)] = terms;
         _synonymCache[s.term] = terms;
+        if (cat.isNotEmpty) {
+          _termToCategory[_keyFor(s.term)] = cat;
+          _termToCategory[s.term] = cat;
+          for (final exp in terms) {
+            if (exp.isNotEmpty) {
+              _termToCategory[_keyFor(exp)] = cat;
+              _termToCategory[exp] = cat;
+            }
+          }
+        }
       }
     } catch (e) {
       appLog('CategoryManager: _loadSynonymsFromIsarToCache failed - $e');
     }
+  }
+
+  /// מחזיר קטגוריה אם המונח תואם term או expansions ב-Isar — לחיפוש מורחב.
+  Future<String?> getCategoryForQuery(String query) async {
+    await initialize();
+    final key = _keyFor(query.trim());
+    return _termToCategory[key] ?? _termToCategory[query.trim()];
   }
 
   Future<void> syncWithServer() async {

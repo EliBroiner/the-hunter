@@ -533,8 +533,9 @@ class DatabaseService {
     }
 
     // קבוצה א': מונחים — OR; בודק name, extractedText, category, tags, aiMetadata
+    var termMatches = <FileMetadata>[];
     if (intent.terms.isNotEmpty) {
-      candidates = candidates.where((f) {
+      termMatches = candidates.where((f) {
         return intent.terms.any((term) {
           final t = term.trim();
           if (t.isEmpty) return false;
@@ -542,6 +543,21 @@ class DatabaseService {
           return _termMatchesInFile(f, t, exactOnly);
         });
       }).toList();
+    } else {
+      termMatches = List<FileMetadata>.from(candidates);
+    }
+
+    // הרחבה ממילון: קבצים שקטגוריה תואמת synonym — מוסיפים אם לא כבר ב-termMatches
+    var categoryMatches = <FileMetadata>[];
+    if (intent.synonymCategories.isNotEmpty) {
+      final termIds = termMatches.map((f) => f.id).toSet();
+      categoryMatches = candidates
+          .where((f) => !termIds.contains(f.id) && _fileCategoryMatchesAny(f, intent.synonymCategories))
+          .toList();
+    }
+
+    if (termMatches.isNotEmpty || categoryMatches.isNotEmpty) {
+      candidates = [...termMatches, ...categoryMatches];
     }
 
     // קבוצה ב': שנה מפורשת — AND (name או extractedText מכילים שנה או lastModified באותה שנה)
@@ -559,6 +575,23 @@ class DatabaseService {
     final results = RelevanceEngine.rankAndSort(candidates, intent);
     appLog('DB: localSmartSearch -> ${results.length} results');
     return results;
+  }
+
+  /// בודק אם קטגוריית הקובץ תואמת אחת מהקטגוריות (תומך ב־"English / Hebrew")
+  static bool _fileCategoryMatchesAny(FileMetadata f, List<String> categoryKeys) {
+    final cat = f.category;
+    if (cat == null || cat.isEmpty) return false;
+    final catNorm = cat.toLowerCase().trim();
+    final parts = catNorm.split(RegExp(r'\s*/\s*'));
+    for (final key in categoryKeys) {
+      final k = key.trim().toLowerCase();
+      if (k.isEmpty) continue;
+      if (catNorm.contains(k)) return true;
+      for (final p in parts) {
+        if (p.trim() == k || p.trim().contains(k)) return true;
+      }
+    }
+    return false;
   }
 
   /// בודק אם מונח תואם קובץ — name, extractedText, category, tags, aiMetadata (case-insensitive)

@@ -1,5 +1,6 @@
 import '../models/date_phrase_config.dart';
 import '../services/category_manager_service.dart';
+import '../services/log_service.dart';
 
 /// תוצאת פירוק חיפוש — מילות מקור, מונחים מורחבים, שנה מפורשת, תאריכים וסוגי קבצים
 class SearchIntent {
@@ -14,6 +15,8 @@ class SearchIntent {
   /// true רק כאשר תאריכים מ־ביטויים יחסיים (today, last week) — לא משנה בשאילתה
   final bool useDateRangeFilter;
   final List<String> fileTypes;
+  /// קטגוריות ממילון — כשהשאילתה תואמת synonym (term או expansion)
+  final List<String> synonymCategories;
 
   const SearchIntent({
     this.rawTerms = const [],
@@ -23,20 +26,22 @@ class SearchIntent {
     this.dateTo,
     this.useDateRangeFilter = false,
     this.fileTypes = const [],
+    this.synonymCategories = const [],
   });
 
   bool get hasContent =>
       terms.isNotEmpty ||
       rawTerms.isNotEmpty ||
       fileTypes.isNotEmpty ||
+      synonymCategories.isNotEmpty ||
       dateFrom != null ||
       dateTo != null ||
       explicitYear != null;
 
   @override
   String toString() =>
-      'SearchIntent(rawTerms: $rawTerms, terms: $terms, explicitYear: $explicitYear, '
-      'dateFrom: $dateFrom, dateTo: $dateTo, fileTypes: $fileTypes)';
+      'SearchIntent(rawTerms: $rawTerms, terms: $terms, synonymCategories: $synonymCategories, '
+      'explicitYear: $explicitYear, dateFrom: $dateFrom, dateTo: $dateTo, fileTypes: $fileTypes)';
 }
 
 /// מפרק שאילתת חיפוש טבעית ל־SearchIntent (מילים נרדפות, תאריכים, נורמליזציה)
@@ -287,6 +292,24 @@ class SmartSearchParser {
       }
     }
 
+    // קטגוריות ממילון — כשמונח תואם synonym (term או expansion)
+    final synonymCats = <String>{};
+    if (kb != null) {
+      for (final word in rawTerms) {
+        final cat = await kb.getCategoryForQuery(word);
+        if (cat != null && cat.isNotEmpty) {
+          synonymCats.add(cat);
+          appLog("[SEARCH] Query '$query' expanded to category '$cat' via local dictionary.");
+        }
+      }
+      final rootTerms = rawTerms.map((w) => _stripHebrewPrefixes(w)).where((r) => r.isNotEmpty);
+      for (final root in rootTerms) {
+        if (rawTerms.contains(root)) continue;
+        final cat = await kb.getCategoryForQuery(root);
+        if (cat != null && cat.isNotEmpty) synonymCats.add(cat);
+      }
+    }
+
     return SearchIntent(
       rawTerms: rawTerms,
       terms: termsSet.toList(),
@@ -295,6 +318,7 @@ class SmartSearchParser {
       dateTo: dateTo,
       useDateRangeFilter: useDateRangeFilter,
       fileTypes: fileTypesSet.toList(),
+      synonymCategories: synonymCats.toList(),
     );
   }
 
@@ -365,6 +389,7 @@ class SmartSearchParser {
       dateTo: dateTo,
       useDateRangeFilter: useDateRangeFilter,
       fileTypes: fileTypesSet.toList(),
+      synonymCategories: const [], // parse סינכרוני — אין גישה ל-Isar
     );
   }
 
