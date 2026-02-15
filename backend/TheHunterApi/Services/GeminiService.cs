@@ -351,7 +351,7 @@ public class GeminiService
                 documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
 
             var safeResult = result ?? new DocumentAnalysisResult();
-            await LearnFromDocumentResultAsync(safeResult, userId);
+            await LearnFromDocumentResultAsync(safeResult, userId, text);
 
             var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = safeResult }, _jsonOptions);
             _logger.LogInformation("[GEMINI_TO_CLIENT] Doc {Id} — Sending result: {Preview}", documentId, TruncateForLog(finalJson));
@@ -694,26 +694,47 @@ public class GeminiService
     }
 
     /// <summary>
-    /// לומד מניתוח מסמך - קטגוריה וכל תגית עם קטגוריית המסמך
+    /// לומד מניתוח מסמך — קטגוריה, תגיות, והצעות (suggestions) עם הקשר מהטקסט.
     /// </summary>
-    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null)
+    /// <param name="documentText">טקסט המסמך — לחילוץ snippet של ≥100 תווים סביב כל מונח.</param>
+    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null, string? documentText = null)
     {
         var category = result.Category ?? "—";
         var tagCount = (result.Tags ?? []).Count(t => !string.IsNullOrWhiteSpace(t));
-        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}. Attempting to save to DB (collection: suggestions)...",
-            category, tagCount);
+        var suggCount = (result.Suggestions ?? []).Count;
+        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}, Suggestions: {SuggCount}. Saving to suggestions...",
+            category, tagCount, suggCount);
 
         try
         {
             if (!string.IsNullOrWhiteSpace(result.Category))
-                await _learningService.ProcessAiResultAsync(result.Category, "category", userId);
+                await _learningService.ProcessAiResultAsync(result.Category, "category", userId, ExtractSnippet(documentText, result.Category), 1.0);
             foreach (var tag in (result.Tags ?? []).Where(t => !string.IsNullOrWhiteSpace(t)))
-                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId);
+                await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId, ExtractSnippet(documentText, tag), 1.0);
+            foreach (var sugg in (result.Suggestions ?? []))
+            {
+                var cat = string.IsNullOrWhiteSpace(sugg.SuggestedCategory) ? (result.Category ?? "general") : sugg.SuggestedCategory;
+                var conf = Math.Clamp(sugg.Confidence, 0, 1);
+                foreach (var kw in (sugg.SuggestedKeywords ?? []).Where(k => !string.IsNullOrWhiteSpace(k)))
+                    await _learningService.ProcessAiResultAsync(kw.Trim(), cat, userId, ExtractSnippet(documentText, kw), conf);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Server] CRITICAL: Failed to save to DB (learn from document). Error: {Message}", ex.Message);
         }
+    }
+
+    /// <summary>מחלץ ≥100 תווים סביב המונח מהטקסט.</summary>
+    private static string ExtractSnippet(string? text, string term)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(term)) return "";
+        var idx = text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return text.Length >= 100 ? text[..100] : text;
+        var half = 50;
+        var start = Math.Max(0, idx - half);
+        var len = Math.Min(text.Length - start, Math.Max(100, term.Length + 2 * half));
+        return text.Substring(start, len).Trim();
     }
 
     /// <summary>היגיינת לוגים — חיתוך Body/JSON כדי לא לחרוג ממגבלת שורת לוג (Cloud Run).</summary>

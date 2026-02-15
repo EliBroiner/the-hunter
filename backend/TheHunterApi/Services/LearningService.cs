@@ -11,8 +11,9 @@ public interface ILearningService
     /// <summary>
     /// מעבד תוצאה מ-AI: כותב מסמך חדש ל-collection suggestions ב-Firestore עם status pending_approval.
     /// </summary>
-    /// <param name="userId">מזהה משתמש לאימות/לוג (אופציונלי)</param>
-    Task ProcessAiResultAsync(string term, string category, string? userId = null);
+    /// <param name="originalTextSnippet">מינימום 100 תווים סביב המונח מהמסמך (אופציונלי)</param>
+    /// <param name="confidenceScore">ציון ביטחון — לדירוג ב-Admin UI (0–1)</param>
+    Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0);
 
     /// <summary>
     /// כותב מסמך בדיקה ל-Firestore — לאבחון חיבור DB (Database Doctor).
@@ -39,7 +40,7 @@ public class LearningService : ILearningService
         _notification = notification;
     }
 
-    public async Task ProcessAiResultAsync(string term, string category, string? userId = null)
+    public async Task ProcessAiResultAsync(string term, string category, string? userId = null, string? originalTextSnippet = null, double confidenceScore = 1.0)
     {
         if (!TermValidator.IsValidTerm(term))
         {
@@ -54,13 +55,15 @@ public class LearningService : ILearningService
 
         var cat = string.IsNullOrWhiteSpace(category) ? "general" : category.Trim();
         var t = term.Trim();
+        var snippet = (originalTextSnippet ?? "").Trim();
+        var conf = Math.Clamp(confidenceScore, 0, 1);
 
         var data = new Dictionary<string, object>
         {
             { "term", t },
             { "category", cat },
-            { "confidence", 1.0 },
-            { "original_text_snippet", "" },
+            { "confidence_score", conf },
+            { "original_text_snippet", snippet },
             { "created_at", Timestamp.FromDateTime(DateTime.UtcNow) },
             { "status", StatusPendingApproval },
         };

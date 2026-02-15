@@ -1,5 +1,5 @@
 import '../models/date_phrase_config.dart';
-import '../services/knowledge_base_service.dart';
+import '../services/category_manager_service.dart';
 
 /// תוצאת פירוק חיפוש — מילות מקור, מונחים מורחבים, שנה מפורשת, תאריכים וסוגי קבצים
 class SearchIntent {
@@ -43,17 +43,17 @@ class SearchIntent {
 class SmartSearchParser {
   SmartSearchParser._();
 
-  /// שירות קונפיגורציה — מקור אמת יחיד: smart_search_config.json (מוזרק באתחול)
-  static KnowledgeBaseService? knowledgeBaseService;
+  /// שירות קונפיגורציה — מקור אמת יחיד: CategoryManagerService (מוזרק באתחול)
+  static CategoryManagerService? categoryManagerService;
 
   static List<DatePhraseConfig> get _datePhrases =>
-      knowledgeBaseService?.datePhrases ?? _builtInDatePhrases;
+      categoryManagerService?.datePhrases ?? _builtInDatePhrases;
   static Map<String, List<String>> get _fileTypeKeywords =>
-      knowledgeBaseService?.fileTypeKeywords ?? _builtInFileTypeKeywords;
+      categoryManagerService?.fileTypeKeywords ?? _builtInFileTypeKeywords;
   static Map<String, List<String>> get _synonyms =>
-      knowledgeBaseService?.synonymMap ?? _builtInSynonyms;
+      categoryManagerService?.synonymMap ?? _builtInSynonyms;
   static Set<String> get _dictionary =>
-      knowledgeBaseService?.dictionary ?? _builtInDictionary;
+      categoryManagerService?.dictionary ?? _builtInDictionary;
 
   static const Map<String, List<String>> _builtInSynonyms = {
     'invoice': ['invoice', 'bill', 'receipt', 'חשבונית', 'קבלה'],
@@ -103,7 +103,7 @@ class SmartSearchParser {
     return set;
   }
 
-  /// ברירת מחדל — רק כש-KnowledgeBaseService לא זמין
+  /// ברירת מחדל — רק כש-CategoryManagerService לא זמין
   static final List<DatePhraseConfig> _builtInDatePhrases = [
     DatePhraseConfig(pattern: r'\b(today|היום)\b', type: 'today'),
     DatePhraseConfig(pattern: r'\b(yesterday|אתמול)\b', type: 'yesterday'),
@@ -208,7 +208,7 @@ class SmartSearchParser {
   static String _keyFor(String word) =>
       word.contains(RegExp(r'[a-zA-Z]')) ? word.toLowerCase() : word;
 
-  /// מפרק שאילתה גולמית ל־SearchIntent (אסינכרוני) — משתמש ב-KnowledgeBaseService.expandTerm
+  /// מפרק שאילתה גולמית ל־SearchIntent (אסינכרוני) — משתמש ב-CategoryManagerService.expandTerm
   static Future<SearchIntent> parseAsync(String query) async {
     if (query.trim().isEmpty) return const SearchIntent();
 
@@ -223,7 +223,7 @@ class SmartSearchParser {
     final fileTypesSet = <String>{};
     final dict = _dictionary;
     final synonymsMap = _allSynonyms;
-    final kb = knowledgeBaseService;
+    final kb = categoryManagerService;
 
     for (final word in rawTerms) {
       final key = _keyFor(word);

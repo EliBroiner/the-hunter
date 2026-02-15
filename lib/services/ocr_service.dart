@@ -47,7 +47,7 @@ String _preprocessImageInIsolate(PreprocessInput input) {
 
 /// נקודת כניסה ל־Isolate — דחיסת תמונה B&W לעלייה. סינכרוני.
 ({List<int> bytes, String mimeType}) _compressBwImageInIsolate(String imagePath) {
-  const maxEdge = 1920;
+  const maxEdge = 1024; // Cost guard — דחיסה לפני Vision
   const jpegQuality = 70;
   try {
     final fileBytes = File(imagePath).readAsBytesSync();

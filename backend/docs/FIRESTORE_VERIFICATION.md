@@ -16,7 +16,7 @@
 
 | Collection | שימוש | מי כותב |
 |------------|--------|---------|
-| `knowledge_base` | מונחים שנלמדו מ-AI | Flutter API → Backend |
+| `smart_categories` | מונחים מאושרים (sourceType=ai_suggestion) + חוקים (sourceType=rule) | Flutter API ← Backend |
 | `users` | משתמשי Admin / רולים | Admin Dashboard |
 | `logs` | לוגי חיפוש / פעילות | Backend (SearchActivityService) |
 | `ranking_settings` | משקלי דירוג | Admin Dashboard |

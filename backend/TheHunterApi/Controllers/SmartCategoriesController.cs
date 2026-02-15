@@ -38,7 +38,7 @@ public class SmartCategoriesController : ControllerBase
         DateTime? sinceDt = null;
         if (!string.IsNullOrWhiteSpace(since) && DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
             sinceDt = parsed.ToUniversalTime();
-        var list = await _service.GetAllAsync(sinceDt, ct);
+        var list = await _service.GetRulesAsync(sinceDt, ct);
         var dtos = list.Select(d => new SmartCategoryDto(
             d.Key,
             d.DisplayNames,

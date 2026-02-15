@@ -6,43 +6,44 @@ using TheHunterApi.Models;
 namespace TheHunterApi.Services;
 
 /// <summary>
-/// גישה ל-Firestore עבור לוח Admin — knowledge_base, users, logs, ranking_settings.
+/// גישה ל-Firestore עבור לוח Admin — smart_categories, suggestions, users, logs, ranking_settings.
 /// Project ID: FIRESTORE_PROJECT_ID מ-env/config; fallback: thehunter-485508 (לבדיקות).
-/// Collections: knowledge_base, users, logs, ranking_settings (תואם ל-Flutter/firestore.rules).
+/// Collections: smart_categories, suggestions, users, logs, ranking_settings.
 /// חובה: Cloud Run Service Account חייב תפקיד Cloud Datastore User (roles/datastore.user).
 /// </summary>
 public class AdminFirestoreService
 {
     /// <summary>ברירת מחדל לבדיקות — כאשר FIRESTORE_PROJECT_ID חסר ב-env.</summary>
     private const string DefaultProjectId = "thehunter-485508";
-    private const string ColKnowledgeBase = "knowledge_base";
+    private const string ColSuggestions = "suggestions";
     private const string ColUsers = "users";
     private const string ColLogs = "logs";
     private const string ColRankingSettings = "ranking_settings";
     private const string ColScanFailures = "scan_failures";
     private const string ColScannerSettings = "scanner_settings";
     private const string ColScanStats = "scan_stats";
+    /// <summary>לוג בלבד — File X-Ray. אין לוגיקת עסקים או סנכרון Flutter.</summary>
     private const string ColProcessingChains = "processing_chains";
 
     private readonly FirestoreDb _db;
     private readonly ILogger<AdminFirestoreService> _logger;
+    private readonly ISmartCategoriesService _smartCategories;
     public string EffectiveProjectId { get; }
 
-    public AdminFirestoreService(ILogger<AdminFirestoreService> logger, IConfiguration config)
+    public AdminFirestoreService(ILogger<AdminFirestoreService> logger, IConfiguration config, ISmartCategoriesService smartCategories)
     {
         _logger = logger;
-        // Fallback: אם FIRESTORE_PROJECT_ID חסר — משתמשים ב-thehunter-485508 לבדיקות
         EffectiveProjectId = config["FIRESTORE_PROJECT_ID"]
             ?? Environment.GetEnvironmentVariable("FIRESTORE_PROJECT_ID")
             ?? DefaultProjectId;
+        _smartCategories = smartCategories;
         try
         {
             _db = new FirestoreDbBuilder { ProjectId = EffectiveProjectId }.Build();
             _logger.LogInformation(
-                "[AdminFirestore] Connected to project {ProjectId}. Collections: {Cols}. " +
+                "[AdminFirestore] Connected to project {ProjectId}. Collections: smart_categories, suggestions, users, logs, ranking_settings. " +
                 "Cloud Run: ודא שה-Service Account יש לו Cloud Datastore User / Firestore permissions.",
-                EffectiveProjectId,
-                string.Join(", ", ColKnowledgeBase, ColUsers, ColLogs, ColRankingSettings, ColScanFailures, ColScannerSettings, ColScanStats, ColProcessingChains));
+                EffectiveProjectId);
         }
         catch (Exception ex)
         {
@@ -85,25 +86,24 @@ public class AdminFirestoreService
     }
 
     /// <summary>
-    /// מונחים שממתינים לאישור (isApproved == false). שדות ב-Firestore: term, category, frequency, isApproved, lastSeen.
+    /// מונחים שממתינים לאישור — קורא מ-suggestions (status=pending_approval) — אותה collection ש-LearningService כותב אליה.
     /// </summary>
     public async Task<(List<LearnedTerm> Terms, bool Ok)> GetPendingTermsAsync()
     {
         try
         {
-            var col = _db.Collection(ColKnowledgeBase);
-            var query = col.WhereEqualTo("isApproved", false);
+            var col = _db.Collection(ColSuggestions);
+            var query = col.WhereEqualTo("status", "pending_approval");
             var snapshot = await query.GetSnapshotAsync();
             var list = new List<LearnedTerm>();
             foreach (var doc in snapshot.Documents)
             {
-                var data = doc.ToDictionary();
-                var term = MapDocToLearnedTerm(doc.Id, data);
+                var term = MapSuggestionDocToLearnedTerm(doc.Id, doc.ToDictionary());
                 if (term != null)
                     list.Add(term);
             }
-            list = list.OrderByDescending(x => x.Frequency).ThenByDescending(x => x.LastSeen).ToList();
-            if (list.Count == 0) LogEmptyCollectionWarning(ColKnowledgeBase);
+            list = list.OrderByDescending(x => x.LastSeen).ToList(); // created_at DESC — החדשים ראשון
+            if (list.Count == 0) LogEmptyCollectionWarning(ColSuggestions);
             return (list, true);
         }
         catch (Exception ex)
@@ -111,6 +111,41 @@ public class AdminFirestoreService
             LogIfPermissionDenied(ex, "GetPendingTerms");
             _logger.LogError(ex, "ERROR fetching from Firestore: {Message}", ex.Message);
             return (new List<LearnedTerm>(), false);
+        }
+    }
+
+    private static LearnedTerm? MapSuggestionDocToLearnedTerm(string docId, IReadOnlyDictionary<string, object> data)
+    {
+        try
+        {
+            var term = GetField(data, "term")?.ToString() ?? "";
+            var category = GetField(data, "category")?.ToString() ?? "";
+            var userId = GetField(data, "userId")?.ToString();
+            var snippet = GetField(data, "original_text_snippet")?.ToString();
+            var confVal = GetField(data, "confidence_score");
+            var conf = confVal is double d ? d : (confVal is long l ? (double)l : 1.0);
+            var lastSeen = DateTime.UtcNow;
+            var tsVal = GetField(data, "created_at") ?? GetField(data, "lastSeen") ?? GetField(data, "timestamp");
+            if (tsVal is Timestamp ts)
+                lastSeen = ts.ToDateTime();
+            return new LearnedTerm
+            {
+                Id = 0,
+                Term = term,
+                Definition = null,
+                Category = category,
+                Frequency = 1,
+                IsApproved = false,
+                UserId = userId,
+                LastSeen = lastSeen,
+                FirestoreId = docId,
+                OriginalTextSnippet = string.IsNullOrWhiteSpace(snippet) ? null : snippet,
+                ConfidenceScore = Math.Clamp(conf, 0, 1),
+            };
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -289,24 +324,32 @@ public class AdminFirestoreService
         catch { return null; }
     }
 
+    /// <summary>מאשר מונח — אם ב-suggestions: מעתיק ל-smart_categories (sourceType=ai_suggestion) ומחק מ-suggestions.</summary>
     public async Task<bool> ApproveTermAsync(string documentId)
     {
         try
         {
-            LogWriteAttempt(ColKnowledgeBase, "Update");
-            var ref_ = _db.Collection(ColKnowledgeBase).Document(documentId);
-            var now = Timestamp.FromDateTime(DateTime.UtcNow);
-            await ref_.UpdateAsync(new Dictionary<string, object>
+            var suggRef = _db.Collection(ColSuggestions).Document(documentId);
+            var suggSnap = await suggRef.GetSnapshotAsync();
+            if (suggSnap.Exists)
             {
-                { "isApproved", true },
-                { "lastSeen", now },
-                { "lastModified", now },
-            });
-            return true;
+                var data = suggSnap.ToDictionary();
+                var term = GetField(data, "term")?.ToString() ?? "";
+                var category = GetField(data, "category")?.ToString() ?? "general";
+                var definition = GetField(data, "definition")?.ToString();
+                var userId = GetField(data, "userId")?.ToString();
+                await _smartCategories.AddAiSuggestionAsync(term, category, definition, userId);
+                _logger.LogInformation("[DATA-INTEGRITY] Verified suggestion format and smart_categories mapping. term={Term}, category={Category}, userId={UserId}",
+                    term, category, userId ?? "(null)");
+                LogWriteAttempt(ColSuggestions, "Delete");
+                await suggRef.DeleteAsync();
+                return true;
+            }
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ERROR updating Firestore term: {Message}", ex.Message);
+            _logger.LogError(ex, "ERROR approving Firestore term: {Message}", ex.Message);
             return false;
         }
     }
@@ -359,13 +402,19 @@ public class AdminFirestoreService
         }
     }
 
+    /// <summary>מוחק מונח — מנסה suggestions, אחר כך smart_categories (sourceType=term).</summary>
     public async Task<bool> DeleteTermAsync(string documentId)
     {
         try
         {
-            LogWriteAttempt(ColKnowledgeBase, "Delete");
-            await _db.Collection(ColKnowledgeBase).Document(documentId).DeleteAsync();
-            return true;
+            var suggRef = _db.Collection(ColSuggestions).Document(documentId);
+            if ((await suggRef.GetSnapshotAsync()).Exists)
+            {
+                LogWriteAttempt(ColSuggestions, "Delete");
+                await suggRef.DeleteAsync();
+                return true;
+            }
+            return await _smartCategories.DeleteTermAsync(documentId);
         }
         catch (Exception ex)
         {
@@ -633,6 +682,32 @@ public class AdminFirestoreService
         }
     }
 
+    /// <summary>מוחק לוגי processing_chains ישנים מ-30 יום — מונע צמיחה אינסופית.</summary>
+    public async Task<int> CleanupOldProcessingChainsAsync(int maxAgeDays = 30)
+    {
+        try
+        {
+            var cutoff = Timestamp.FromDateTime(DateTime.UtcNow.AddDays(-maxAgeDays));
+            var snap = await _db.Collection(ColProcessingChains)
+                .WhereLessThan("timestamp", cutoff)
+                .GetSnapshotAsync();
+            var count = 0;
+            foreach (var doc in snap.Documents)
+            {
+                await doc.Reference.DeleteAsync();
+                count++;
+            }
+            if (count > 0)
+                _logger.LogInformation("[processing_chains] Deleted {Count} old logs (older than {Days} days)", count, maxAgeDays);
+            return count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CleanupOldProcessingChains failed");
+            return 0;
+        }
+    }
+
     /// <summary>מחזיר שרשרת עיבוד לפי documentId.</summary>
     public async Task<string?> GetProcessingChainAsync(string documentId)
     {
@@ -714,14 +789,15 @@ public class AdminFirestoreService
     private static string GetString(IReadOnlyDictionary<string, object> d, string key) =>
         d.TryGetValue(key, out var v) && v != null ? v.ToString() ?? "" : "";
 
-    /// <summary>מחזיר מונח בודד לפי מזהה מסמך.</summary>
+    /// <summary>מחזיר מונח בודד לפי מזהה מסמך — בודק suggestions, smart_categories.</summary>
     public async Task<LearnedTerm?> GetTermByIdAsync(string documentId)
     {
         try
         {
-            var snap = await _db.Collection(ColKnowledgeBase).Document(documentId).GetSnapshotAsync();
-            if (!snap.Exists) return null;
-            return MapDocToLearnedTerm(documentId, snap.ToDictionary());
+            var suggSnap = await _db.Collection(ColSuggestions).Document(documentId).GetSnapshotAsync();
+            if (suggSnap.Exists)
+                return MapSuggestionDocToLearnedTerm(documentId, suggSnap.ToDictionary());
+            return await _smartCategories.GetTermByIdAsync(documentId);
         }
         catch
         {
@@ -729,20 +805,25 @@ public class AdminFirestoreService
         }
     }
 
-    /// <summary>מעדכן שדות term, definition, category במסמך knowledge_base.</summary>
+    /// <summary>מעדכן שדות term, definition, category — בודק suggestions, smart_categories.</summary>
     public async Task<bool> UpdateTermAsync(string documentId, string term, string definition, string category)
     {
         try
         {
-            LogWriteAttempt(ColKnowledgeBase, "Update");
-            await _db.Collection(ColKnowledgeBase).Document(documentId).UpdateAsync(new Dictionary<string, object>
+            var suggRef = _db.Collection(ColSuggestions).Document(documentId);
+            if ((await suggRef.GetSnapshotAsync()).Exists)
             {
-                { "term", term ?? "" },
-                { "definition", definition ?? "" },
-                { "category", category ?? "" },
-                { "lastModified", Timestamp.FromDateTime(DateTime.UtcNow) },
-            });
-            return true;
+                LogWriteAttempt(ColSuggestions, "Update");
+                var updates = new Dictionary<string, object>
+                {
+                    { "term", term ?? "" },
+                    { "category", category ?? "" },
+                };
+                if (!string.IsNullOrEmpty(definition)) updates["definition"] = definition;
+                await suggRef.UpdateAsync(updates);
+                return true;
+            }
+            return await _smartCategories.UpdateTermAsync(documentId, term, definition, category);
         }
         catch (Exception ex)
         {
@@ -790,7 +871,7 @@ public class AdminFirestoreService
     {
         try
         {
-            var snap = await _db.Collection(ColKnowledgeBase).WhereEqualTo("isApproved", false).GetSnapshotAsync();
+            var snap = await _db.Collection(ColSuggestions).WhereEqualTo("status", "pending_approval").GetSnapshotAsync();
             return snap.Count;
         }
         catch { return 0; }
@@ -800,8 +881,8 @@ public class AdminFirestoreService
     {
         try
         {
-            var snap = await _db.Collection(ColKnowledgeBase).WhereEqualTo("isApproved", true).GetSnapshotAsync();
-            return snap.Count;
+        var all = await _smartCategories.GetAllUnifiedAsync(null);
+        return all.Count(x => x.SourceType == "term" || x.SourceType == "ai_suggestion");
         }
         catch { return 0; }
     }
@@ -809,66 +890,43 @@ public class AdminFirestoreService
     /// <summary>מחזיר (count, lastModified ISO8601) לבדיקת גרסה.</summary>
     public async Task<(int Count, string? LastModified)> GetDictionaryVersionAsync()
     {
-        var terms = await GetApprovedTermsForExportAsync(null);
-        if (terms.Count == 0) return (0, null);
-        var max = terms.Max(t => t.LastSeen);
-        return (terms.Count, max.ToUniversalTime().ToString("o"));
+        var (count, lastMod) = await _smartCategories.GetVersionAsync();
+        return (count, lastMod);
     }
 
-    /// <summary>כל המונחים שאושרו. since=ISO8601 — Firestore query: lastSeen > since. Fallback למסנן בזיכרון אם אין index.</summary>
+    /// <summary>כל המונחים שאושרו — מ-smart_categories (sourceType=term).</summary>
     public async Task<List<LearnedTerm>> GetApprovedTermsForExportAsync(DateTime? since)
     {
-        var list = new List<LearnedTerm>();
-        try
-        {
-            if (since.HasValue)
+        var all = await _smartCategories.GetAllUnifiedAsync(since);
+        return all
+            .Where(x => x.SourceType == "term" || x.SourceType == "ai_suggestion")
+            .Select(x => new LearnedTerm
             {
-                try
-                {
-                    var ts = Timestamp.FromDateTime(since.Value.ToUniversalTime());
-                    var query = _db.Collection(ColKnowledgeBase)
-                        .WhereEqualTo("isApproved", true)
-                        .WhereGreaterThan("lastSeen", ts);
-                    var snap = await query.GetSnapshotAsync();
-                    foreach (var doc in snap.Documents)
-                    {
-                        var t = MapDocToLearnedTerm(doc.Id, doc.ToDictionary());
-                        if (t != null) list.Add(t);
-                    }
-                    return list;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Firestore query with since failed (index may be missing). Fallback to in-memory filter.");
-                }
-            }
-            var fallbackSnap = await _db.Collection(ColKnowledgeBase).WhereEqualTo("isApproved", true).GetSnapshotAsync();
-            foreach (var doc in fallbackSnap.Documents)
-            {
-                var t = MapDocToLearnedTerm(doc.Id, doc.ToDictionary());
-                if (t != null && (!since.HasValue || t.LastSeen > since.Value)) list.Add(t);
-            }
-        }
-        catch { }
-        return list;
+                FirestoreId = x.DocumentId,
+                Term = x.Term ?? "",
+                Definition = x.Definition,
+                Category = x.Category ?? "general",
+                Frequency = x.Frequency,
+                IsApproved = true,
+                UserId = x.UserId,
+                LastSeen = x.LastModified,
+            })
+            .OrderByDescending(t => t.Frequency).ThenByDescending(t => t.LastSeen)
+            .ToList();
     }
 
-    /// <summary>מונחים חדשים לפי יום (לפי timestamp או lastSeen) — עד 30 יום אחרונים.</summary>
+    /// <summary>מונחים חדשים לפי יום — עד 30 יום אחרונים (sourceType=term).</summary>
     public async Task<Dictionary<string, int>> GetNewTermsPerDayAsync(int lastDays = 30)
     {
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        var cutoff = DateTime.UtcNow.Date.AddDays(-lastDays);
         try
         {
-            var snap = await _db.Collection(ColKnowledgeBase).GetSnapshotAsync();
-            var cutoff = DateTime.UtcNow.Date.AddDays(-lastDays);
-            foreach (var doc in snap.Documents)
+            var all = await _smartCategories.GetAllUnifiedAsync(null);
+            foreach (var x in all.Where(x => x.SourceType == "term" || x.SourceType == "ai_suggestion"))
             {
-                var data = doc.ToDictionary();
-                var tsVal = GetField(data, "timestamp") ?? GetField(data, "lastSeen") ?? GetField(data, "createdAt");
-                DateTime? dt = null;
-                if (tsVal is Timestamp ts) dt = ts.ToDateTime();
-                if (!dt.HasValue || dt.Value < cutoff) continue;
-                var key = dt.Value.Date.ToString("yyyy-MM-dd");
+                if (x.LastModified < cutoff) continue;
+                var key = x.LastModified.Date.ToString("yyyy-MM-dd");
                 result.TryGetValue(key, out var c);
                 result[key] = c + 1;
             }

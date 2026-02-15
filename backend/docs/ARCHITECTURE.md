@@ -27,7 +27,7 @@ TheHunterApi/
 | שירות | תפקיד |
 |-------|-------|
 | GeminiService | תקשורת עם Gemini API — חיפוש, ניתוח מסמכים, OCR |
-| AdminFirestoreService | גישה ל-Firestore (knowledge_base, users, logs, scan_failures...) |
+| AdminFirestoreService | גישה ל-Firestore (smart_categories, suggestions, users, logs, scan_failures...) |
 | QuotaService | מכסת סריקות יומית |
 | UserRoleService | בדיקת תפקידים (Admin, DebugAccess) |
 | ISystemPromptService | פרומפטים דינמיים מ-DB (Search, DocAnalysis, OcrExtraction) |

@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace TheHunterApi.Models;
 
 /// <summary>
-/// מונח שנלמד מ-AI — תואם למסמכי Firestore ב־knowledge_base.
+/// מונח שנלמד מ-AI — תואם למסמכי Firestore ב־suggestions או smart_categories.
 /// מיפוי שדות: term, definition, category, frequency, isApproved, userId, lastSeen/timestamp.
 /// </summary>
 public class LearnedTerm
@@ -25,4 +25,8 @@ public class LearnedTerm
     public string? UserId { get; set; }
     /// <summary>Firestore: lastSeen או timestamp</summary>
     public DateTime LastSeen { get; set; }
+    /// <summary>Firestore: original_text_snippet — הקשר מהמסמך (מינימום 100 תווים).</summary>
+    public string? OriginalTextSnippet { get; set; }
+    /// <summary>Firestore: confidence_score — לדירוג ב-Admin UI.</summary>
+    public double ConfidenceScore { get; set; } = 1.0;
 }

@@ -13,6 +13,14 @@ class SmartCategory {
     required this.regexPatterns,
   });
 
+  /// המרה ל־Map — לשימוש CategoryManagerService._mergeCategoriesIntoCache
+  Map<String, dynamic> toJson() => {
+        'key': id,
+        'displayNames': labels,
+        'keywords': synonyms,
+        'regexPatterns': regexPatterns,
+      };
+
   /// בנייה מתשובת API (שדות באנגלית: key, display_names, keywords, regex_patterns).
   factory SmartCategory.fromJson(Map<String, dynamic> json) {
     final key = json['key'] as String? ?? '';

@@ -3,12 +3,10 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../../../models/search_synonym.dart';
 import '../../../services/settings_service.dart';
 import '../../../services/app_check_http_helper.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/database_service.dart';
-import '../../../services/knowledge_base_service.dart';
 import '../../../services/sync_manager.dart';
 import '../../../services/ocr_service.dart';
 import '../../../services/user_roles_service.dart';
@@ -67,14 +65,10 @@ class _AiLabScreenState extends State<AiLabScreen> {
   bool _ocrLabVisionInProgress = false;
   bool _ocrLabGeminiInProgress = false;
 
-  // Dictionary
+  // Dictionary — StreamBuilder ב-tab; אין צורך ב-state
   DateTime? _lastSyncTime;
-  int _synonymsCount = 0;
-  List<SearchSynonym> _synonymsPreview = [];
   final TextEditingController _dictionarySearchController = TextEditingController();
   final TextEditingController _adminKeyController = TextEditingController();
-  Timer? _dictionarySearchDebounce;
-  static const Duration _searchDebounceDuration = Duration(milliseconds: 300);
 
   // לוג קונסול בתחתית המסך
   final List<String> _labLogs = [];
@@ -86,8 +80,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
     _adminKeyController.text = SettingsService.instance.adminKey ?? '';
     _adminKeyController.addListener(_onAdminKeyChanged);
     _checkAdmin();
-    _loadSynonymsStats();
-    _dictionarySearchController.addListener(_onDictionarySearchChanged);
   }
 
   void _onAdminKeyChanged() {
@@ -99,18 +91,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
-  void _onDictionarySearchChanged() {
-    _dictionarySearchDebounce?.cancel();
-    _dictionarySearchDebounce = Timer(_searchDebounceDuration, () {
-      if (!mounted) return;
-      _runSynonymsQuery(_dictionarySearchController.text.trim());
-    });
-  }
-
   @override
   void dispose() {
-    _dictionarySearchController.removeListener(_onDictionarySearchChanged);
-    _dictionarySearchDebounce?.cancel();
     _adminKeyController.removeListener(_onAdminKeyChanged);
     _adminKeyController.dispose();
     _ocrDisplayController.dispose();
@@ -467,40 +449,11 @@ class _AiLabScreenState extends State<AiLabScreen> {
     }
   }
 
-  void _loadSynonymsStats() {
-    _runSynonymsQuery(_dictionarySearchController.text.trim());
-  }
-
-  /// מריץ שאילתת synonyms עם סינון אופציונלי (עם debounce מהשדה)
-  void _runSynonymsQuery(String query) {
-    try {
-      final isar = DatabaseService.instance.isar;
-      final q = isar.searchSynonyms.buildQuery<SearchSynonym>();
-      final all = q.findAll();
-      q.close();
-      final List<SearchSynonym> list = query.isEmpty
-          ? all
-          : all
-              .where((s) =>
-                  s.term.toLowerCase().contains(query.toLowerCase()))
-              .toList();
-      setState(() {
-        _synonymsCount = list.length;
-        _synonymsPreview = list;
-      });
-    } catch (e) {
-      _labLog('Synonyms query error: $e');
-    }
-  }
-
   Future<void> _forceSyncFromCloud() async {
     _labLog('Force sync...');
     try {
       await PeriodicSyncService.instance.checkDictionaryVersion(forceSync: true);
-      setState(() {
-        _lastSyncTime = DateTime.now();
-      });
-      _loadSynonymsStats();
+      setState(() => _lastSyncTime = DateTime.now());
       _labLog('Force sync done');
     } catch (e) {
       _labLog('Force sync error: $e');
@@ -547,8 +500,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
                   children: [
                     AiLabDictionaryTab(
                       lastSyncTime: _lastSyncTime,
-                      synonymsCount: _synonymsCount,
-                      synonymsByCategory: _synonymsByCategory,
                       searchController: _dictionarySearchController,
                       onForceSync: _forceSyncFromCloud,
                       onQuickLearning: _showQuickLearningSheet,
@@ -881,15 +832,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
       ),
     );
     return result;
-  }
-
-  /// קיבוץ לפי קטגוריה — לתצוגת Dictionary (לאחר סינון חיפוש)
-  Map<String, List<SearchSynonym>> get _synonymsByCategory {
-    final map = <String, List<SearchSynonym>>{};
-    for (final s in _synonymsPreview) {
-      map.putIfAbsent(s.category, () => []).add(s);
-    }
-    return map;
   }
 
   Future<void> _ocrLabPickFile() async {

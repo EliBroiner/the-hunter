@@ -69,6 +69,7 @@ builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<ILearningService, LearningService>();
 builder.Services.AddScoped<ISearchActivityService, SearchActivityService>();
 builder.Services.AddScoped<ISmartCategoriesService, SmartCategoriesService>();
+builder.Services.AddScoped<IKnowledgeBaseMigrationService, KnowledgeBaseMigrationService>();
 builder.Services.AddScoped<AdminFirestoreService>();
 builder.Services.AddScoped<IScannerSettingsService, ScannerSettingsService>();
 builder.Services.AddScoped<ISystemPromptService, SystemPromptService>();

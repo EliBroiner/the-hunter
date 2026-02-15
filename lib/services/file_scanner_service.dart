@@ -771,9 +771,9 @@ class FileScannerService {
     return (resetCount: n, result: result);
   }
 
-  /// עיבוד מקבילי — עד [parallelism] קבצים במקביל בתוך אצווה.
+  /// עיבוד מקבילי — אצווה 5, עד 5 קבצים ב-Future.wait (Dictionary → Vision → Gemini).
   static const int maxBatchSize = 5;
-  static const int parallelism = 3;
+  static const int parallelism = 5;
 
   /// מעבד קובץ בודד — מחזיר true אם יש טקסט מחולץ.
   Future<bool> _processOneFile(
@@ -859,6 +859,12 @@ class FileScannerService {
 
         final batch = allPending.skip(offset).take(batchSize).toList();
         if (batch.isEmpty) break;
+
+        // סימון מיידי — מונע לולאות אינסופיות (AutoScan לא יבחר אותם שוב)
+        for (final f in batch) {
+          f.isProcessing = true;
+          _databaseService.updateFile(f);
+        }
 
         final batchStopwatch = Stopwatch()..start();
         appLog('[PERF] Batch of ${batch.length} started in parallel.');

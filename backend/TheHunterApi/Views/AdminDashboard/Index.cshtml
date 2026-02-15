@@ -47,6 +47,12 @@
                     <i class="bi bi-send"></i> שלח דוח יומי
                 </button>
             </form>
+            <form asp-action="MigrateKnowledgeBaseToSmartCategories" method="post" class="d-inline" onsubmit="return confirm('מיגרציה: העתקת knowledge_base ל-smart_categories ומחיקת knowledge_base. להמשיך?');">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-database"></i> מיגרציה KB→SC
+                </button>
+            </form>
         </div>
     </div>
     <div class="col-12 col-md-4">
@@ -252,6 +258,8 @@
                     <tr>
                         <th>מונח</th>
                         <th>קטגוריה</th>
+                        <th>ביטחון</th>
+                        <th>הקשר מהמסמך</th>
                         <th>תדירות</th>
                         <th>נראה לאחרונה</th>
                         <th>פעולות</th>
@@ -261,9 +269,12 @@
                     @foreach (var item in Model.PendingTerms)
                     {
                         var termId = item.FirestoreId ?? item.Id.ToString();
+                        var snippet = string.IsNullOrWhiteSpace(item.OriginalTextSnippet) ? "No context provided" : (item.OriginalTextSnippet.Length > 80 ? item.OriginalTextSnippet.Substring(0, 80) + "…" : item.OriginalTextSnippet);
                         <tr data-term-id="@termId" data-term="@(item.Term ?? "")" data-category="@(item.Category ?? "")">
                             <td>@item.Term</td>
                             <td>@item.Category</td>
+                            <td>@item.ConfidenceScore.ToString("P0")</td>
+                            <td title="@(item.OriginalTextSnippet ?? "")">@snippet</td>
                             <td>@item.Frequency</td>
                             <td>@item.LastSeen.ToString("yyyy-MM-dd HH:mm")</td>
                             <td>

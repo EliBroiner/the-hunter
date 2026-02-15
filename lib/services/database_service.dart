@@ -376,6 +376,11 @@ class DatabaseService {
     return words.any((word) => word.startsWith(query));
   }
 
+  /// Stream של synonyms מקומיים — מתעדכן אוטומטית אחרי sync.
+  Stream<List<SearchSynonym>> watchDictionaryTerms() {
+    return isar.searchSynonyms.where().watch(fireImmediately: true);
+  }
+
   /// חיפוש ריאקטיבי - מחזיר Stream שמתעדכן בזמן אמת
   Stream<List<FileMetadata>> watchSearch({
     required String query,

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using TheHunterApi.Models;
 using TheHunterApi.Services;
 
 namespace TheHunterApi.Controllers;
@@ -8,12 +9,18 @@ namespace TheHunterApi.Controllers;
 public class DictionaryController : ControllerBase
 {
     private readonly AdminFirestoreService _firestore;
+    private readonly ISmartCategoriesService _smartCategories;
     private readonly IScannerSettingsService _scannerSettings;
     private readonly ILogger<DictionaryController> _logger;
 
-    public DictionaryController(AdminFirestoreService firestore, IScannerSettingsService scannerSettings, ILogger<DictionaryController> logger)
+    public DictionaryController(
+        AdminFirestoreService firestore,
+        ISmartCategoriesService smartCategories,
+        IScannerSettingsService scannerSettings,
+        ILogger<DictionaryController> logger)
     {
         _firestore = firestore;
+        _smartCategories = smartCategories;
         _scannerSettings = scannerSettings;
         _logger = logger;
     }
@@ -25,13 +32,13 @@ public class DictionaryController : ControllerBase
     [ProducesResponseType(typeof(DictionaryVersionResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetVersion()
     {
-        _logger.LogInformation("[BACKEND] Dictionary version requested. Returning latest timestamp for incremental sync.");
+        _logger.LogInformation("[BACKEND] Dictionary version requested.");
         var (count, lastModified) = await _firestore.GetDictionaryVersionAsync();
         return Ok(new DictionaryVersionResponse(count.ToString(), lastModified));
     }
 
     /// <summary>
-    /// מחזיר עדכוני מילון. ?since=ISO8601 — רק מונחים שעודכנו אחרי התאריך (סנכרון חכם).
+    /// מחזיר עדכוני מילון מ-smart_categories (כל sourceType). ?since=ISO8601 — סנכרון חכם.
     /// </summary>
     [HttpGet("updates")]
     [ProducesResponseType(typeof(DictionaryUpdatesResponse), StatusCodes.Status200OK)]
@@ -40,11 +47,23 @@ public class DictionaryController : ControllerBase
         DateTime? sinceDt = null;
         if (!string.IsNullOrWhiteSpace(since) && DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
             sinceDt = parsed.ToUniversalTime();
-        var terms = await _firestore.GetApprovedTermsForExportAsync(sinceDt);
+
+        var all = await _smartCategories.GetAllUnifiedAsync(sinceDt);
+        var terms = all.Where(x => x.SourceType == "term" || x.SourceType == "ai_suggestion").ToList();
+        var rules = all.Where(x => x.SourceType == "rule").ToList();
+
         var synonyms = terms
             .OrderByDescending(x => x.Frequency)
-            .Select(x => new LearnedTermDto(x.Term, x.Category, x.Frequency))
+            .ThenByDescending(x => x.LastModified)
+            .Select(x => new LearnedTermDto(x.Term ?? "", x.Category ?? "general", x.Frequency))
             .ToList();
+
+        var smartCategories = rules.Select(r => new SmartCategoryDto(
+            r.Key ?? "",
+            r.DisplayNames,
+            r.Keywords,
+            r.RegexPatterns
+        )).ToList();
 
         var (weights, ok) = await _firestore.GetRankingWeightsAsync();
         var rankingConfig = ok ? weights : new Dictionary<string, double>();
@@ -56,24 +75,16 @@ public class DictionaryController : ControllerBase
             ["minValidCharRatioPercent"] = await _scannerSettings.GetMinValidCharRatioPercentAsync()
         };
 
-        return Ok(new DictionaryUpdatesResponse(synonyms, rankingConfig, scannerConfig));
+        return Ok(new DictionaryUpdatesResponse(synonyms, rankingConfig, scannerConfig, smartCategories));
     }
 }
 
-/// <summary>
-/// DTO למונח מאושר — ללא Id ו-IsApproved
-/// </summary>
 public record LearnedTermDto(string Term, string Category, int Frequency);
 
-/// <summary>
-/// תשובת בדיקת גרסה — count + lastModified (ISO8601)
-/// </summary>
 public record DictionaryVersionResponse(string Version, string? LastModified = null);
 
-/// <summary>
-/// תשובת עדכוני מילון — synonyms + rankingConfig + scannerConfig
-/// </summary>
 public record DictionaryUpdatesResponse(
     IReadOnlyList<LearnedTermDto> Synonyms,
     IReadOnlyDictionary<string, double> RankingConfig,
-    IReadOnlyDictionary<string, double>? ScannerConfig = null);
+    IReadOnlyDictionary<string, double>? ScannerConfig = null,
+    IReadOnlyList<SmartCategoryDto>? SmartCategories = null);

@@ -30,7 +30,7 @@ class AiAutoTaggerService {
   static const String _baseUrl = 'https://the-hunter-105628026575.me-west1.run.app/api/analyze-batch';
   static const int _batchSize = 10;
   static const Duration _flushInterval = Duration(seconds: 5);
-  static const int _maxTextLength = 1000;
+  static const int _maxTextLength = 4000; // Cost guard — חיתוך לפני Gemini
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
   static const Duration _authCooldown = Duration(minutes: 10);

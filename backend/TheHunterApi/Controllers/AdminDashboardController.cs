@@ -7,7 +7,7 @@ using TheHunterApi.Services;
 namespace TheHunterApi.Controllers;
 
 /// <summary>
-/// לוח בקרה לניהול — נתונים מ-Firestore (knowledge_base, users, logs).
+/// לוח בקרה לניהול — נתונים מ-Firestore (smart_categories, suggestions, users, logs).
 /// </summary>
 [Route("admin")]
 [ServiceFilter(typeof(AdminKeyAuthorizationFilter))]
@@ -46,13 +46,14 @@ public class AdminDashboardController : Controller
 
         try
         {
+            _ = Task.Run(async () => await _firestore.CleanupOldProcessingChainsAsync(30));
             var (terms, termsOk) = await _firestore.GetPendingTermsAsync();
             var (weights, weightsOk) = await _firestore.GetRankingWeightsAsync();
             var (activities, logsOk) = await _firestore.GetLogsAsync(50);
 
             if (terms.Count == 0)
             {
-                _logger.LogWarning("[Admin Index] knowledge_base ריק. ProjectId={ProjectId}. ודא ש-FIRESTORE_PROJECT_ID מוגדר נכון ב-env.", _firestore.EffectiveProjectId);
+                _logger.LogWarning("[Admin Index] אין מונחים ממתינים ב-suggestions. ProjectId={ProjectId}.", _firestore.EffectiveProjectId);
             }
             if (activities.Count == 0)
             {
@@ -381,6 +382,20 @@ public class AdminDashboardController : Controller
         await _quotaService.ResetQuotaAsync(userId.Trim(), string.IsNullOrWhiteSpace(date) ? null : date.Trim());
         var after = await _quotaService.GetUsageAsync(userId.Trim());
         return Json(new { ok = true, userId = userId.Trim(), date = date ?? DateTime.UtcNow.ToString("yyyyMMdd"), countAfter = after });
+    }
+
+    /// <summary>מיגרציה: מעתיק knowledge_base → smart_categories (sourceType=term), מוחק knowledge_base. להרצה חד־פעמית.</summary>
+    [HttpPost]
+    [Route("migrate-knowledge-base-to-smart-categories")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> MigrateKnowledgeBaseToSmartCategories(CancellationToken ct)
+    {
+        var migrator = HttpContext.RequestServices.GetService<IKnowledgeBaseMigrationService>();
+        if (migrator == null) return BadRequest("Migration service not registered");
+        var (migrated, deleted) = await migrator.MigrateAndDeleteAsync(ct);
+        TempData["WeightsMessage"] = $"מיגרציה הושלמה: {migrated} מסמכים הועתקו ל-smart_categories, {deleted} נמחקו מ-knowledge_base.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(Index));
     }
 
     /// <summary>טריגר ידני לשליחת דוח יומי ל-Telegram.</summary>

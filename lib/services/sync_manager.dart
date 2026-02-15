@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'category_manager_service.dart';
-import 'knowledge_base_service.dart';
 import 'log_service.dart';
 
 /// שירות סנכרון תקופתי — בודק גרסת מילון וקטגוריות בעת חזרה ל־Foreground או כל 60 דקות.
@@ -58,8 +57,7 @@ class PeriodicSyncService {
     _lastCheck = DateTime.now();
 
     try {
-      await KnowledgeBaseService.instance.syncDictionaryWithServer();
-      await CategoryManagerService.instance.loadCategories();
+      await CategoryManagerService.instance.syncWithServer();
       if (kDebugMode) appLog('[SYNC] סנכרון רקע הושלם.');
     } catch (e) {
       appLog('[SYNC] sync error: $e');

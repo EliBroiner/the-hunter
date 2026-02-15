@@ -11,7 +11,6 @@ import '../services/ai_auto_tagger_service.dart';
 import '../services/category_manager_service.dart';
 import '../services/database_service.dart';
 import '../services/favorites_service.dart';
-import '../services/knowledge_base_service.dart';
 import '../services/log_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/secure_folder_service.dart';
@@ -76,9 +75,8 @@ Future<void> bootstrapApp() async {
   }
 
   await DatabaseService.instance.init();
-  await KnowledgeBaseService.instance.initialize();
-  SmartSearchParser.knowledgeBaseService = KnowledgeBaseService.instance;
-  await CategoryManagerService.instance.loadCategories();
+  await CategoryManagerService.instance.initialize();
+  SmartSearchParser.categoryManagerService = CategoryManagerService.instance;
   AiAutoTaggerService.instance.initialize();
   await SettingsService.instance.init();
   await RankingConfig.ensureLoaded();

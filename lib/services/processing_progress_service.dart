@@ -19,7 +19,7 @@ class ProcessingProgressService {
     isProcessing.value = true;
     current.value = 0;
     total.value = totalCount;
-    isDismissed.value = false;
+    // לא מאפסים isDismissed — אם המשתמש סגר (X), הבאנר נשאר מוסתר
   }
 
   void update(int cur, int tot) {

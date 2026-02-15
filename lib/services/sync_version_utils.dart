@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_check_http_helper.dart';
 
-/// כלי עזר משותפים לסנכרון גרסה — KnowledgeBaseService ו־CategoryManagerService.
+/// כלי עזר משותפים לסנכרון גרסה — CategoryManagerService.
 class SyncVersionUtils {
   SyncVersionUtils._();
 

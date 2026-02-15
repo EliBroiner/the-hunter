@@ -22,7 +22,6 @@ export 'relevance_engine.dart';
 export 'smart_search_filter.dart';
 export 'smart_search_service.dart';
 export 'hybrid_search_controller.dart';
-export 'knowledge_base_service.dart';
 export 'category_manager_service.dart';
 export 'text_extraction_service.dart';
 export 'prompt_admin_service.dart';
