@@ -12,11 +12,12 @@ import 'relevance_engine.dart';
 
 /// פילטרים לחיפוש
 enum SearchFilter {
-  all,      // הכל
-  images,   // תמונות בלבד
-  pdfs,     // PDF בלבד
-  recent,   // 7 ימים אחרונים
-  ocrOnly,  // רק קבצים עם טקסט מחולץ
+  all,          // הכל
+  images,       // תמונות בלבד
+  pdfs,         // PDF בלבד
+  spreadsheets, // אקסל, CSV
+  recent,       // 7 ימים אחרונים
+  ocrOnly,      // רק קבצים עם טקסט מחולץ
 }
 
 /// מפענח שאילתת זמן בעברית ומחזיר תאריך התחלה
@@ -305,6 +306,9 @@ class DatabaseService {
       case SearchFilter.pdfs:
         results = results.where((f) => FileTypeHelper.isPDF(f)).toList();
         break;
+      case SearchFilter.spreadsheets:
+        results = results.where((f) => FileTypeHelper.isSpreadsheet(f)).toList();
+        break;
       case SearchFilter.recent:
         final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
         results = results.where((f) => f.lastModified.isAfter(sevenDaysAgo)).toList();
@@ -422,6 +426,9 @@ class DatabaseService {
         break;
       case SearchFilter.pdfs:
         results = results.where((f) => FileTypeHelper.isPDF(f)).toList();
+        break;
+      case SearchFilter.spreadsheets:
+        results = results.where((f) => FileTypeHelper.isSpreadsheet(f)).toList();
         break;
       case SearchFilter.recent:
         final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));

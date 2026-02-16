@@ -100,6 +100,16 @@ class FileTypeHelper {
   /// סיומות תמונה לטאב Images
   static const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
 
+  /// סיומות אקסל/CSV
+  static const spreadsheetExtensions = ['xls', 'xlsx', 'csv'];
+
+  /// האם הקובץ נחשב גיליון אקסל/CSV
+  static bool isSpreadsheet(FileMetadata file) {
+    final ext = effectiveExtensionFromName(file.name);
+    if (ext.isNotEmpty) return spreadsheetExtensions.contains(ext);
+    return spreadsheetExtensions.contains(file.extension.toLowerCase());
+  }
+
   /// האם הקובץ נחשב תמונה
   static bool isImage(FileMetadata file) {
     final ext = effectiveExtensionFromName(file.name);

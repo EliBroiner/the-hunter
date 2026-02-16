@@ -4,6 +4,7 @@ enum LocalFilter {
   favorites, // מועדפים - פרימיום בלבד
   images,
   pdfs,
+  spreadsheets, // אקסל, CSV
   whatsapp,
   withText,
 }

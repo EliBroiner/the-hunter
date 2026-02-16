@@ -2520,6 +2520,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           _buildModernFilterChip(tr('filter_chip_images'), LocalFilter.images, Icons.image),
           const SizedBox(width: 10),
           _buildModernFilterChip(tr('filter_chip_pdf'), LocalFilter.pdfs, Icons.picture_as_pdf),
+          const SizedBox(width: 10),
+          _buildModernFilterChip(tr('filter_chip_spreadsheets'), LocalFilter.spreadsheets, Icons.table_chart),
         ],
       ),
     );

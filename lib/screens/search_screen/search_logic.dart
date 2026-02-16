@@ -9,6 +9,7 @@ import 'local_filter.dart';
 SearchFilter dbFilterForLocalFilter(LocalFilter filter) {
   if (filter == LocalFilter.images) return SearchFilter.images;
   if (filter == LocalFilter.pdfs) return SearchFilter.pdfs;
+  if (filter == LocalFilter.spreadsheets) return SearchFilter.spreadsheets;
   return SearchFilter.all;
 }
 
@@ -22,6 +23,9 @@ List<FileMetadata> filterCloudByLocalFilter(
   }
   if (filter == LocalFilter.pdfs) {
     return cloud.where((f) => FileTypeHelper.isPDF(f)).toList();
+  }
+  if (filter == LocalFilter.spreadsheets) {
+    return cloud.where((f) => FileTypeHelper.isSpreadsheet(f)).toList();
   }
   return cloud;
 }
@@ -79,6 +83,9 @@ List<String> getFileTypesForFilter(LocalFilter filter) {
   }
   if (filter == LocalFilter.pdfs) {
     return ['pdf'];
+  }
+  if (filter == LocalFilter.spreadsheets) {
+    return ['xls', 'xlsx', 'csv'];
   }
   return [];
 }

@@ -35,16 +35,20 @@ class SmartSearchFilter {
     return results;
   }
 
-  /// סינון לפי סוגי קבצים — PDF דרך FileTypeHelper (case-insensitive, סיומת כפולה)
+  /// סינון לפי סוגי קבצים — PDF/אקסל דרך FileTypeHelper (case-insensitive, סיומת כפולה)
   static List<FileMetadata> _filterByFileTypes(List<FileMetadata> files, List<String> fileTypes) {
     final normalizedTypes = fileTypes.map((t) => t.toLowerCase()).toSet();
     return files.where((file) {
       if (normalizedTypes.contains('pdf') && FileTypeHelper.isPDF(file)) return true;
+      if (_hasSpreadsheetType(normalizedTypes) && FileTypeHelper.isSpreadsheet(file)) return true;
       final ext = FileTypeHelper.effectiveExtensionFromName(file.name);
       final extField = file.extension.toLowerCase();
       return normalizedTypes.contains(ext) || normalizedTypes.contains(extField);
     }).toList();
   }
+
+  static bool _hasSpreadsheetType(Set<String> types) =>
+      types.contains('xls') || types.contains('xlsx') || types.contains('csv');
 
   /// סינון לפי טווח תאריכים
   static List<FileMetadata> _filterByDateRange(List<FileMetadata> files, DateRange dateRange) {
