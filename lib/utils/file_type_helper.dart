@@ -19,7 +19,10 @@ IconData getFileIcon(String extension) {
       return Icons.description;
     case 'xls':
     case 'xlsx':
+    case 'csv':
       return Icons.table_chart;
+    case 'txt':
+      return Icons.text_snippet;
     case 'mp4':
     case 'mov':
     case 'avi':
@@ -59,6 +62,7 @@ Color getFileColor(String extension) {
       return Colors.blue;
     case 'xls':
     case 'xlsx':
+    case 'csv':
       return Colors.green;
     case 'txt':
     case 'rtf':

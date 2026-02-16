@@ -9,11 +9,13 @@ class PromptManagementCard extends StatelessWidget {
     required this.theme,
     required this.prompt,
     required this.onTap,
+    this.onEdit,
   });
 
   final ThemeData theme;
   final SystemPrompt prompt;
   final VoidCallback onTap;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +97,16 @@ class PromptManagementCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (!isActive)
+              if (onEdit != null)
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  onPressed: onEdit,
+                  tooltip: tr('prompts_edit'),
+                  style: IconButton.styleFrom(
+                    foregroundColor: theme.colorScheme.primary.withValues(alpha: 0.8),
+                  ),
+                ),
+              if (!isActive && onEdit == null)
                 Icon(
                   Icons.arrow_forward_ios,
                   size: 16,

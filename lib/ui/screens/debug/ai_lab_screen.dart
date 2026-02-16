@@ -35,7 +35,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // Pipeline: שלב 1 — OCR (גודל קובץ לשקלול צפיפות: תווים/בייטים)
   String _ocrFilePath = '';
   int _ocrFileSizeBytes = 0;
-  String _ocrExtractedText = '';
   /// סף מינימלי לצפיפות (אחוז): (extractedText.length / fileSizeBytes) * 100. נשמר בין rebuilds.
   double _garbageThreshold = 0.3;
   bool _ocrFailedByThreshold = false;
@@ -62,8 +61,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // OCR Testing Lab — צעד אחרי צעד
   String _ocrLabFilePath = '';
   List<int>? _ocrLabBwBytes;
-  String _ocrLabVisionText = '';
-  String _ocrLabGeminiJson = '';
+  final TextEditingController _ocrLabVisionController = TextEditingController();
+  final TextEditingController _ocrLabGeminiController = TextEditingController();
   bool _ocrLabVisionInProgress = false;
   bool _ocrLabGeminiInProgress = false;
 
@@ -76,12 +75,16 @@ class _AiLabScreenState extends State<AiLabScreen> {
   final List<String> _labLogs = [];
   static const int _maxLabLogs = 200;
 
+  bool _logExpanded = true;
+
   @override
   void initState() {
     super.initState();
     _adminKeyController.text = SettingsService.instance.adminKey ?? '';
     _adminKeyController.addListener(_onAdminKeyChanged);
     _checkAdmin();
+    _labLog('AI Lab opened');
+    _labLog('[POLISH] Applied fixes for density calc, prompt versioning, and reactive UI.');
   }
 
   void _onAdminKeyChanged() {
@@ -100,6 +103,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
     _ocrDisplayController.dispose();
     _serverJsonController.dispose();
     _dictionarySearchController.dispose();
+    _ocrLabVisionController.dispose();
+    _ocrLabGeminiController.dispose();
     super.dispose();
   }
 
@@ -169,7 +174,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
         setState(() {
           _ocrFilePath = path;
           _ocrFileSizeBytes = fileSizeBytes;
-          _ocrExtractedText = '';
           _ocrFailedByThreshold = true;
         });
         return;
@@ -181,7 +185,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
       setState(() {
         _ocrFilePath = path;
         _ocrFileSizeBytes = fileSizeBytes;
-        _ocrExtractedText = text;
         _ocrFailedByThreshold = fail;
         _ocrDisplayController.text = text;
       });
@@ -190,7 +193,6 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _labLog('OCR error: $e');
       setState(() {
         _ocrFileSizeBytes = 0;
-        _ocrExtractedText = '';
         _ocrFailedByThreshold = true;
         _ocrDisplayController.text = '';
       });
@@ -198,10 +200,9 @@ class _AiLabScreenState extends State<AiLabScreen> {
   }
 
   /// Send to Server — קורא ל-analyze-debug, מציג את ה-JSON הגולמי בתיבה לעריכה ואז Save to DB.
+  /// משתמש בטקסט מתוך ocrDisplayController — המשתמש יכול לערוך לפני השליחה.
   Future<void> _sendToServer() async {
-    final text = _ocrExtractedText.isEmpty
-        ? _serverJsonController.text.trim()
-        : _ocrExtractedText;
+    final text = _ocrDisplayController.text.trim();
     if (text.isEmpty) {
       _labLog('Send: no text');
       if (mounted) {
@@ -528,10 +529,9 @@ class _AiLabScreenState extends State<AiLabScreen> {
                     AiLabPipelineTab(
                       ocrFilePath: _ocrFilePath,
                       ocrFileSizeBytes: _ocrFileSizeBytes,
-                      ocrExtractedText: _ocrExtractedText,
+                      ocrDisplayController: _ocrDisplayController,
                       garbageThreshold: _garbageThreshold,
                       ocrFailedByThreshold: _ocrFailedByThreshold,
-                      ocrDisplayController: _ocrDisplayController,
                       serverJsonController: _serverJsonController,
                       adminKeyController: _adminKeyController,
                       isAdmin: _isAdmin,
@@ -559,8 +559,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
                     AiLabOcrTestingTab(
                       filePath: _ocrLabFilePath,
                       bwBytes: _ocrLabBwBytes,
-                      visionText: _ocrLabVisionText,
-                      geminiJson: _ocrLabGeminiJson,
+                      visionController: _ocrLabVisionController,
+                      geminiController: _ocrLabGeminiController,
                       visionInProgress: _ocrLabVisionInProgress,
                       geminiInProgress: _ocrLabGeminiInProgress,
                       onPickFile: _ocrLabPickFile,
@@ -575,7 +575,11 @@ class _AiLabScreenState extends State<AiLabScreen> {
             ),
             Expanded(
               flex: 1,
-              child: AiLabLogConsole(logs: _labLogs),
+              child: AiLabLogConsole(
+                logs: _labLogs,
+                expanded: _logExpanded,
+                onToggle: () => setState(() => _logExpanded = !_logExpanded),
+              ),
             ),
           ],
         ),
@@ -868,8 +872,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
     setState(() {
       _ocrLabFilePath = path;
       _ocrLabBwBytes = null;
-      _ocrLabVisionText = '';
-      _ocrLabGeminiJson = '';
+      _ocrLabVisionController.clear();
+      _ocrLabGeminiController.clear();
     });
     _labLog('OCR Lab: picked $path');
   }
@@ -907,7 +911,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       if (response.statusCode != 200) {
         _labLog('OCR Lab Vision error: ${response.statusCode} ${response.body}');
         setState(() {
-          _ocrLabVisionText = 'Error: ${response.statusCode}\n${response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body}';
+          _ocrLabVisionController.text = 'Error: ${response.statusCode}\n${response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body}';
           _ocrLabVisionInProgress = false;
         });
         return;
@@ -915,7 +919,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final text = decoded['text']?.toString() ?? '';
       setState(() {
-        _ocrLabVisionText = text.isEmpty ? '(no text in image)' : text;
+        _ocrLabVisionController.text = text.isEmpty ? '(no text in image)' : text;
         _ocrLabVisionInProgress = false;
       });
       _labLog('OCR Lab: Vision done, text length=${text.length}');
@@ -923,7 +927,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _labLog('OCR Lab Vision error: $e');
       if (mounted) {
         setState(() {
-          _ocrLabVisionText = 'Exception: $e';
+          _ocrLabVisionController.text = 'Exception: $e';
           _ocrLabVisionInProgress = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));
@@ -933,7 +937,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   }
 
   Future<void> _ocrLabSendToGemini() async {
-    final text = _ocrLabVisionText;
+    final text = _ocrLabVisionController.text.trim();
     if (text.isEmpty || text.startsWith('Error') || text.startsWith('Exception') || text == '(no text in image)') {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Run Cloud Vision first or enter text'), backgroundColor: Colors.amber, behavior: SnackBarBehavior.floating));
       return;
@@ -954,7 +958,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       if (!mounted) return;
       if (response.statusCode != 200) {
         setState(() {
-          _ocrLabGeminiJson = 'Error: ${response.statusCode}\n${response.body}';
+          _ocrLabGeminiController.text = 'Error: ${response.statusCode}\n${response.body}';
           _ocrLabGeminiInProgress = false;
         });
         return;
@@ -962,7 +966,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final pretty = const JsonEncoder.withIndent('  ').convert(decoded);
       setState(() {
-        _ocrLabGeminiJson = pretty;
+        _ocrLabGeminiController.text = pretty;
         _ocrLabGeminiInProgress = false;
       });
       _labLog('OCR Lab: Gemini done');
@@ -970,7 +974,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
       _labLog('OCR Lab Gemini error: $e');
       if (mounted) {
         setState(() {
-          _ocrLabGeminiJson = 'Exception: $e';
+          _ocrLabGeminiController.text = 'Exception: $e';
           _ocrLabGeminiInProgress = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating));

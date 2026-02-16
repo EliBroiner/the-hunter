@@ -1334,18 +1334,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (context.mounted) setState(() {});
                   },
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).pushNamed('/ai-lab'),
-                  icon: const Icon(Icons.science, size: 18),
-                  label: const Text('AI Lab (Admin)'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).pushNamed('/workflow-test'),
-                  icon: const Icon(Icons.account_tree, size: 18),
-                  label: const Text('Test Pipeline'),
-                ),
               ],
             ),
           ),

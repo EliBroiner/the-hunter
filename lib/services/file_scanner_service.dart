@@ -54,8 +54,8 @@ class FileScannerService {
   /// סיומות וידאו
   static const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'];
   
-  /// סיומות מסמכים
-  static const documentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'rtf'];
+  /// סיומות מסמכים — Office, טקסט, PDF
+  static const documentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'rtf'];
   
   /// סיומות אודיו
   static const audioExtensions = ['mp3', 'wav', 'm4a', 'ogg', 'aac'];
@@ -76,7 +76,10 @@ class FileScannerService {
 
   /// מחזיר את ה-singleton של השירות
   static FileScannerService get instance {
-    _instance ??= FileScannerService._();
+    if (_instance == null) {
+      _instance = FileScannerService._();
+      appLog('[CONFIG] Expanded supported file types to include Office documents.');
+    }
     return _instance!;
   }
 

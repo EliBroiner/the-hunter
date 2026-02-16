@@ -10,10 +10,9 @@ class AiLabPipelineTab extends StatelessWidget {
     super.key,
     required this.ocrFilePath,
     required this.ocrFileSizeBytes,
-    required this.ocrExtractedText,
+    required this.ocrDisplayController,
     required this.garbageThreshold,
     required this.ocrFailedByThreshold,
-    required this.ocrDisplayController,
     required this.serverJsonController,
     required this.adminKeyController,
     required this.isAdmin,
@@ -38,10 +37,9 @@ class AiLabPipelineTab extends StatelessWidget {
 
   final String ocrFilePath;
   final int ocrFileSizeBytes;
-  final String ocrExtractedText;
+  final TextEditingController ocrDisplayController;
   final double garbageThreshold;
   final bool ocrFailedByThreshold;
-  final TextEditingController ocrDisplayController;
   final TextEditingController serverJsonController;
   final TextEditingController adminKeyController;
   final bool isAdmin;
@@ -187,9 +185,6 @@ class AiLabPipelineTab extends StatelessWidget {
   }
 
   Widget _buildOcrStageContent(BuildContext context) {
-    final density = textDensityScore(ocrExtractedText.length, ocrFileSizeBytes > 0 ? ocrFileSizeBytes : 1);
-    final pass = density >= garbageThreshold;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -206,13 +201,22 @@ class AiLabPipelineTab extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        if (ocrFileSizeBytes > 0 || ocrExtractedText.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            'Score: ${density.toStringAsFixed(2)}% (Needed: > ${garbageThreshold.toStringAsFixed(1)}%)',
-            style: TextStyle(fontSize: 13, color: pass ? Colors.greenAccent : Colors.redAccent, fontWeight: FontWeight.w500),
-          ),
-        ],
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: ocrDisplayController,
+          builder: (_, value, __) {
+            final textLen = value.text.length;
+            if (ocrFileSizeBytes <= 0 && textLen == 0) return const SizedBox.shrink();
+            final density = textDensityScore(textLen, ocrFileSizeBytes > 0 ? ocrFileSizeBytes : 1);
+            final pass = density >= garbageThreshold;
+            return Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Score: ${density.toStringAsFixed(2)}% (Needed: > ${garbageThreshold.toStringAsFixed(1)}%)',
+                style: TextStyle(fontSize: 13, color: pass ? Colors.greenAccent : Colors.redAccent, fontWeight: FontWeight.w500),
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 8),
         Builder(
           builder: (_) {
@@ -225,7 +229,7 @@ class AiLabPipelineTab extends StatelessWidget {
                 border: Border.all(color: passBox ? Colors.green : Colors.red, width: 1.5),
               ),
               child: TextField(
-                readOnly: true,
+                readOnly: false,
                 maxLines: 6,
                 controller: ocrDisplayController,
                 style: const TextStyle(color: Colors.black87, fontSize: 13),

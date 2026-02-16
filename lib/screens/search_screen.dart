@@ -786,10 +786,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           SearchDetailRow(theme: theme, label: tr('detail_date'), value: formatDate(file.lastModified), icon: Icons.calendar_today),
           Divider(height: 20, color: dividerColor),
           SearchDetailRow(theme: theme, label: tr('detail_path'), value: getShortPath(file.path), icon: Icons.folder_open, isPath: true),
-          if (file.extractedText != null && file.extractedText!.isNotEmpty) ...[
-            Divider(height: 20, color: dividerColor),
-            _buildExtractedTextExpansion(file, theme, textColor, secondaryColor),
-          ],
           Divider(height: 20, color: dividerColor),
           _buildAIDetailSection(file, theme, textColor, secondaryColor, _pendingService.all[file.path]),
         ],
@@ -843,69 +839,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           child: Text(
             label,
             style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// ExpansionTile לטקסט מחולץ — תצוגה מקוצרת, הרחבה, והעתקה
-  Widget _buildExtractedTextExpansion(FileMetadata file, ThemeData theme, Color textColor, Color secondaryColor) {
-    final text = file.extractedText ?? '';
-    final previewLines = text.split('\n').take(3).join('\n');
-    return ExpansionTile(
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.text_snippet, size: 18, color: secondaryColor),
-              const SizedBox(width: 8),
-              Text(
-                '📄 ${tr('detail_extracted_text')} (OCR)',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textColor),
-              ),
-            ],
-          ),
-          if (previewLines.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              previewLines,
-              style: TextStyle(color: secondaryColor, fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              textDirection: isHebrew(previewLines) ? TextDirection.rtl : TextDirection.ltr,
-            ),
-          ],
-        ],
-      ),
-      initiallyExpanded: false,
-      children: [
-        SelectableText(
-          text,
-          style: TextStyle(fontSize: 13, color: textColor),
-          textDirection: isHebrew(text) ? TextDirection.rtl : TextDirection.ltr,
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: text));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Copied'),
-                  duration: const Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: theme.canvasColor,
-                ),
-              );
-            },
-            icon: Icon(Icons.copy, size: 18, color: theme.colorScheme.primary),
-            label: Text('Copy', style: TextStyle(color: theme.colorScheme.primary)),
           ),
         ),
       ],
@@ -3458,7 +3391,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildResultItemMainRow(file, theme, cleanQuery, folderName, isWhatsApp, isFavorite, isSelected, fileColor, fileTags),
-                if (hasOcrMatch && file.extractedText != null) ...[const SizedBox(height: 12), SearchOcrSnippet(text: file.extractedText!, query: cleanQuery)],
               ],
             ),
           ),
@@ -3538,41 +3470,20 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     );
   }
 
-  /// תצוגת מקדימה: משפטים ראשונים מתוך extractedText, או "מעבד תוכן..." אם עדיין לא עובד
-  static const int _contentPreviewMaxLength = 120;
-
+  /// תצוגת מקדימה — "מעבד תוכן..." אם עדיין לא עובד, אחרת ריק (ללא הצגת טקסט מחולץ)
   Widget _buildContentPreviewSubtitle(FileMetadata file) {
-    final subtitleStyle = TextStyle(
-      fontSize: 12,
-      color: Colors.grey.shade600,
-      fontWeight: FontWeight.normal,
-    );
     if (!file.isIndexed) {
       return Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Text(
           'Processing content...',
-          style: subtitleStyle,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.normal),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
       );
     }
-    final text = file.extractedText?.trim();
-    if (text == null || text.isEmpty) return const SizedBox.shrink();
-    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    final preview = normalized.length <= _contentPreviewMaxLength
-        ? normalized
-        : '${normalized.substring(0, _contentPreviewMaxLength).trim()}...';
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        preview,
-        style: subtitleStyle,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
+    return const SizedBox.shrink();
   }
 }
 

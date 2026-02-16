@@ -63,5 +63,48 @@
     "אקסל": ["xls", "xlsx", "csv", "sheets"],
     "excel": ["xls", "xlsx", "csv"],
     "טבלה": ["xls", "xlsx", "csv"]
+  },
+  "smartCategories": {
+    "employment": [
+      {"term": "קורות חיים", "rank": "strong"},
+      {"term": "קו\"ח", "rank": "strong"},
+      {"term": "cv", "rank": "strong"},
+      {"term": "resume", "rank": "strong"},
+      {"term": "curriculum vitae", "rank": "strong"}
+    ],
+    "government": [
+      {"term": "רשות האכיפה", "rank": "strong"},
+      {"term": "גביית קנסות", "rank": "strong"},
+      {"term": "דוח תנועה", "rank": "strong"},
+      {"term": "משטרת ישראל", "rank": "strong"},
+      {"term": "קנס", "rank": "strong"}
+    ],
+    "medical": [
+      {"term": "סיכום ביקור", "rank": "strong"},
+      {"term": "הפניה", "rank": "strong"},
+      {"term": "טופס 17", "rank": "strong"},
+      {"term": "מכבי", "rank": "strong"},
+      {"term": "כללית", "rank": "strong"},
+      {"term": "אסותא", "rank": "strong"}
+    ],
+    "travel": [
+      {"term": "boarding pass", "rank": "strong"},
+      {"term": "security check", "rank": "strong"},
+      {"term": "ben gurion", "rank": "strong"},
+      {"term": "tlv", "rank": "strong"},
+      {"term": "el al", "rank": "strong"}
+    ],
+    "vehicle": [
+      {"term": "רישיון רכב", "rank": "strong"},
+      {"term": "מבחן רישוי", "rank": "strong"},
+      {"term": "טסט לרכב", "rank": "strong"}
+    ],
+    "receipt": [
+      {"term": "payment", "rank": "weak"},
+      {"term": "transfer", "rank": "weak"},
+      {"term": "receipt", "rank": "weak"},
+      {"term": "invoice", "rank": "weak"},
+      {"term": "date", "rank": "weak"}
+    ]
   }
 }

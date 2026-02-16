@@ -413,6 +413,7 @@ class LocalizationService {
     'prompts_content_label': 'תוכן הפרומפט',
     'prompts_content_hint': 'הזן את תוכן הפרומפט כאן...',
     'prompts_fill_required': 'יש למלא את כל השדות',
+    'prompts_edit': 'ערוך פרומפט',
   };
 
   // --- מילון אנגלית ---
@@ -807,6 +808,7 @@ class LocalizationService {
     'prompts_content_label': 'Prompt content',
     'prompts_content_hint': 'Enter prompt content here...',
     'prompts_fill_required': 'All fields are required',
+    'prompts_edit': 'Edit prompt',
   };
 }
 

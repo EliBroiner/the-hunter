@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../widgets/ai_lab_stage_card.dart';
 
@@ -7,8 +8,8 @@ class AiLabOcrTestingTab extends StatelessWidget {
     super.key,
     required this.filePath,
     required this.bwBytes,
-    required this.visionText,
-    required this.geminiJson,
+    required this.visionController,
+    required this.geminiController,
     required this.visionInProgress,
     required this.geminiInProgress,
     required this.onPickFile,
@@ -20,8 +21,8 @@ class AiLabOcrTestingTab extends StatelessWidget {
 
   final String filePath;
   final List<int>? bwBytes;
-  final String visionText;
-  final String geminiJson;
+  final TextEditingController visionController;
+  final TextEditingController geminiController;
   final bool visionInProgress;
   final bool geminiInProgress;
   final VoidCallback onPickFile;
@@ -86,17 +87,26 @@ class AiLabOcrTestingTab extends StatelessWidget {
                 label: Text(visionInProgress ? 'Sending...' : 'Send to Cloud Vision'),
                 style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
               ),
-              if (visionText.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.green),
-                  ),
-                  child: Text(visionText, style: const TextStyle(fontSize: 12, color: Colors.black87), maxLines: 8, overflow: TextOverflow.ellipsis),
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green),
                 ),
+                child: TextField(
+                  controller: visionController,
+                  maxLines: 6,
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  decoration: const InputDecoration(
+                    hintText: 'Cloud Vision output — editable, or paste text to send to Gemini',
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -108,21 +118,36 @@ class AiLabOcrTestingTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              OutlinedButton.icon(
-                onPressed: (visionText.isEmpty && geminiJson.isEmpty) || geminiInProgress ? null : onSendToGemini,
-                icon: geminiInProgress
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.send, size: 20),
-                label: Text(geminiInProgress ? 'Sending...' : 'Send to Gemini'),
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+              ListenableBuilder(
+                listenable: Listenable.merge([visionController, geminiController]),
+                builder: (_, __) {
+                  final hasText = visionController.text.trim().isNotEmpty || geminiController.text.trim().isNotEmpty;
+                  return OutlinedButton.icon(
+                    onPressed: !hasText || geminiInProgress ? null : onSendToGemini,
+                    icon: geminiInProgress
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.send, size: 20),
+                    label: Text(geminiInProgress ? 'Sending...' : 'Send to Gemini'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+                  );
+                },
               ),
-              if (geminiJson.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: const Color(0xFFE8E8E8), borderRadius: BorderRadius.circular(8)),
-                  child: Text(geminiJson, style: const TextStyle(fontSize: 11, fontFamily: 'monospace'), maxLines: 10, overflow: TextOverflow.ellipsis),
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: const Color(0xFFE8E8E8), borderRadius: BorderRadius.circular(8)),
+                child: TextField(
+                  controller: geminiController,
+                  maxLines: 10,
+                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.black87),
+                  decoration: const InputDecoration(
+                    hintText: 'Gemini JSON response — editable',
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
+              ),
               TextButton.icon(
                 onPressed: onShowPromptSettings,
                 icon: const Icon(Icons.tune, size: 18),

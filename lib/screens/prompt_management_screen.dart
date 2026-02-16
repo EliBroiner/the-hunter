@@ -86,6 +86,38 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
     }
   }
 
+  Future<void> _onEditPrompt(SystemPrompt prompt) async {
+    final result = await showDialog<_CreatePromptResult>(
+      context: context,
+      builder: (context) => _EditPromptDialog(prompt: prompt),
+    );
+    if (result == null || !mounted) return;
+    final created = await _promptService.savePrompt(
+      feature: result.feature,
+      content: result.content,
+      version: result.version,
+    );
+    if (!mounted) return;
+    if (created != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('prompts_saved')),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _loadPrompts();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('prompts_save_error')),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Future<void> _onSetActive(SystemPrompt prompt) async {
     if (prompt.isActive) return;
     final ok = await _promptService.setPromptActive(prompt.id);
@@ -174,6 +206,7 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
             theme: theme,
             prompt: prompt,
             onTap: () => _onSetActive(prompt),
+            onEdit: () => _onEditPrompt(prompt),
           );
         },
       ),
@@ -192,6 +225,130 @@ class _CreatePromptResult {
     required this.content,
     required this.version,
   });
+}
+
+class _EditPromptDialog extends StatefulWidget {
+  const _EditPromptDialog({required this.prompt});
+
+  final SystemPrompt prompt;
+
+  @override
+  State<_EditPromptDialog> createState() => _EditPromptDialogState();
+}
+
+class _EditPromptDialogState extends State<_EditPromptDialog> {
+  late final TextEditingController _featureController;
+  late final TextEditingController _versionController;
+  late final TextEditingController _contentController;
+  late final String _originalVersion;
+
+  static String _nextVersion(String current) {
+    final parts = current.split('.');
+    if (parts.isEmpty) return '1.1';
+    final last = int.tryParse(parts.last) ?? 0;
+    parts[parts.length - 1] = '${last + 1}';
+    return parts.join('.');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _originalVersion = widget.prompt.version;
+    _featureController = TextEditingController(text: widget.prompt.targetFeature);
+    _versionController = TextEditingController(text: _nextVersion(widget.prompt.version));
+    _contentController = TextEditingController(text: widget.prompt.content);
+  }
+
+  @override
+  void dispose() {
+    _featureController.dispose();
+    _versionController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isRtl = LocalizationService.instance.isHebrew;
+
+    return Directionality(
+      textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+      child: AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        title: Text(tr('prompts_edit')),
+        content: SingleChildScrollView(
+          child: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _featureController,
+                  decoration: InputDecoration(
+                    labelText: tr('prompts_feature_label'),
+                    hintText: 'Search, DocAnalysis, Summary, Tags',
+                  ),
+                  textCapitalization: TextCapitalization.none,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _versionController,
+                  decoration: InputDecoration(
+                    labelText: tr('prompts_version_label'),
+                    hintText: '1.0',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _contentController,
+                  decoration: InputDecoration(
+                    labelText: tr('prompts_content_label'),
+                    hintText: tr('prompts_content_hint'),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: 10,
+                  minLines: 5,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('cancel')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final feature = _featureController.text.trim();
+              var version = _versionController.text.trim();
+              final content = _contentController.text.trim();
+              if (feature.isEmpty || version.isEmpty || content.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(tr('prompts_fill_required')),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                return;
+              }
+              if (version == _originalVersion) {
+                version = '$version.1';
+              }
+              Navigator.of(context).pop(_CreatePromptResult(
+                feature: feature,
+                content: content,
+                version: version,
+              ));
+            },
+            child: Text(tr('save')),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CreatePromptDialog extends StatefulWidget {

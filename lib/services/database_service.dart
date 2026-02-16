@@ -759,7 +759,7 @@ class DatabaseService {
 
   /// מחזיר קבצי טקסט, PDF ו-Excel שטרם עברו אינדוקס (מדלג על isProcessing)
   List<FileMetadata> getPendingTextFiles() {
-    const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls'];
+    const textExtensions = ['txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls', 'doc', 'docx'];
     return isar.fileMetadatas
         .where()
         .findAll()

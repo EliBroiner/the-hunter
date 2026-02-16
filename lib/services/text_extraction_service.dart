@@ -95,6 +95,10 @@ class TextExtractionService {
         case 'xls':
           final text = await _extractFromExcel(filePath);
           return _limitText(text, 4000);
+        case 'doc':
+        case 'docx':
+          // TODO: Implement text extraction for Excel/Word before sending to AI.
+          return '';
         default:
           return '';
       }
@@ -260,6 +264,7 @@ class TextExtractionService {
   static bool isTextExtractable(String extension) {
     const supportedExtensions = [
       'txt', 'text', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'xlsx', 'xls',
+      'doc', 'docx', // TODO: חילוץ טקסט מ-Word טרם מיושם
     ];
     return supportedExtensions.contains(extension.toLowerCase());
   }

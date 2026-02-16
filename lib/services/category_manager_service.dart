@@ -125,7 +125,40 @@ class CategoryManagerService {
     final json = await rootBundle.loadString('assets/smart_search_config.json');
     final map = jsonDecode(json) as Map<String, dynamic>;
     await _mergeSynonymsFromAssets(map);
+    await _applySmartCategoriesFromAssets(map);
     _loadDatePhrasesAndFileTypes(map);
+  }
+
+  /// טוען smartCategories מ-assets (מבנה: category -> [{term, rank}]) — fallback לפני sync.
+  Future<void> _applySmartCategoriesFromAssets(Map<String, dynamic> map) async {
+    final raw = map['smartCategories'] as Map<String, dynamic>? ?? {};
+    for (final entry in raw.entries) {
+      final catId = entry.key.toString().trim();
+      if (catId.isEmpty) continue;
+      final items = entry.value as List<dynamic>? ?? [];
+      final synonyms = <String>[];
+      final keywordRanks = <String, String>{};
+      for (final item in items) {
+        if (item is! Map<String, dynamic>) continue;
+        final term = (item['term'] ?? '').toString().trim();
+        if (term.isEmpty) continue;
+        synonyms.add(term);
+        final rank = (item['rank'] ?? 'medium').toString().toLowerCase();
+        keywordRanks[term] = rank;
+      }
+      if (synonyms.isEmpty) continue;
+      _categories[catId] = SmartCategory(
+        id: catId,
+        labels: {},
+        synonyms: synonyms,
+        regexPatterns: [],
+        keywordRanks: keywordRanks,
+      );
+    }
+    if (_categories.isNotEmpty) {
+      await _mergeSmartCategoriesKeywordsIntoSearchSynonyms();
+      appLog('[SYNC] Updated Seed and Local Assets with Ranked Dictionary Logic.');
+    }
   }
 
   Future<void> _mergeSynonymsFromAssets(Map<String, dynamic> map) async {
@@ -423,80 +456,95 @@ class CategoryManagerService {
     return lower.contains(t);
   }
 
-  /// Waterfall: synonyms → categories (keywords) → categories (regex).
-  /// Knockout: Strong דורס Weak; רק Weak → isAmbiguous (שליחה ל-AI).
+  /// Waterfall: categories (ranked) → synonyms → regex. Strong דורס Weak.
   Future<AiAnalysisResult?> identifyCategory(String rawText) async {
     if (rawText.isEmpty) return null;
     await initialize();
     final lower = rawText.toLowerCase();
     final matches = <_MatchCandidate>[];
-
-    for (final entry in _synonymCache.entries) {
-      final term = entry.key;
-      final expansions = entry.value;
-      if (term.length < 2) continue;
-      final shortTerm = term.length < 4;
-      final cat = _termToCategory[_keyFor(term)] ?? _termToCategory[term] ?? term;
-      if (_termMatches(lower, term, shortTerm)) {
-        matches.add(_MatchCandidate(cat, expansions.take(5).toList(), RuleRank.medium));
-      } else {
-        for (final exp in expansions) {
-          if (exp.length < 2) continue;
-          if (_termMatches(lower, exp, exp.length < 4)) {
-            matches.add(_MatchCandidate(cat, expansions.take(5).toList(), RuleRank.medium));
-            break;
-          }
-        }
-      }
-    }
-
-    if (matches.isEmpty) {
-      for (final entry in _categories.entries) {
-        final cat = entry.value;
-        for (final syn in cat.synonyms) {
-          if (syn.length < 2) continue;
-          if (_termMatches(lower, syn, syn.length < 4)) {
-            final rank = RuleRankExt.fromString(cat.keywordRanks[syn]);
-            matches.add(_MatchCandidate(entry.key, getEnrichedTags(entry.key), rank));
-          }
-        }
-      }
-    }
-
-    if (matches.isEmpty) {
-      for (final entry in _categories.entries) {
-        for (final pattern in entry.value.regexPatterns) {
-          if (pattern.isEmpty) continue;
-          try {
-            if (RegExp(pattern).hasMatch(rawText)) {
-              matches.add(_MatchCandidate(entry.key, getEnrichedTags(entry.key), RuleRank.medium));
-              break;
-            }
-          } catch (_) {}
-        }
-        if (matches.isNotEmpty) break;
-      }
-    }
-
+    _collectCategoryMatches(lower, matches);
+    if (matches.isEmpty) _collectSynonymMatches(lower, matches);
+    if (matches.isEmpty) _collectRegexMatches(rawText, matches);
     return _applyKnockout(matches);
+  }
+
+  void _collectCategoryMatches(String lower, List<_MatchCandidate> matches) {
+    for (final entry in _categories.entries) {
+      final cat = entry.value;
+      for (final syn in cat.synonyms) {
+        if (syn.length < 2) continue;
+        if (_termMatches(lower, syn, syn.length < 4)) {
+          final rank = RuleRankExt.fromString(cat.keywordRanks[syn]);
+          matches.add(_MatchCandidate(entry.key, getEnrichedTags(entry.key), rank));
+        }
+      }
+    }
+  }
+
+  void _collectSynonymMatches(String lower, List<_MatchCandidate> matches) {
+    for (final entry in _synonymCache.entries) {
+      if (entry.key.length < 2) continue;
+      _tryAddSynonymMatch(entry.key, entry.value, lower, matches);
+    }
+  }
+
+  void _tryAddSynonymMatch(String term, List<String> expansions, String lower, List<_MatchCandidate> matches) {
+    final cat = _termToCategory[_keyFor(term)] ?? _termToCategory[term] ?? term;
+    final tags = expansions.take(5).toList();
+    if (_termMatches(lower, term, term.length < 4)) {
+      matches.add(_MatchCandidate(cat, tags, RuleRank.medium));
+      return;
+    }
+    if (_anyExpansionMatches(expansions, lower)) matches.add(_MatchCandidate(cat, tags, RuleRank.medium));
+  }
+
+  bool _anyExpansionMatches(List<String> expansions, String lower) {
+    for (final exp in expansions) {
+      if (exp.length >= 2 && _termMatches(lower, exp, exp.length < 4)) return true;
+    }
+    return false;
+  }
+
+  void _collectRegexMatches(String rawText, List<_MatchCandidate> matches) {
+    for (final entry in _categories.entries) {
+      final catId = entry.key;
+      if (_tryRegexMatch(rawText, entry.value.regexPatterns)) {
+        matches.add(_MatchCandidate(catId, getEnrichedTags(catId), RuleRank.medium));
+        return;
+      }
+    }
+  }
+
+  bool _tryRegexMatch(String text, List<String> patterns) {
+    for (final p in patterns) {
+      if (p.isEmpty) continue;
+      try {
+        if (RegExp(p).hasMatch(text)) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   AiAnalysisResult? _applyKnockout(List<_MatchCandidate> matches) {
     if (matches.isEmpty) return null;
-    final hasStrong = matches.any((m) => m.rank == RuleRank.strong);
-    final filtered = hasStrong
-        ? matches.where((m) => m.rank != RuleRank.weak).toList()
-        : matches;
+    final filtered = _filterByKnockout(matches);
     if (filtered.isEmpty) return null;
-    final onlyWeak = filtered.every((m) => m.rank == RuleRank.weak);
-    final order = [RuleRank.strong, RuleRank.medium, RuleRank.weak];
-    final best = filtered.reduce((a, b) =>
-        order.indexOf(a.rank) <= order.indexOf(b.rank) ? a : b);
+    final best = _pickBestByRank(filtered);
     return AiAnalysisResult(
       category: best.category,
       tags: best.tags,
-      isAmbiguous: onlyWeak,
+      isAmbiguous: filtered.every((m) => m.rank == RuleRank.weak),
     );
+  }
+
+  List<_MatchCandidate> _filterByKnockout(List<_MatchCandidate> matches) {
+    final hasStrong = matches.any((m) => m.rank == RuleRank.strong);
+    return hasStrong ? matches.where((m) => m.rank != RuleRank.weak).toList() : matches;
+  }
+
+  _MatchCandidate _pickBestByRank(List<_MatchCandidate> list) {
+    const order = [RuleRank.strong, RuleRank.medium, RuleRank.weak];
+    return list.reduce((a, b) => order.indexOf(a.rank) <= order.indexOf(b.rank) ? a : b);
   }
 
   Future<int> approveSuggestions(String categoryId, List<AiSuggestion> suggestions) async {
