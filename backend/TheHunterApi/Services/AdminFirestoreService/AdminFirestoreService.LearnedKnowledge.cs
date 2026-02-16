@@ -9,7 +9,40 @@ public partial class AdminFirestoreService
     private const string StatusPendingApproval = "pending_approval";
     private const string StatusApproved = "approved";
 
-    /// <summary>שומר הצעות מ-AI ל-learned_knowledge — term, category, source_file. status: pending_approval.</summary>
+    /// <summary>שומר הצעות אנקר (term, rank, reason) ל-learned_knowledge — רק STRONG. Fire-and-forget.</summary>
+    public async Task SaveAnchorSuggestionsAsync(IReadOnlyList<DocumentSuggestion> suggestions, string? sourceFile, string? documentCategory, string? userId, CancellationToken ct = default)
+    {
+        if (suggestions == null || suggestions.Count == 0) return;
+        var strong = suggestions.Where(s => string.Equals(s.Rank, "STRONG", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (strong.Count == 0) return;
+        try
+        {
+            var col = _db.Collection(ColLearnedKnowledge);
+            var cat = string.IsNullOrWhiteSpace(documentCategory) ? "general" : documentCategory;
+            foreach (var s in strong)
+            {
+                var term = (s.Term ?? "").Trim();
+                if (term.Length < 2) continue;
+                var data = new Dictionary<string, object>
+                {
+                    ["term"] = term,
+                    ["category"] = cat,
+                    ["source_file"] = sourceFile ?? "",
+                    ["status"] = StatusPendingApproval,
+                    ["created_at"] = Timestamp.GetCurrentTimestamp(),
+                    ["userId"] = userId ?? "",
+                };
+                await col.AddAsync(data, ct);
+            }
+            _logger.LogDebug("Saved {Count} STRONG anchors to learned_knowledge", strong.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SaveAnchorSuggestions failed");
+        }
+    }
+
+    /// <summary>שומר הצעות מ-AI (פורמט ישן) ל-learned_knowledge — term, category, source_file. status: pending_approval.</summary>
     public async Task SaveLearnedKnowledgeAsync(IReadOnlyList<AiSuggestion> suggestions, string? sourceFile, string? userId, CancellationToken ct = default)
     {
         if (suggestions == null || suggestions.Count == 0) return;

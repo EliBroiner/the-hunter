@@ -9,8 +9,8 @@ public class DocumentAnalysisResult
     public string? Date { get; set; }  // YYYY-MM-DD
     public List<string> Tags { get; set; } = new();
     public string Summary { get; set; } = string.Empty;
-    /// <summary>הצעות ייעול Gemini — מילים ו-Regex למילון/חוקים מקומיים.</summary>
-    public List<AiSuggestion> Suggestions { get; set; } = new();
+    /// <summary>הצעות אנקר מהפרומפט המאוחד — term, rank (STRONG/WEAK), reason.</summary>
+    public List<DocumentSuggestion> Suggestions { get; set; } = new();
     /// <summary>דגל: true אם הטקסט מקוטע או המבנה שבור — דורש OCR ברזולוציה גבוהה.</summary>
     [JsonPropertyName("requires_high_res_ocr")]
     public bool RequiresHighResOcr { get; set; }

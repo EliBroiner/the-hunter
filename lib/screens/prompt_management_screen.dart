@@ -18,8 +18,8 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
   final _promptService = PromptAdminService.instance;
 
   static const _featureOptions = [
-    ('analysis', 'Document Analysis'),
-    ('trainer', 'Document Trainer'),
+    ('analysis', 'Document Analysis (Unified)'),
+    ('trainer', 'Document Trainer (Standalone)'),
     ('search', 'Smart Search'),
     ('ocr_extraction', 'OCR Extraction'),
   ];
@@ -629,8 +629,8 @@ class _PromptHistoryDialog extends StatefulWidget {
 
 class _PromptHistoryDialogState extends State<_PromptHistoryDialog> {
   static const _features = [
-    ('analysis', 'Document Analysis'),
-    ('trainer', 'Document Trainer'),
+    ('analysis', 'Document Analysis (Unified)'),
+    ('trainer', 'Document Trainer (Standalone)'),
     ('search', 'Smart Search'),
     ('ocr_extraction', 'OCR Extraction'),
   ];

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../../services/settings_service.dart';
@@ -64,6 +65,67 @@ class AiLabPipelineTab extends StatelessWidget {
   static double textDensityScore(int textLength, int fileSizeBytes) {
     if (fileSizeBytes <= 0) return 0;
     return (textLength / fileSizeBytes) * 100;
+  }
+
+  /// מחלץ מונחים מ-suggestions — תומך בפורמט מאוחד (term, rank, reason) וישן (suggested_keywords).
+  static List<String> _extractSuggestionTerms(String jsonText) {
+    final terms = <String>[];
+    try {
+      final raw = jsonText
+          .replaceFirst(RegExp(r'^```\w*\n?'), '')
+          .replaceFirst(RegExp(r'\n?```\s*$'), '')
+          .trim();
+      if (raw.isEmpty) return terms;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return terms;
+      final sugg = decoded['suggestions'];
+      if (sugg is! List) return terms;
+      for (final item in sugg) {
+        if (item is! Map<String, dynamic>) continue;
+        final term = item['term']?.toString().trim();
+        if (term != null && term.isNotEmpty) {
+          terms.add(term);
+        } else {
+          final kw = item['suggested_keywords'] ?? item['suggestedKeywords'];
+          if (kw is List) {
+            for (final k in kw) {
+              final t = k?.toString().trim();
+              if (t != null && t.isNotEmpty) terms.add(t);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return terms;
+  }
+
+  Widget _buildSuggestionsChip(String jsonText) {
+    final terms = _extractSuggestionTerms(jsonText);
+    if (terms.isEmpty) return const SizedBox.shrink();
+    final preview = terms.length <= 3 ? terms.join(', ') : '${terms.take(3).join(', ')} +${terms.length - 3}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade700, width: 1),
+        ),
+        child: Row(
+          children: [
+            const Text('🎯', style: TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Learned ${terms.length} new keyword${terms.length == 1 ? '' : 's'}: $preview',
+                style: TextStyle(fontSize: 12, color: Colors.green.shade800, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -299,6 +361,10 @@ class AiLabPipelineTab extends StatelessWidget {
               fillColor: const Color(0xFFE8E8E8),
             ),
           ),
+        ),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: serverJsonController,
+          builder: (_, value, __) => _buildSuggestionsChip(value.text),
         ),
         const SizedBox(height: 8),
         Row(

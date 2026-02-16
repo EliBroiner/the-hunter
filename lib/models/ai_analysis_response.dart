@@ -16,8 +16,22 @@ class AiSuggestion {
   bool get hasTechnicalRules =>
       suggestedKeywords.isNotEmpty || (suggestedRegex != null && suggestedRegex!.trim().isNotEmpty);
 
+  /// תומך בשני פורמטים: ישן (suggested_keywords) ומאוחד (term, rank, reason).
   static AiSuggestion? fromJson(Map<String, dynamic>? json) {
     if (json == null) return null;
+    // פורמט מאוחד: term, rank, reason — ממיר ל־AiSuggestion לתאימות UI
+    final term = json['term']?.toString().trim();
+    if (term != null && term.isNotEmpty) {
+      final rank = json['rank']?.toString() ?? '';
+      final conf = rank.toUpperCase() == 'STRONG' ? 1.0 : 0.5;
+      return AiSuggestion(
+        suggestedCategory: '',
+        suggestedKeywords: [term],
+        suggestedRegex: null,
+        confidence: conf,
+      );
+    }
+    // פורמט ישן: suggested_category, suggested_keywords
     final cat = json['suggested_category'] ?? json['suggestedCategory'] ?? '';
     final kw = json['suggested_keywords'] ?? json['suggestedKeywords'];
     final list = kw is List ? kw.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList() : <String>[];

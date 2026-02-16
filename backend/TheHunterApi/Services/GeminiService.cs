@@ -144,6 +144,8 @@ public class GeminiService
         var systemPrompt = customPromptOverride ?? await GetDocAnalysisPromptAsync();
         if (customPromptOverride != null)
             _logger.LogWarning("Using Custom Developer Prompt (Admin override) for batch of {Count} docs", documents.Count);
+        else
+            _logger.LogInformation("[OPTIMIZATION] Merged Analysis and Learning into a single API call. Reduced cost and latency.");
         var tasks = documents.Select(d => AnalyzeOneDocumentAsync(d, userId, systemPrompt));
         var results = await Task.WhenAll(tasks);
         return results.ToList();
@@ -547,12 +549,12 @@ public class GeminiService
         var category = result.Category ?? "—";
         var tagCount = (result.Tags ?? []).Count(t => !string.IsNullOrWhiteSpace(t));
         var suggCount = (result.Suggestions ?? []).Count;
-        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}, Suggestions: {SuggCount}. Saving to suggestions...",
+        _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}, Suggestions: {SuggCount}",
             category, tagCount, suggCount);
 
-        // שמירה ל-learned_knowledge — לולאת למידה סגורה. מונחים מאושרים יוזרקו ל-SmartSearch
+        // Fire-and-forget: שמירת אנקרים STRONG ל-learned_knowledge — לא חוסם את התגובה ללקוח
         if (suggCount > 0)
-            await _firestore.SaveLearnedKnowledgeAsync(result.Suggestions!, sourceFile ?? sourceDocumentId, userId);
+            _ = _firestore.SaveAnchorSuggestionsAsync(result.Suggestions!, sourceFile ?? sourceDocumentId, result.Category, userId);
 
         var saved = 0;
         try
@@ -567,18 +569,6 @@ public class GeminiService
                 if (saved >= MaxSuggestionsPerDocument) break;
                 await _learningService.ProcessAiResultAsync(tag, result.Category ?? "general", userId, ExtractSnippet(documentText, tag), 1.0, sourceDocumentId);
                 saved++;
-            }
-            foreach (var sugg in (result.Suggestions ?? []))
-            {
-                if (saved >= MaxSuggestionsPerDocument) break;
-                var cat = string.IsNullOrWhiteSpace(sugg.SuggestedCategory) ? (result.Category ?? "general") : sugg.SuggestedCategory;
-                var conf = Math.Clamp(sugg.Confidence, 0, 1);
-                foreach (var kw in (sugg.SuggestedKeywords ?? []).Where(k => !string.IsNullOrWhiteSpace(k)))
-                {
-                    if (saved >= MaxSuggestionsPerDocument) break;
-                    await _learningService.ProcessAiResultAsync(kw.Trim(), cat, userId, ExtractSnippet(documentText, kw), conf, sourceDocumentId);
-                    saved++;
-                }
             }
         }
         catch (Exception ex)

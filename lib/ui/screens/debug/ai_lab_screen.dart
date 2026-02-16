@@ -709,8 +709,8 @@ class _AiLabScreenState extends State<AiLabScreen> {
                       fillColor: Color(0xFFE8E8E8),
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'analysis', child: Text('Document Analysis')),
-                      DropdownMenuItem(value: 'trainer', child: Text('Document Trainer')),
+                      DropdownMenuItem(value: 'analysis', child: Text('Document Analysis (Unified)')),
+                      DropdownMenuItem(value: 'trainer', child: Text('Document Trainer (Standalone)')),
                       DropdownMenuItem(value: 'search', child: Text('Smart Search')),
                       DropdownMenuItem(value: 'ocr_extraction', child: Text('OCR Extraction')),
                     ],
