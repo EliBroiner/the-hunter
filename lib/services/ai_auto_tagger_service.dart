@@ -298,7 +298,7 @@ class AiAutoTaggerService {
               appLog('[SCAN] File: ${file.path} — 4. API Response: Success.');
             }
           }
-        } catch (e, st) {
+        } catch (e) {
           appLog('[SCAN] 4. API Response: JSON parse failed. Error: $e. Body length: ${response.body.length}. Body preview: ${response.body.length > 300 ? response.body.substring(0, 300) : response.body}');
           rethrow;
         }

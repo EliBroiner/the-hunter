@@ -23,128 +23,10 @@ public class GeminiService
     private const string GeminiModel = "gemini-3-flash-preview";
     private const string GeminiDocModel = "gemini-2.5-flash";
     private const int MaxLogPayloadChars = 200; // היגיינת לוגים — לא לדפיס Body/JSON מלא (Cloud Run ~256KB limit)
-    // פרומפט ברירת מחדל - ניתן לדריסה דרך SYSTEM_PROMPT environment variable
-    private const string DefaultPrompt = """
-        You are a smart query parser for a multilingual file search engine.
-        Today's date is: {CurrentDate}
-        
-        YOUR TASK: Parse the user's natural language query into a structured JSON object.
-        OUTPUT: Return ONLY raw JSON - no markdown, no code blocks, no explanations.
-        
-        === JSON STRUCTURE ===
-        {
-            "terms": ["keyword1", "keyword2"],
-            "fileTypes": ["pdf", "jpg"],
-            "dateRange": {
-                "start": "2024-01-01",
-                "end": "2024-12-31"
-            }
-        }
-        
-        === RULES ===
-        
-        1. TERMS - KEYWORD EXTRACTION:
-           - Extract SPECIFIC keywords only (names, subjects, content).
-           - NOISE REMOVAL: Strictly remove conversational filler words:
-             * English: "find", "search", "show", "get", "look", "for", "me", "please", "my", "the", "a", "an", "file", "files", "where", "is"
-             * Hebrew: "תמצא", "חפש", "תחפש", "מצא", "דחוף", "בבקשה", "לי", "את", "של", "שלי", "קובץ", "קבצים", "איפה", "תראה"
-        
-        2. TERMS - LANGUAGE BRIDGE (CRITICAL):
-           When generating synonyms or related terms, if the user's language is Hebrew, provide terms in BOTH English AND Hebrew to match our bilingual metadata format (e.g., "Invoice", "חשבונית").
-           If query contains Hebrew, you MUST include BOTH Hebrew AND English translations:
-           - "דרכון" → ["דרכון", "passport"]
-           - "חשבונית" → ["חשבונית", "invoice", "receipt"]
-           - "תעודת זהות" → ["תעודת זהות", "ID", "identity", "teudat"]
-           - "חוזה" → ["חוזה", "contract", "agreement"]
-           - "קבלה" → ["קבלה", "receipt", "kabala"]
-           - "ביטוח" → ["ביטוח", "insurance"]
-           - "רישיון" → ["רישיון", "license", "rishyon"]
-           - "אישור" → ["אישור", "confirmation", "approval", "ishur"]
-           - "הזמנה" → ["הזמנה", "order", "reservation", "hazmana"]
-           - "טיסה" → ["טיסה", "flight", "tisa"]
-           - "מלון" → ["מלון", "hotel", "malon"]
-           - "קורות חיים" → ["קורות חיים", "CV", "resume", "curriculum"]
-        
-        3. TERMS - SYNONYMS & EXPANSION:
-           Expand terms with common synonyms and filename variations:
-           - "invoice" → also add: "receipt", "bill", "inv"
-           - "contract" → also add: "agreement", "הסכם"
-           - "passport" → also add: "travel", "visa"
-           - "resume" → also add: "CV", "curriculum", "vitae"
-           - "photo" → also add: "pic", "img", "image", "תמונה"
-        
-        4. FILE TYPES - STANDARD MAPPING:
-           - "photos/pictures/images/תמונות" → ["jpg", "jpeg", "png", "heic", "webp"]
-           - "documents/docs/מסמכים" → ["pdf", "doc", "docx"]
-           - "excel/spreadsheet/אקסל/גיליון" → ["xlsx", "xls", "csv"]
-           - "video/videos/סרטון/וידאו" → ["mp4", "mov", "avi", "mkv"]
-           - "receipts/invoices/קבלות/חשבוניות" → ["pdf", "jpg", "png"]
-           - "presentations/מצגות" → ["pptx", "ppt"]
-           - If no file type implied → []
-        
-        5. FILE TYPES - CONTEXTUAL INFERENCE:
-           Infer file extensions from abstract concepts:
-           - "contract/חוזה/agreement/הסכם" → ["pdf", "docx"]
-           - "book/ספר" → ["pdf", "epub", "mobi"]
-           - "song/שיר/music/מוזיקה" → ["mp3", "m4a", "wav", "flac"]
-           - "passport/דרכון/ID/תעודת זהות" → ["pdf", "jpg", "png"]
-           - "resume/CV/קורות חיים" → ["pdf", "docx"]
-           - "screenshot/צילום מסך" → ["png", "jpg"]
-           - "scan/סריקה" → ["pdf", "jpg", "png"]
-        
-        6. DATE RANGE - RELATIVE DATE CONVERSION:
-           Calculate dates based on Today: {CurrentDate}
-           Convert to EXACT ISO 8601 format (yyyy-MM-dd). NO time component.
-           
-           - "today/היום" → start: "{CurrentDate}", end: "{CurrentDate}"
-           - "yesterday/אתמול" → calculate {CurrentDate} minus 1 day for both start and end
-           - "last week/שבוע שעבר" → start: {CurrentDate} minus 7 days, end: "{CurrentDate}"
-           - "this week/השבוע" → start: Monday of current week, end: "{CurrentDate}"
-           - "last month/חודש שעבר" → start: {CurrentDate} minus 30 days, end: "{CurrentDate}"
-           - "this month/החודש" → start: first day of current month, end: "{CurrentDate}"
-           - "last year/שנה שעברה" → start: {CurrentDate} minus 365 days, end: "{CurrentDate}"
-           - If no time reference → dateRange: null
-        
-        7. OUTPUT: Return ONLY the raw JSON object. No explanations, no markdown code fences, no text before or after.
-        """;
-
-    /// <summary>פרומפט ניתוח מסמכים — fallback אם הקובץ לא נטען. תואם doc_analysis_default.txt</summary>
-    /// <remarks>כלל אבטחה: tags ללא PII — רק קטגוריות כלליות. PII רק ב-metadata.</remarks>
-    private const string DocAnalysisPromptFallback = """
-        Analyze the following document text and output ONLY raw JSON.
-
-        === REQUIRED JSON STRUCTURE ===
-        {
-          "category": "string",
-          "date": "YYYY-MM-DD or null",
-          "tags": ["tag1", "tag2"],
-          "summary": "string",
-          "metadata": {
-            "names": ["string"],
-            "ids": ["string"],
-            "locations": ["string"]
-          },
-          "requires_high_res_ocr": boolean
-        }
-
-        === MULTILINGUAL OUTPUT (MANDATORY) ===
-        If Hebrew is detected, provide "category", "tags", and "summary" in "English / Hebrew" format.
-        Example: "Invoice / חשבונית", "Financial / פיננסי"
-
-        === REQUIRES_HIGH_RES_OCR (mandatory boolean) ===
-        Set to true ONLY if text is fragmented, garbled, or suggests complex layout (tables/handwriting) needing professional scan. Otherwise false.
-
-        === STRICT RULE: NO PII IN TAGS ===
-        Tags MUST contain ONLY general categories. NO names, IDs, dates, or locations in tags. Place all in metadata.
-
-        === OUTPUT ===
-        Return ONLY raw JSON. No markdown, no code blocks.
-        """;
-
     private readonly ILearningService _learningService;
     private readonly ISearchActivityService _searchActivityService;
     private readonly IWebHostEnvironment _webHost;
-    private readonly ISystemPromptService _systemPromptService;
+    private readonly AdminFirestoreService _firestore;
 
     public GeminiService(
         IHttpClientFactory httpClientFactory,
@@ -153,7 +35,7 @@ public class GeminiService
         ILearningService learningService,
         ISearchActivityService searchActivityService,
         IWebHostEnvironment webHost,
-        ISystemPromptService systemPromptService)
+        AdminFirestoreService firestore)
     {
         _httpClientFactory = httpClientFactory;
         _geminiConfig = geminiConfig;
@@ -161,7 +43,7 @@ public class GeminiService
         _learningService = learningService;
         _searchActivityService = searchActivityService;
         _webHost = webHost;
-        _systemPromptService = systemPromptService;
+        _firestore = firestore;
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -351,7 +233,7 @@ public class GeminiService
                 documentId, result?.Category ?? "(null)", result?.Tags?.Count ?? 0, rawText.Length);
 
             var safeResult = result ?? new DocumentAnalysisResult();
-            await LearnFromDocumentResultAsync(safeResult, userId, text, documentId);
+            await LearnFromDocumentResultAsync(safeResult, userId, text, documentId, filename);
 
             var finalJson = JsonSerializer.Serialize(new DocumentAnalysisResponse { DocumentId = documentId, Result = safeResult }, _jsonOptions);
             _logger.LogInformation("[GEMINI_TO_CLIENT] Doc {Id} — Sending result: {Preview}", documentId, TruncateForLog(finalJson));
@@ -517,57 +399,11 @@ public class GeminiService
         }
     }
 
-    /// <summary>מקור: DB (DocAnalysis) → קובץ DOC_ANALYSIS_PROMPT_FILE → fallback מוטבע.</summary>
+    /// <summary>מקור: Firestore (analysis) → fallback מוטבע מ-SystemPromptFallbacks.</summary>
     private async Task<string> GetDocAnalysisPromptAsync()
     {
-        var fromDb = await TryGetPromptFromDbAsync(SystemPromptFeatures.DocAnalysis);
-        if (fromDb != null) return fromDb;
-
-        var fromFile = await TryLoadPromptFromFileAsync(
-            Environment.GetEnvironmentVariable("DOC_ANALYSIS_PROMPT_FILE")?.Trim() ?? "doc_analysis_default.txt");
-        if (fromFile != null) return fromFile;
-
-        _logger.LogDebug("פרומפט DocAnalysis: שימוש ב-fallback מוטבע");
-        return DocAnalysisPromptFallback;
-    }
-
-    private async Task<string?> TryGetPromptFromDbAsync(string feature)
-    {
-        try
-        {
-            var dbPrompt = await _systemPromptService.GetActivePromptAsync(feature);
-            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
-            {
-                _logger.LogDebug("פרומפט {Feature}: שימוש ב-DB (Version={Version})", feature, dbPrompt.Version);
-                return dbPrompt.Content;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "כשלון בשליפת פרומפט {Feature} מ-DB", feature);
-        }
-        return null;
-    }
-
-    private async Task<string?> TryLoadPromptFromFileAsync(string fileName)
-    {
-        var dirs = new[] { Path.Combine(_webHost.ContentRootPath, "Prompts"), Path.Combine(AppContext.BaseDirectory, "Prompts") };
-        foreach (var dir in dirs)
-        {
-            var path = Path.Combine(dir, fileName);
-            if (!File.Exists(path)) continue;
-            try
-            {
-                var content = await File.ReadAllTextAsync(path);
-                _logger.LogDebug("פרומפט נטען מקובץ: {Path}", path);
-                return content;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "כשלון בקריאת קובץ פרומפט {Path}", path);
-            }
-        }
-        return null;
+        var result = await _firestore.GetLatestPromptAsync(TheHunterApi.Constants.FeatureType.DocumentAnalysis);
+        return result.Text;
     }
 
     /// <summary>
@@ -608,18 +444,25 @@ public class GeminiService
         };
     }
 
-    /// <summary>מקור: DB (Search) → env SYSTEM_PROMPT → ברירת מחדל.</summary>
+    /// <summary>מקור: Firestore (search) → fallback. מזריק learned_knowledge מאושר ל-SmartSearch.</summary>
     private async Task<string> BuildSystemPromptAsync()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var fromDb = await TryGetPromptFromDbAsync(SystemPromptFeatures.Search);
-        if (fromDb != null) return fromDb.Replace("{CurrentDate}", today);
+        var result = await _firestore.GetLatestPromptAsync(TheHunterApi.Constants.FeatureType.SmartSearch);
+        var prompt = result.Text.Replace("{CurrentDate}", today);
 
-        var fromEnv = Environment.GetEnvironmentVariable("SYSTEM_PROMPT");
-        var template = !string.IsNullOrEmpty(fromEnv) ? fromEnv : DefaultPrompt;
-        if (!string.IsNullOrEmpty(fromEnv)) _logger.LogInformation("📝 Using Custom Prompt from SYSTEM_PROMPT");
-        else _logger.LogDebug("📝 Using Default Prompt");
-        return template.Replace("{CurrentDate}", today);
+        var learned = await _firestore.GetApprovedLearnedKnowledgeForSearchAsync();
+        var learnedBlock = learned.Count == 0
+            ? "(none)"
+            : string.Join("\n", learned.Select(x => $"- \"{x.Term}\" → category: {x.Category}"));
+        var learnedText = $"Use the following learned domain knowledge from the user's own documents when expanding queries:\n{learnedBlock}";
+
+        if (prompt.Contains("{LearnedKnowledge}"))
+            prompt = prompt.Replace("{LearnedKnowledge}", learnedBlock);
+        else
+            prompt += $"\n\n{learnedText}\n";
+
+        return prompt;
     }
 
     /// <summary>
@@ -699,13 +542,17 @@ public class GeminiService
     /// <param name="sourceDocumentId">מזהה המסמך — נשמר ל-sourceDocumentId לספירת קבצים ייחודיים.</param>
     private const int MaxSuggestionsPerDocument = 15;
 
-    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null, string? documentText = null, string? sourceDocumentId = null)
+    private async Task LearnFromDocumentResultAsync(DocumentAnalysisResult result, string? userId = null, string? documentText = null, string? sourceDocumentId = null, string? sourceFile = null)
     {
         var category = result.Category ?? "—";
         var tagCount = (result.Tags ?? []).Count(t => !string.IsNullOrWhiteSpace(t));
         var suggCount = (result.Suggestions ?? []).Count;
         _logger.LogInformation("[Server] Gemini response received. Category: {Category}, Tags: {TagCount}, Suggestions: {SuggCount}. Saving to suggestions...",
             category, tagCount, suggCount);
+
+        // שמירה ל-learned_knowledge — לולאת למידה סגורה. מונחים מאושרים יוזרקו ל-SmartSearch
+        if (suggCount > 0)
+            await _firestore.SaveLearnedKnowledgeAsync(result.Suggestions!, sourceFile ?? sourceDocumentId, userId);
 
         var saved = 0;
         try

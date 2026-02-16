@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../widgets/ai_lab_stage_card.dart';
 
@@ -120,7 +119,7 @@ class AiLabOcrTestingTab extends StatelessWidget {
             children: [
               ListenableBuilder(
                 listenable: Listenable.merge([visionController, geminiController]),
-                builder: (_, __) {
+                builder: (_, _) {
                   final hasText = visionController.text.trim().isNotEmpty || geminiController.text.trim().isNotEmpty;
                   return OutlinedButton.icon(
                     onPressed: !hasText || geminiInProgress ? null : onSendToGemini,

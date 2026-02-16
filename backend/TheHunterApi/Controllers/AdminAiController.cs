@@ -4,7 +4,6 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using TheHunterApi.Constants;
-using static TheHunterApi.Constants.SystemPromptFeatures;
 using TheHunterApi.Filters;
 using TheHunterApi.Models;
 using TheHunterApi.Services;
@@ -21,7 +20,6 @@ namespace TheHunterApi.Controllers;
 public class AdminAiController : ControllerBase
 {
     private readonly GeminiService _geminiService;
-    private readonly ISystemPromptService _systemPromptService;
     private readonly AdminFirestoreService _firestore;
     private readonly IScannerSettingsService _scannerSettings;
     private readonly OcrService _ocrService;
@@ -34,10 +32,9 @@ public class AdminAiController : ControllerBase
     private const double ContentWeight = 120;
     private const double MetadataWeight = 80;
 
-    public AdminAiController(GeminiService geminiService, ISystemPromptService systemPromptService, AdminFirestoreService firestore, IScannerSettingsService scannerSettings, OcrService ocrService, ILogger<AdminAiController> logger)
+    public AdminAiController(GeminiService geminiService, AdminFirestoreService firestore, IScannerSettingsService scannerSettings, OcrService ocrService, ILogger<AdminAiController> logger)
     {
         _geminiService = geminiService;
-        _systemPromptService = systemPromptService;
         _firestore = firestore;
         _scannerSettings = scannerSettings;
         _ocrService = ocrService;
@@ -450,20 +447,8 @@ public class AdminAiController : ControllerBase
 
     private async Task<string> GetOcrExtractionPromptAsync()
     {
-        try
-        {
-            var dbPrompt = await _systemPromptService.GetActivePromptAsync(OcrExtraction);
-            if (dbPrompt != null && !string.IsNullOrWhiteSpace(dbPrompt.Content))
-            {
-                _logger.LogDebug("OCR prompt: using DB (Version={Version})", dbPrompt.Version);
-                return dbPrompt.Content;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get OcrExtraction prompt from DB, using fallback");
-        }
-        return OcrConstants.ExtractionPromptFallback;
+        var result = await _firestore.GetLatestPromptAsync(FeatureType.OcrExtraction);
+        return result.Text;
     }
 
     private static string Normalize(string s)

@@ -36,6 +36,53 @@ class PromptAdminService {
     return headers;
   }
 
+  /// מביא את הפרומפט הפעיל או fallback מוטבע — להצגה ב-UI כשהרשימה ריקה.
+  Future<SystemPromptResult?> fetchLatestPrompt(String feature) async {
+    if (feature.isEmpty) return null;
+    try {
+      final uri = Uri.parse('$_baseUrl$_promptsPath/latest?feature=${Uri.encodeComponent(feature)}');
+      final headers = await _getHeaders();
+      final response = await http.get(uri, headers: headers).timeout(_timeout);
+      if (response.statusCode != 200) return null;
+      final map = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (map == null || map['success'] != true) return null;
+      final data = map['data'];
+      if (data is! Map<String, dynamic>) return null;
+      return SystemPromptResult.fromJson(data);
+    } catch (e) {
+      appLog('PromptAdmin: fetchLatestPrompt error - $e');
+      return null;
+    }
+  }
+
+  /// מביא פרומפטים לפי feature — ממוין לפי גרסה יורד (1.2, 1.1, 1.0).
+  Future<List<SystemPrompt>> fetchPromptsByFeature(String feature) async {
+    if (feature.isEmpty) return [];
+    try {
+      final uri = Uri.parse('$_baseUrl$_promptsPath/by-feature?feature=${Uri.encodeComponent(feature)}');
+      final headers = await _getHeaders();
+      final response = await http.get(uri, headers: headers).timeout(_timeout);
+
+      if (response.statusCode != 200) {
+        appLog('PromptAdmin: fetchPromptsByFeature failed ${response.statusCode}');
+        throw Exception('${response.statusCode}: ${response.body.length > 100 ? response.body.substring(0, 100) : response.body}');
+      }
+
+      final map = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (map == null) return [];
+      if (map['success'] != true) return [];
+      final data = map['data'];
+      if (data is! List) return [];
+
+      return data
+          .map((e) => SystemPrompt.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      appLog('PromptAdmin: fetchPromptsByFeature error - $e');
+      rethrow;
+    }
+  }
+
   /// מביא רשימת פרומפטים מ־API. אופציונלי: סינון לפי feature.
   /// מחזיר רשימה ריקה אם יש שגיאה או 401.
   Future<List<SystemPrompt>> fetchPrompts({String? feature}) async {
@@ -68,11 +115,13 @@ class PromptAdminService {
   }
 
   /// שומר טיוטת פרומפט חדש.
+  /// [setActive] — אם true, מיד מפעיל את הפרומפט לאחר השמירה.
   /// מחזיר הפרומפט שנוצר, או null בשגיאה.
   Future<SystemPrompt?> savePrompt({
     required String feature,
     required String content,
     required String version,
+    bool setActive = false,
   }) async {
     if (feature.isEmpty || content.isEmpty || version.isEmpty) return null;
     try {
@@ -82,6 +131,7 @@ class PromptAdminService {
         'feature': feature,
         'content': content,
         'version': version,
+        'setActive': setActive,
       });
       final response = await http
           .post(uri, headers: headers, body: body)
@@ -101,6 +151,26 @@ class PromptAdminService {
     } catch (e) {
       appLog('PromptAdmin: savePrompt error - $e');
       return null;
+    }
+  }
+
+  /// מפעיל פרומפט לפי feature+version.
+  Future<bool> setPromptActiveByFeatureVersion(String feature, String version) async {
+    try {
+      final uri = Uri.parse('$_baseUrl$_promptsPath/set-active?feature=${Uri.encodeComponent(feature)}&version=${Uri.encodeComponent(version)}');
+      final headers = await _getHeaders();
+      final response = await http.patch(uri, headers: headers).timeout(_timeout);
+
+      if (response.statusCode != 200) {
+        appLog('PromptAdmin: setPromptActiveByFeatureVersion failed ${response.statusCode}');
+        return false;
+      }
+
+      final map = jsonDecode(response.body) as Map<String, dynamic>?;
+      return map != null && map['success'] == true;
+    } catch (e) {
+      appLog('PromptAdmin: setPromptActiveByFeatureVersion error - $e');
+      return false;
     }
   }
 

@@ -20,7 +20,6 @@ import '../services/settings_service.dart';
 import '../services/hybrid_search_controller.dart';
 import '../services/tags_service.dart';
 import '../services/secure_folder_service.dart';
-import '../services/widget_service.dart';
 import '../ui/widgets/processing_spinner.dart';
 import '../services/google_drive_service.dart';
 import '../models/ai_analysis_response.dart';
@@ -1163,7 +1162,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
     }
   }
 
-  /// מציג גיליון ניתוח דירוג — ציון ופירוט רלוונטיות
+  /// מציג גיליון ניתוח דירוג — ציון ופירוט רלוונטיות.
+  // ignore: unused_element
   void _showRankingAnalysisSheet(FileMetadata file) {
     final score = file.debugScore;
     final breakdown = file.debugScoreBreakdown ?? '';
@@ -2709,7 +2709,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         if (results.isEmpty) {
           return ValueListenableBuilder<bool>(
             valueListenable: AutoScanManager.instance.isScanningNotifier,
-            builder: (_, isScanning, __) {
+            builder: (_, isScanning, _) {
               final dbCount = _databaseService.getFilesCount();
               if (dbCount == 0 && isScanning) {
                 return Center(

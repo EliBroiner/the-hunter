@@ -14,6 +14,10 @@ public partial class AdminFirestoreService
     /// <summary>ברירת מחדל לבדיקות — כאשר FIRESTORE_PROJECT_ID חסר ב-env.</summary>
     private const string DefaultProjectId = "thehunter-485508";
     private const string ColSuggestions = "suggestions";
+    /// <summary>הצעות למידה מלאות מ-AI — suggested_keywords, suggested_regex — לסקירה ב-Admin.</summary>
+    private const string ColDictionarySuggestions = "dictionary_suggestions";
+    /// <summary>לולאת למידה סגורה — term, category, source_file. מונחים מאושרים מוזרקים ל-SmartSearch.</summary>
+    private const string ColLearnedKnowledge = "learned_knowledge";
     private const string ColUsers = "users";
     private const string ColLogs = "logs";
     private const string ColRankingSettings = "ranking_settings";

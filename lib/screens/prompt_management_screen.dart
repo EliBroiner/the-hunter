@@ -17,10 +17,18 @@ class PromptManagementScreen extends StatefulWidget {
 class _PromptManagementScreenState extends State<PromptManagementScreen> {
   final _promptService = PromptAdminService.instance;
 
+  static const _featureOptions = [
+    ('analysis', 'Document Analysis'),
+    ('trainer', 'Document Trainer'),
+    ('search', 'Smart Search'),
+    ('ocr_extraction', 'OCR Extraction'),
+  ];
+
   List<SystemPrompt> _prompts = [];
+  SystemPromptResult? _latestFallback;
   bool _isLoading = true;
   String? _error;
-  String _filterFeature = '';
+  String _selectedFeature = 'analysis';
 
   @override
   void initState() {
@@ -32,14 +40,18 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _latestFallback = null;
     });
     try {
-      final list = await _promptService.fetchPrompts(
-        feature: _filterFeature.isEmpty ? null : _filterFeature,
-      );
+      final list = await _promptService.fetchPromptsByFeature(_selectedFeature);
+      SystemPromptResult? latest;
+      if (list.isEmpty) {
+        latest = await _promptService.fetchLatestPrompt(_selectedFeature);
+      }
       if (mounted) {
         setState(() {
           _prompts = list;
+          _latestFallback = latest;
           _isLoading = false;
           _error = null;
         });
@@ -57,13 +69,14 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
   Future<void> _onCreatePrompt() async {
     final result = await showDialog<_CreatePromptResult>(
       context: context,
-      builder: (context) => const _CreatePromptDialog(),
+      builder: (context) => _CreatePromptDialog(initialFeature: _selectedFeature),
     );
     if (result == null || !mounted) return;
     final created = await _promptService.savePrompt(
       feature: result.feature,
       content: result.content,
       version: result.version,
+      setActive: result.setActive,
     );
     if (!mounted) return;
     if (created != null) {
@@ -86,6 +99,19 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
     }
   }
 
+  Future<void> _showPromptHistory() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _PromptHistoryDialog(
+        promptService: _promptService,
+        onEdit: _onEditPrompt,
+        onSetActive: _onSetActive,
+        onClosed: _loadPrompts,
+      ),
+    );
+    if (mounted) await _loadPrompts();
+  }
+
   Future<void> _onEditPrompt(SystemPrompt prompt) async {
     final result = await showDialog<_CreatePromptResult>(
       context: context,
@@ -96,6 +122,7 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
       feature: result.feature,
       content: result.content,
       version: result.version,
+      setActive: result.setActive,
     );
     if (!mounted) return;
     if (created != null) {
@@ -120,7 +147,9 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
 
   Future<void> _onSetActive(SystemPrompt prompt) async {
     if (prompt.isActive) return;
-    final ok = await _promptService.setPromptActive(prompt.id);
+    final ok = ['analysis', 'trainer', 'search', 'ocr_extraction'].contains(_selectedFeature)
+        ? await _promptService.setPromptActiveByFeatureVersion(prompt.targetFeature, prompt.version)
+        : await _promptService.setPromptActive(prompt.id);
     if (!mounted) return;
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -166,6 +195,11 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
           ),
           actions: [
             IconButton(
+              icon: const Icon(Icons.history),
+              onPressed: _isLoading ? null : _showPromptHistory,
+              tooltip: tr('prompts_history'),
+            ),
+            IconButton(
               icon: const Icon(Icons.add),
               onPressed: _isLoading ? null : _onCreatePrompt,
               tooltip: tr('prompts_create'),
@@ -188,29 +222,123 @@ class _PromptManagementScreenState extends State<PromptManagementScreen> {
     if (_isLoading) {
       return PromptManagementLoading(theme: theme);
     }
-    if (_prompts.isEmpty) {
-      return PromptManagementEmpty(theme: theme, onCreate: _onCreatePrompt);
-    }
-    return _buildList(theme);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: DropdownButtonFormField<String>(
+            initialValue: _selectedFeature,
+            decoration: InputDecoration(
+              labelText: tr('prompts_select_feature'),
+              border: const OutlineInputBorder(),
+            ),
+            items: _featureOptions
+                .map((e) => DropdownMenuItem(value: e.$1, child: Text(e.$2)))
+                .toList(),
+            onChanged: (v) {
+              if (v != null) {
+                setState(() => _selectedFeature = v);
+                _loadPrompts();
+              }
+            },
+          ),
+        ),
+        Expanded(
+          child: _prompts.isEmpty && _latestFallback == null
+              ? PromptManagementEmpty(theme: theme, onCreate: _onCreatePrompt)
+              : _buildList(theme),
+        ),
+      ],
+    );
   }
 
   Widget _buildList(ThemeData theme) {
     return RefreshIndicator(
       onRefresh: _loadPrompts,
-      child: ListView.builder(
+      child: ListView(
         padding: const EdgeInsets.all(16),
-        itemCount: _prompts.length,
-        itemBuilder: (context, index) {
-          final prompt = _prompts[index];
-          return PromptManagementCard(
-            theme: theme,
-            prompt: prompt,
-            onTap: () => _onSetActive(prompt),
-            onEdit: () => _onEditPrompt(prompt),
-          );
-        },
+        children: [
+          if (_prompts.isEmpty && _latestFallback != null) _buildFallbackCard(theme),
+          ..._prompts.map((p) => PromptManagementCard(
+                theme: theme,
+                prompt: p,
+                onTap: () => _onSetActive(p),
+                onEdit: () => _onEditPrompt(p),
+              )),
+        ],
       ),
     );
+  }
+
+  Widget _buildFallbackCard(ThemeData theme) {
+    final fb = _latestFallback!;
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.amber.shade700, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                '${tr('prompts_active')}: ${fb.version}',
+                style: theme.textTheme.titleSmall?.copyWith(color: Colors.amber.shade800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            fb.text.length > 200 ? '${fb.text.substring(0, 200)}...' : fb.text,
+            style: theme.textTheme.bodySmall,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => _onSaveFallbackAs10(),
+            icon: const Icon(Icons.save, size: 18),
+            label: Text(tr('prompts_save_as').replaceAll('{{version}}', '1.0')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _onSaveFallbackAs10() async {
+    final fb = _latestFallback;
+    if (fb == null) return;
+    final created = await _promptService.savePrompt(
+      feature: _selectedFeature,
+      content: fb.text,
+      version: '1.0',
+      setActive: true,
+    );
+    if (!mounted) return;
+    if (created != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('prompts_saved')),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _loadPrompts();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('prompts_save_error')),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
 }
@@ -219,11 +347,13 @@ class _CreatePromptResult {
   final String feature;
   final String content;
   final String version;
+  final bool setActive;
 
   _CreatePromptResult({
     required this.feature,
     required this.content,
     required this.version,
+    this.setActive = false,
   });
 }
 
@@ -241,6 +371,7 @@ class _EditPromptDialogState extends State<_EditPromptDialog> {
   late final TextEditingController _versionController;
   late final TextEditingController _contentController;
   late final String _originalVersion;
+  bool _setActive = false;
 
   static String _nextVersion(String current) {
     final parts = current.split('.');
@@ -265,6 +396,11 @@ class _EditPromptDialogState extends State<_EditPromptDialog> {
     _versionController.dispose();
     _contentController.dispose();
     super.dispose();
+  }
+
+  String get _effectiveVersion {
+    final v = _versionController.text.trim();
+    return v == _originalVersion ? '$v.1' : v;
   }
 
   @override
@@ -301,6 +437,12 @@ class _EditPromptDialogState extends State<_EditPromptDialog> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                SwitchListTile(
+                  title: Text(tr('prompts_set_active')),
+                  value: _setActive,
+                  onChanged: (v) => setState(() => _setActive = v),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _contentController,
                   decoration: InputDecoration(
@@ -334,16 +476,15 @@ class _EditPromptDialogState extends State<_EditPromptDialog> {
                 );
                 return;
               }
-              if (version == _originalVersion) {
-                version = '$version.1';
-              }
+              if (version == _originalVersion) version = '$version.1';
               Navigator.of(context).pop(_CreatePromptResult(
                 feature: feature,
                 content: content,
                 version: version,
+                setActive: _setActive,
               ));
             },
-            child: Text(tr('save')),
+            child: Text(tr('prompts_save_as').replaceAll('{{version}}', _effectiveVersion)),
           ),
         ],
       ),
@@ -352,16 +493,25 @@ class _EditPromptDialogState extends State<_EditPromptDialog> {
 }
 
 class _CreatePromptDialog extends StatefulWidget {
-  const _CreatePromptDialog();
+  const _CreatePromptDialog({this.initialFeature = 'analysis'});
+
+  final String initialFeature;
 
   @override
   State<_CreatePromptDialog> createState() => _CreatePromptDialogState();
 }
 
 class _CreatePromptDialogState extends State<_CreatePromptDialog> {
-  final _featureController = TextEditingController(text: 'DocAnalysis');
+  late final TextEditingController _featureController;
+
+  @override
+  void initState() {
+    super.initState();
+    _featureController = TextEditingController(text: widget.initialFeature);
+  }
   final _versionController = TextEditingController(text: '1.0');
   final _contentController = TextEditingController();
+  bool _setActive = false;
 
   @override
   void dispose() {
@@ -405,6 +555,12 @@ class _CreatePromptDialogState extends State<_CreatePromptDialog> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                SwitchListTile(
+                  title: Text(tr('prompts_set_active')),
+                  value: _setActive,
+                  onChanged: (v) => setState(() => _setActive = v),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _contentController,
                   decoration: InputDecoration(
@@ -442,9 +598,156 @@ class _CreatePromptDialogState extends State<_CreatePromptDialog> {
                 feature: feature,
                 content: content,
                 version: version,
+                setActive: _setActive,
               ));
             },
             child: Text(tr('save')),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// דיאלוג היסטוריית פרומפטים — בחירת feature, רשימת גרסאות, נקודה ירוקה לפעיל.
+class _PromptHistoryDialog extends StatefulWidget {
+  const _PromptHistoryDialog({
+    required this.promptService,
+    required this.onEdit,
+    required this.onSetActive,
+    required this.onClosed,
+  });
+
+  final PromptAdminService promptService;
+  final void Function(SystemPrompt) onEdit;
+  final void Function(SystemPrompt) onSetActive;
+  final VoidCallback onClosed;
+
+  @override
+  State<_PromptHistoryDialog> createState() => _PromptHistoryDialogState();
+}
+
+class _PromptHistoryDialogState extends State<_PromptHistoryDialog> {
+  static const _features = [
+    ('analysis', 'Document Analysis'),
+    ('trainer', 'Document Trainer'),
+    ('search', 'Smart Search'),
+    ('ocr_extraction', 'OCR Extraction'),
+  ];
+  String _selectedFeature = _features.first.$1;
+  List<SystemPrompt> _prompts = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await widget.promptService.fetchPromptsByFeature(_selectedFeature);
+      if (mounted) {
+        setState(() {
+          _prompts = list;
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isRtl = LocalizationService.instance.isHebrew;
+
+    return Directionality(
+      textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+      child: AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        title: Text(tr('prompts_history')),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: _selectedFeature,
+                decoration: InputDecoration(
+                  labelText: tr('prompts_feature_label'),
+                ),
+                items: _features.map((f) => DropdownMenuItem(value: f.$1, child: Text(f.$2))).toList(),
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _selectedFeature = v);
+                    _load();
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              if (_loading)
+                const Center(child: CircularProgressIndicator())
+              else if (_error != null)
+                Text(_error!, style: TextStyle(color: theme.colorScheme.error, fontSize: 12))
+              else if (_prompts.isEmpty)
+                Text(tr('prompts_empty'), style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)))
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _prompts.length,
+                    itemBuilder: (_, i) {
+                      final p = _prompts[i];
+                      return ListTile(
+                        leading: Icon(
+                          Icons.circle,
+                          size: 12,
+                          color: p.isActive ? Colors.green : theme.colorScheme.outline.withValues(alpha: 0.4),
+                        ),
+                        title: Text(p.version),
+                        subtitle: p.isActive ? Text(tr('prompts_active'), style: TextStyle(color: Colors.green, fontSize: 12)) : null,
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          widget.onEdit(p);
+                        },
+                        trailing: !p.isActive
+                            ? IconButton(
+                                icon: const Icon(Icons.check_circle_outline, size: 20),
+                                tooltip: tr('prompts_set_active'),
+                                onPressed: () {
+                                  widget.onSetActive(p);
+                                  Navigator.of(context).pop();
+                                },
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              widget.onClosed();
+            },
+            child: Text(tr('close')),
           ),
         ],
       ),

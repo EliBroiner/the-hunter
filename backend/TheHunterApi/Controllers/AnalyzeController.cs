@@ -162,6 +162,12 @@ public class AnalyzeController : ControllerBase
                 _logger.LogWarning("[AUDIT] AdminPromptOverride used for analyze-debug | UserId={UserId} | PromptLength={Len}", userId, customPrompt.Length);
             }
         }
+        else if (request.UseTrainerPrompt)
+        {
+            var trainerResult = await _firestore.GetLatestPromptAsync(FeatureType.DocumentTrainer);
+            customPrompt = trainerResult.Text;
+            _logger.LogInformation("[analyze-debug] Using DocumentTrainer prompt (feature=trainer) for Learning Task");
+        }
 
         var result = await _geminiService.AnalyzeDocumentWithCustomPromptAsync(request.Text ?? "", customPrompt);
         return Ok(result);
@@ -313,7 +319,8 @@ public class AnalyzeController : ControllerBase
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant().TrimStart('.');
         var mimeType = OcrConstants.GetMimeTypeForExtension(ext, "image/jpeg");
-        var (extracted, success, _) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, OcrConstants.ExtractionPromptFallback);
+        var ocrPrompt = (await _firestore.GetLatestPromptAsync(FeatureType.OcrExtraction)).Text;
+        var (extracted, success, _) = await _geminiService.ExtractTextFromFileAsync(bytes, mimeType, ocrPrompt);
         var text = success ? (extracted ?? "") : "";
         return (text, string.IsNullOrWhiteSpace(text));
     }

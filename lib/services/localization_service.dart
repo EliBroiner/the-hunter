@@ -409,11 +409,15 @@ class LocalizationService {
     'prompts_activated': 'הפרומפט הופעל',
     'prompts_activate_error': 'שגיאה בהפעלת הפרומפט',
     'prompts_feature_label': 'תכונה (Feature)',
+    'prompts_select_feature': 'בחר תכונת AI',
     'prompts_version_label': 'גרסה',
     'prompts_content_label': 'תוכן הפרומפט',
     'prompts_content_hint': 'הזן את תוכן הפרומפט כאן...',
     'prompts_fill_required': 'יש למלא את כל השדות',
     'prompts_edit': 'ערוך פרומפט',
+    'prompts_history': 'היסטוריית פרומפטים',
+    'prompts_set_active': 'הפעל מיד',
+    'prompts_save_as': 'שמור כ־{{version}}',
   };
 
   // --- מילון אנגלית ---
@@ -804,11 +808,15 @@ class LocalizationService {
     'prompts_activated': 'Prompt activated',
     'prompts_activate_error': 'Error activating prompt',
     'prompts_feature_label': 'Feature',
+    'prompts_select_feature': 'Select AI Feature',
     'prompts_version_label': 'Version',
     'prompts_content_label': 'Prompt content',
     'prompts_content_hint': 'Enter prompt content here...',
     'prompts_fill_required': 'All fields are required',
     'prompts_edit': 'Edit prompt',
+    'prompts_history': 'Prompt History',
+    'prompts_set_active': 'Set Active',
+    'prompts_save_as': 'Save as {{version}}',
   };
 }
 

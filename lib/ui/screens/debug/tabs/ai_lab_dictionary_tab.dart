@@ -39,7 +39,7 @@ class AiLabDictionaryTab extends StatelessWidget {
           Expanded(
             child: ListenableBuilder(
               listenable: searchController,
-              builder: (_, __) {
+              builder: (_, _) {
                 final query = searchController.text.trim().toLowerCase();
                 return StreamBuilder<List<SearchSynonym>>(
                   stream: DatabaseService.instance.watchDictionaryTerms(),

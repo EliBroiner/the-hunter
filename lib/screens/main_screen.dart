@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auto_scan_manager.dart';
 import '../services/file_scanner_service.dart';
-import '../services/localization_service.dart';
 import '../services/permission_service.dart';
 import '../ui/widgets/processing_banner.dart';
 import 'folder_selection_screen.dart';

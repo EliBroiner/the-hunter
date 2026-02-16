@@ -1,14 +1,10 @@
 namespace TheHunterApi.Constants;
 
 /// <summary>
-/// קבועים משותפים ל-OCR — פרומפט חילוץ טקסט, מיפוי MIME.
+/// קבועים משותפים ל-OCR — מיפוי MIME. פרומפט חילוץ הועבר ל-SystemPromptFallbacks.OcrExtraction.
 /// </summary>
 public static class OcrConstants
 {
-    /// <summary>פרומפט ברירת מחדל לחילוץ טקסט — AdminAiController, AnalyzeController.</summary>
-    public const string ExtractionPromptFallback =
-        "חלץ את כל הטקסט מהמסמך/התמונה. החזר רק את הטקסט הגולמי, ללא הסברים. שמור על השפה המקורית.";
-
     /// <summary>מיפוי סיומת → MIME. מחזיר "" לסיומת לא נתמכת. defaultForImage = image/jpeg כשמקור התמונה.</summary>
     public static string GetMimeTypeForExtension(string ext, string? defaultForImage = null) =>
         ext.ToLowerInvariant().TrimStart('.') switch

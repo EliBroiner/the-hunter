@@ -638,7 +638,7 @@ class DatabaseService {
   static bool _termMatchesAiMetadata(FileMetadata f, String term, bool exactOnly) {
     final meta = f.aiMetadata;
     if (meta == null || meta.isEmpty) return false;
-    final check = (String s) => _termMatchesString(s, term, exactOnly);
+    bool check(String s) => _termMatchesString(s, term, exactOnly);
     return meta.names.any(check) || meta.ids.any(check) || meta.locations.any(check);
   }
 

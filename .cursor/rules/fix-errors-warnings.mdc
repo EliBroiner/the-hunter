@@ -1,0 +1,15 @@
+---
+description: תמיד לטפל בשגיאות ואזהרות — לא להשאיר בקוד
+alwaysApply: true
+---
+
+# טיפול בשגיאות ואזהרות
+
+**כלל:** תמיד לטפל בשגיאות או הודעות אזהרה — לא להשאיר אותן בקוד.
+
+- **לפני סיום משימה:** להריץ `flutter analyze lib/` (Flutter) או `dotnet build` (Backend) ולוודא שאין issues.
+- **שגיאות (errors):** חובה לתקן — הקוד לא יעבוד.
+- **אזהרות (warnings):** חובה לתקן — מניעת technical debt.
+- **info:** לתקן כשאפשר — שיפור איכות הקוד.
+
+דוגמאות: unused imports, deprecated APIs, dead code, unreachable cases.

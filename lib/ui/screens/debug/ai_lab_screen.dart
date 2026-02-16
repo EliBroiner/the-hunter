@@ -45,7 +45,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
   // Pipeline: שלב 2 — Server AI
   final TextEditingController _serverJsonController = TextEditingController();
   String _customPrompt = '';
-  String _promptTargetFeature = 'DocAnalysis';
+  String _promptTargetFeature = 'analysis';
   String _sendStatus = ''; // תוצאת שלב 2 (Send to Server) — Success / Error: ...
   bool _sendSuccess = false;
   bool _saveAsNewVersionInProgress = false;
@@ -85,6 +85,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
     _checkAdmin();
     _labLog('AI Lab opened');
     _labLog('[POLISH] Applied fixes for density calc, prompt versioning, and reactive UI.');
+    _labLog('[ARCH] Unified all 3 AI brains (Analysis, Search, OCR) into Firestore. Injected V2 Logic.');
   }
 
   void _onAdminKeyChanged() {
@@ -232,6 +233,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
         'text': text,
         if (userId != null) 'userId': userId,
         if (_isAdmin && _customPrompt.isNotEmpty) 'adminPromptOverride': _customPrompt,
+        if (_customPrompt.isEmpty && _promptTargetFeature == 'trainer') 'useTrainerPrompt': true,
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';
@@ -699,7 +701,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   DropdownButtonFormField<String>(
-                    value: feature,
+                    initialValue: feature,
                     dropdownColor: const Color(0xFF161B22),
                     decoration: const InputDecoration(
                       labelText: 'Target Feature',
@@ -707,9 +709,10 @@ class _AiLabScreenState extends State<AiLabScreen> {
                       fillColor: Color(0xFFE8E8E8),
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'DocAnalysis', child: Text('DocAnalysis')),
-                      DropdownMenuItem(value: 'Search', child: Text('Search')),
-                      DropdownMenuItem(value: 'OcrExtraction', child: Text('OcrExtraction')),
+                      DropdownMenuItem(value: 'analysis', child: Text('Document Analysis')),
+                      DropdownMenuItem(value: 'trainer', child: Text('Document Trainer')),
+                      DropdownMenuItem(value: 'search', child: Text('Smart Search')),
+                      DropdownMenuItem(value: 'ocr_extraction', child: Text('OCR Extraction')),
                     ],
                     onChanged: (v) => setDialogState(() => feature = v ?? feature),
                   ),
@@ -951,6 +954,7 @@ class _AiLabScreenState extends State<AiLabScreen> {
         'text': text,
         if (userId != null) 'userId': userId,
         if (_isAdmin && _customPrompt.isNotEmpty) 'adminPromptOverride': _customPrompt,
+        if (_customPrompt.isEmpty && _promptTargetFeature == 'trainer') 'useTrainerPrompt': true,
       });
       final headers = await AppCheckHttpHelper.getBackendHeaders();
       headers['Content-Type'] = 'application/json';

@@ -41,7 +41,7 @@ class SearchFileThumbnail extends StatelessWidget {
           height: size,
           cacheWidth: 150,
           cacheHeight: 150,
-          errorBuilder: (_, __, ___) => Center(
+          errorBuilder: (_, _, _) => Center(
             child: SearchFileIcon(extension: file.extension, isWhatsApp: isWhatsApp),
           ),
           frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {

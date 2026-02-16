@@ -31,6 +31,16 @@ public interface ISystemPromptService
     Task<bool> SetActiveAsync(int promptId);
 
     /// <summary>
+    /// מפעיל פרומפט לפי feature+version — משנה IsActive ל-true עבור המסמך המתאים, ומבטל את השאר באותו feature.
+    /// </summary>
+    Task<bool> SetActiveByFeatureVersionAsync(string feature, string version);
+
+    /// <summary>
+    /// מביא פרומפטים לפי feature — ממוין לפי גרסה יורד (1.2, 1.1, 1.0).
+    /// </summary>
+    Task<List<SystemPrompt>> GetPromptsForFeatureAsync(string feature);
+
+    /// <summary>
     /// מביא היסטוריית פרומפטים — מסונן לפי feature (אופציונלי), ממוין לפי CreatedAt יורד.
     /// </summary>
     Task<List<SystemPrompt>> GetListAsync(string? feature = null);

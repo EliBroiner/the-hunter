@@ -208,7 +208,7 @@ class CategoryManagerService {
       for (final s in all) {
         if (s.term.isEmpty || s.expansions.isEmpty) continue;
         final terms = s.expansions;
-        final cat = (s.category ?? '').trim();
+        final cat = s.category.trim();
         _synonymCache[_keyFor(s.term)] = terms;
         _synonymCache[s.term] = terms;
         if (cat.isNotEmpty) {

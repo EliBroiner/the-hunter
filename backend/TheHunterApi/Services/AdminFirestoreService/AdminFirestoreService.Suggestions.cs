@@ -6,6 +6,36 @@ namespace TheHunterApi.Services;
 /// <summary>חלק partial — מונחים (suggestions), אישורים, ייצוא.</summary>
 public partial class AdminFirestoreService
 {
+    /// <summary>שומר הצעות למידה מלאות מ-AI ל-dictionary_suggestions — לסקירת Admin (keywords + regex).</summary>
+    public async Task SaveDictionarySuggestionsAsync(IReadOnlyList<AiSuggestion> suggestions, string? sourceDocumentId, string? userId, CancellationToken ct = default)
+    {
+        if (suggestions == null || suggestions.Count == 0) return;
+        try
+        {
+            var col = _db.Collection(ColDictionarySuggestions);
+            foreach (var s in suggestions)
+            {
+                if (string.IsNullOrWhiteSpace(s.SuggestedCategory) && (s.SuggestedKeywords == null || s.SuggestedKeywords.Count == 0)) continue;
+                var data = new Dictionary<string, object>
+                {
+                    ["suggested_category"] = s.SuggestedCategory ?? "",
+                    ["suggested_keywords"] = s.SuggestedKeywords ?? new List<string>(),
+                    ["suggested_regex"] = s.SuggestedRegex ?? "",
+                    ["confidence"] = Math.Clamp(s.Confidence, 0, 1),
+                    ["created_at"] = Timestamp.GetCurrentTimestamp(),
+                    ["userId"] = userId ?? "",
+                };
+                if (!string.IsNullOrWhiteSpace(sourceDocumentId)) data["sourceDocumentId"] = sourceDocumentId;
+                await col.AddAsync(data, ct);
+            }
+            _logger.LogDebug("Saved {Count} dictionary suggestions to Firestore", suggestions.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SaveDictionarySuggestions failed — continuing");
+        }
+    }
+
     /// <summary>מונחים שממתינים לאישור — קורא מ-suggestions (status=pending_approval).</summary>
     public async Task<(List<LearnedTerm> Terms, bool Ok)> GetPendingTermsAsync()
     {

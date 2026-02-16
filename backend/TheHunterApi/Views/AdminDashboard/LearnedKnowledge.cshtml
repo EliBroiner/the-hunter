@@ -1,0 +1,71 @@
+@model List<TheHunterApi.Models.LearnedKnowledgeItem>
+@{
+    ViewData["Title"] = "Learned Knowledge";
+    var statusFilter = ViewBag.StatusFilter as string;
+}
+@if (TempData["WeightsMessage"] != null)
+{
+    <div class="alert @(TempData["WeightsMessageSuccess"] as bool? ?? true ? "alert-success" : "alert-warning") alert-dismissible fade show" role="alert">
+        @TempData["WeightsMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור"></button>
+    </div>
+}
+
+<h1 class="mb-4">@ViewData["Title"]</h1>
+<p class="text-muted">מונחים שלמד ה-AI ממסמכי המשתמש. מונחים מאושרים מוזרקים אוטומטית ל-SmartSearch.</p>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a href="/admin/learned-knowledge" class="btn btn-sm @(statusFilter == null ? "btn-primary" : "btn-outline-secondary")">הכל</a>
+    <a href="/admin/learned-knowledge?status=pending_approval" class="btn btn-sm @(statusFilter == "pending_approval" ? "btn-warning" : "btn-outline-warning")">ממתינים</a>
+    <a href="/admin/learned-knowledge?status=approved" class="btn btn-sm @(statusFilter == "approved" ? "btn-success" : "btn-outline-success")">מאושרים</a>
+</div>
+
+@if (Model.Count == 0)
+{
+    <div class="alert alert-info">לא נמצאו פריטים. סריקת מסמכים תמלא את האוסף.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>מונח</th>
+                    <th>קטגוריה</th>
+                    <th>קובץ מקור</th>
+                    <th>סטטוס</th>
+                    <th>תאריך</th>
+                    <th>פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    <tr>
+                        <td dir="rtl">@item.Term</td>
+                        <td>@item.Category</td>
+                        <td class="small text-muted">@(item.SourceFile ?? "—")</td>
+                        <td>
+                            <span class="badge @(item.Status == "approved" ? "bg-success" : "bg-warning text-dark")">@item.Status</span>
+                        </td>
+                        <td>@item.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            @if (item.Status != "approved")
+                            {
+                                <form asp-action="ApproveLearnedKnowledge" asp-route-id="@item.FirestoreId" method="post" class="d-inline">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-success btn-sm">אישור</button>
+                                </form>
+                            }
+                            <form asp-action="DeleteLearnedKnowledge" asp-route-id="@item.FirestoreId" method="post" class="d-inline"
+                                  onsubmit="return confirm('למחוק את המונח?');">
+                                @Html.AntiForgeryToken()
+                                <button type="submit" class="btn btn-outline-danger btn-sm">מחיקה</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

@@ -32,7 +32,7 @@ class RelevanceEngine {
   static bool _termMatchesAiMetadata(AiMetadata meta, String term) {
     final t = _norm(term);
     if (t.isEmpty) return false;
-    final check = (String s) => _norm(s).contains(t) || _norm(s) == t;
+    bool check(String s) => _norm(s).contains(t) || _norm(s) == t;
     return meta.names.any(check) || meta.ids.any(check) || meta.locations.any(check);
   }
 

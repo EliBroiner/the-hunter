@@ -73,6 +73,50 @@ public class SystemPromptService : ISystemPromptService
     }
 
     /// <inheritdoc />
+    public async Task<bool> SetActiveByFeatureVersionAsync(string feature, string version)
+    {
+        if (string.IsNullOrWhiteSpace(feature) || string.IsNullOrWhiteSpace(version))
+            return false;
+
+        var prompt = await _db.SystemPrompts
+            .FirstOrDefaultAsync(p => p.Feature == feature && p.Version == version);
+        if (prompt == null)
+        {
+            _logger.LogWarning("SetActiveByFeatureVersion: Prompt not found Feature={Feature}, Version={Version}", feature, version);
+            return false;
+        }
+
+        return await SetActiveAsync(prompt.Id);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SystemPrompt>> GetPromptsForFeatureAsync(string feature)
+    {
+        if (string.IsNullOrWhiteSpace(feature))
+            return [];
+
+        var list = await _db.SystemPrompts
+            .AsNoTracking()
+            .Where(p => p.Feature == feature)
+            .ToListAsync();
+
+        return list.OrderByDescending(p => ParseVersionForSort(p.Version)).ToList();
+    }
+
+    /// <summary>ממיר גרסה למספר למיון — 1.2 → 102, 1.10 → 110.</summary>
+    private static long ParseVersionForSort(string version)
+    {
+        var parts = version.Split('.');
+        long result = 0;
+        for (var i = 0; i < Math.Min(3, parts.Length); i++)
+        {
+            if (int.TryParse(parts[i], out var n))
+                result = result * 1000 + n;
+        }
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> SetActiveAsync(int promptId)
     {
         var prompt = await _db.SystemPrompts.FindAsync(promptId);

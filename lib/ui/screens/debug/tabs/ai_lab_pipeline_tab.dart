@@ -203,7 +203,7 @@ class AiLabPipelineTab extends StatelessWidget {
         ),
         ValueListenableBuilder<TextEditingValue>(
           valueListenable: ocrDisplayController,
-          builder: (_, value, __) {
+          builder: (_, value, _) {
             final textLen = value.text.length;
             if (ocrFileSizeBytes <= 0 && textLen == 0) return const SizedBox.shrink();
             final density = textDensityScore(textLen, ocrFileSizeBytes > 0 ? ocrFileSizeBytes : 1);

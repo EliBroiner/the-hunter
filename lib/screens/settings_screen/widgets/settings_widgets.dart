@@ -270,7 +270,7 @@ class SettingsUserProfileCard extends StatelessWidget {
               child: Image.network(
                 photoUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.white, size: 30),
+                errorBuilder: (_, _, _) => const Icon(Icons.person, color: Colors.white, size: 30),
               ),
             )
           : const Icon(Icons.person, color: Colors.white, size: 30),

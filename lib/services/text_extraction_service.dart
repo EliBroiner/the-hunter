@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:excel/excel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
@@ -193,7 +192,6 @@ class TextExtractionService {
       TimeCellValue() => v.asDuration().toString(),
       DateTimeCellValue() => v.asDateTimeLocal().toString(),
       FormulaCellValue(:final formula) => formula.toString(),
-      _ => v.toString(),
     };
   }
 

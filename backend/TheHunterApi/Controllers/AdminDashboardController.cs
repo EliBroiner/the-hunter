@@ -119,6 +119,41 @@ public class AdminDashboardController : Controller
     public IActionResult FileXRay() => View("FileXRay");
 
     [HttpGet]
+    [Route("learned-knowledge")]
+    public async Task<IActionResult> LearnedKnowledge(string? status = null)
+    {
+        var items = await _firestore.GetLearnedKnowledgeAsync(status);
+        ViewBag.StatusFilter = status;
+        return View(items);
+    }
+
+    [HttpPost]
+    [Route("learned-knowledge/approve/{id}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ApproveLearnedKnowledge(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.ApproveLearnedKnowledgeAsync(id);
+        if (!ok) return NotFound();
+        TempData["WeightsMessage"] = "המונח אושר — יוזרק כעת ל-SmartSearch.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(LearnedKnowledge));
+    }
+
+    [HttpPost]
+    [Route("learned-knowledge/delete/{id}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteLearnedKnowledge(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return NotFound();
+        var ok = await _firestore.DeleteLearnedKnowledgeAsync(id);
+        if (!ok) return NotFound();
+        TempData["WeightsMessage"] = "המונח נמחק.";
+        TempData["WeightsMessageSuccess"] = true;
+        return RedirectToAction(nameof(LearnedKnowledge));
+    }
+
+    [HttpGet]
     [Route("term/edit/{id}")]
     public async Task<IActionResult> EditTerm(string id)
     {
