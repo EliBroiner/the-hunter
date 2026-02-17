@@ -333,6 +333,54 @@ class SearchResultSourceTag extends StatelessWidget {
   }
 }
 
+/// שורת 4 שלבי הצינור — OCR, DICT, VIS, AI
+class SearchPipelineStatusRow extends StatelessWidget {
+  const SearchPipelineStatusRow({super.key, required this.file});
+
+  final FileMetadata file;
+
+  Color _colorFor(String status) {
+    switch (status) {
+      case 'success':
+        return Colors.green;
+      case 'failed':
+        return Colors.red;
+      case 'pending':
+        return Colors.orange;
+      case 'skipped':
+        return Colors.grey;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = file.processingSteps;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildIcon(Icons.description, steps.ocrStatus, 'OCR'),
+        const SizedBox(width: 4),
+        _buildIcon(Icons.menu_book, steps.dictionaryStatus, 'DICT'),
+        const SizedBox(width: 4),
+        _buildIcon(Icons.visibility_off, steps.visionStatus, 'VIS'),
+        const SizedBox(width: 4),
+        _buildIcon(Icons.auto_awesome, steps.aiStatus, 'AI'),
+      ],
+    );
+  }
+
+  Widget _buildIcon(IconData icon, String status, String label) {
+    final color = _colorFor(status);
+    final displayIcon = status == 'skipped' ? Icons.block : icon;
+    return Tooltip(
+      message: '$label: $status',
+      child: Icon(displayIcon, size: 14, color: color),
+    );
+  }
+}
+
 /// שורת מטא — גודל, תאריך, debug score
 class SearchResultMetaRow extends StatelessWidget {
   const SearchResultMetaRow({

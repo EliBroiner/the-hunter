@@ -3459,6 +3459,8 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 ],
                 const SizedBox(height: 4),
                 SearchResultMetaRow(file: file, showDebugScore: _showDebugScore),
+                const SizedBox(height: 4),
+                SearchPipelineStatusRow(file: file),
                 if (fileTags.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Wrap(spacing: 4, runSpacing: 4, children: fileTags.take(3).map((tag) => SearchTagChip(tag: tag)).toList()),

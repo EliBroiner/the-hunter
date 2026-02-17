@@ -2,6 +2,28 @@ import 'package:isar/isar.dart';
 
 part 'file_metadata.g.dart';
 
+/// מצב 4 שלבי הצינור — לשימוש ב-UI
+class ProcessingSteps {
+  final String ocrStatus;
+  final String dictionaryStatus;
+  final String visionStatus;
+  final String aiStatus;
+  final String source;
+
+  const ProcessingSteps({
+    this.ocrStatus = 'pending',
+    this.dictionaryStatus = 'pending',
+    this.visionStatus = 'skipped',
+    this.aiStatus = 'pending',
+    this.source = 'local',
+  });
+
+  static const String pending = 'pending';
+  static const String success = 'success';
+  static const String failed = 'failed';
+  static const String skipped = 'skipped';
+}
+
 /// מטא־דאטה מחולצת מ-AI — שמות, מזהים, מיקומים (לא ב-tags)
 class AiMetadata {
   final List<String> names;
@@ -112,6 +134,30 @@ class FileMetadata {
 
   /// סטטוס ניתוח AI: null/ok, quotaLimit, error
   String? aiStatus;
+
+  /// סטטוסי 4 שלבי הצינור — pending/success/failed/skipped
+  String? processingOcrStatus;
+  String? processingDictStatus;
+  String? processingVisionStatus;
+  String? processingAiStatus;
+  /// מקור: local | ai | manual
+  String? dataSource;
+
+  /// גישה נוחה ל־ProcessingSteps — משתמש בשדות שמורים או מחשב מ־aiStatus
+  @Ignore()
+  ProcessingSteps get processingSteps {
+    String ai = processingAiStatus ?? ProcessingSteps.pending;
+    if (ai == ProcessingSteps.pending && isAiAnalyzed && (aiStatus == null || aiStatus == 'ok')) ai = ProcessingSteps.success;
+    if (ai == ProcessingSteps.pending && (aiStatus == 'error' || aiStatus == 'pending_retry' || aiStatus == 'auth_failed_retry')) ai = ProcessingSteps.failed;
+    final src = dataSource ?? (aiStatus == 'local_match' ? 'local' : (isAiAnalyzed ? 'ai' : 'local'));
+    return ProcessingSteps(
+      ocrStatus: processingOcrStatus ?? (extractedText != null && extractedText!.isNotEmpty ? ProcessingSteps.success : ProcessingSteps.pending),
+      dictionaryStatus: processingDictStatus ?? (aiStatus == 'local_match' ? ProcessingSteps.success : ProcessingSteps.pending),
+      visionStatus: processingVisionStatus ?? ProcessingSteps.skipped,
+      aiStatus: ai,
+      source: src,
+    );
+  }
 
   /// האם הקובץ עבר אינדוקס (חילוץ טקסט)
   bool isIndexed = false;

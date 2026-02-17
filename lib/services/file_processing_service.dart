@@ -190,9 +190,13 @@ class FileProcessingService {
   Future<String> _workflowStep1ExtractText(
       FileMetadata file, void Function(String)? reportProgress, {bool useExistingIfPresent = false}) async {
     appLog('[WORKFLOW] מתחיל תהליך עיבוד מרכזי: ${file.path}');
+    file.processingOcrStatus = 'pending';
+    _db.updateFile(file);
     final existing = file.extractedText?.trim() ?? '';
     if (useExistingIfPresent && existing.isNotEmpty) {
       appLog('[WORKFLOW] משתמש בטקסט קיים — אורך: ${existing.length}');
+      file.processingOcrStatus = 'success';
+      _db.updateFile(file);
       return existing;
     }
     reportProgress?.call('מחלץ טקסט...');
@@ -201,6 +205,8 @@ class FileProcessingService {
       final sw = Stopwatch()..start();
       final text = await TextExtractionService.instance.extractText(file.path);
       sw.stop();
+      file.processingOcrStatus = text.trim().isNotEmpty ? 'success' : 'failed';
+      _db.updateFile(file);
       _w('⏱️ [Timer] Local OCR: ${_fmtMs(sw.elapsedMilliseconds)}');
       final poor = text.trim().length < 50 || _validator.validateQuality(text) == AnalysisStatus.unreadable;
       _w('[Local OCR]: ${poor ? "RED" : "GREEN"} (${text.length} chars) [Text Extraction]');
@@ -223,6 +229,8 @@ class FileProcessingService {
     if (ocrResult.isNoText) {
       file.aiStatus = 'no_text_detected';
       file.extractedText = null;
+      file.processingOcrStatus = 'failed';
+      _db.updateFile(file);
       FileProcessingService.reportNoTextDetected();
       return '';
     }
@@ -235,6 +243,8 @@ class FileProcessingService {
       if (fallback.isPureImageNoText && fallback.text == null) {
         file.aiStatus = 'no_text_detected';
         file.extractedText = null;
+        file.processingOcrStatus = 'failed';
+        _db.updateFile(file);
         FileProcessingService.reportNoTextDetected();
         return '';
       }
@@ -243,6 +253,9 @@ class FileProcessingService {
       _w('⏱️ [Timer] Google Vision API: ${_fmtMs(vSw.elapsedMilliseconds)}');
       _w('[Vision Result]: Success (${text.length} chars)');
       file.extractedText = text.isEmpty ? null : text;
+      file.processingOcrStatus = 'success';
+      file.processingVisionStatus = 'success';
+      _db.updateFile(file);
       if (fallback.geminiResult != null) {
         _applyGeminiResult(file, fallback.geminiResult!);
         file.isAiAnalyzed = true;
@@ -250,6 +263,8 @@ class FileProcessingService {
       }
       return text;
     }
+    file.processingOcrStatus = ocrResult.text.trim().isNotEmpty ? 'success' : 'failed';
+    _db.updateFile(file);
     return ocrResult.text;
   }
 
@@ -305,6 +320,8 @@ class FileProcessingService {
     if (text.isEmpty) {
       if (!isPro) return null;
       if (isCanceled?.call() == true) return null;
+      file.processingAiStatus = 'pending';
+      _db.updateFile(file);
       _w('🧠 [Action] Sending to Gemini (no text, using filename)');
       final gSw = Stopwatch()..start();
       final r = await _aiTagger.processSingleFileImmediately(file, isPro: isPro);
@@ -314,6 +331,9 @@ class FileProcessingService {
     }
     final match = await _categoryManager.identifyCategory(text);
     if (match == null || match.isAmbiguous) {
+      file.processingDictStatus = 'failed';
+      file.processingAiStatus = 'pending';
+      _db.updateFile(file);
       _w('[Dictionary]: ${match == null ? "No hit" : "Only weak matches (ambiguous)"} — sending to Gemini');
       if (!isPro) return null;
       if (isCanceled?.call() == true) return null;
@@ -333,6 +353,9 @@ class FileProcessingService {
       file.tags = match.tags;
       file.isAiAnalyzed = true;
       file.aiStatus = 'local_match';
+      file.processingDictStatus = 'success';
+      file.dataSource = 'local';
+      _db.updateFile(file);
       return null;
     }
     _w('[Dictionary]: Hit! "${match.category}"');
@@ -347,6 +370,9 @@ class FileProcessingService {
     if (wasVisionUsed) appLog('[WORKFLOW] Vision text sent to Gemini for advanced tagging.');
     file.category = match.category;
     file.tags = match.tags;
+    file.processingDictStatus = 'success';
+    file.processingAiStatus = 'pending';
+    _db.updateFile(file);
     if (!isPro) return null;
     if (isCanceled?.call() == true) return null;
     final gSw = Stopwatch()..start();

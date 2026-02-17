@@ -29,7 +29,7 @@ class AiAutoTaggerService {
 
   static const String _baseUrl = 'https://the-hunter-105628026575.me-west1.run.app/api/analyze-batch';
   static const int _batchSize = 10;
-  static const Duration _flushInterval = Duration(seconds: 5);
+  static const Duration _flushInterval = Duration(seconds: 2);
   static const int _maxTextLength = 4000; // Cost guard — חיתוך לפני Gemini
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
@@ -96,11 +96,16 @@ class AiAutoTaggerService {
         file.category = match.category;
         file.isAiAnalyzed = true;
         file.aiStatus = null;
+        file.processingDictStatus = 'success';
+        file.dataSource = 'local';
         _updateInIsar(file);
         appLog('AiAutoTagger: Local hit — ${file.path}');
         return;
       }
     }
+
+    file.processingAiStatus = 'pending';
+    _updateInIsar(file);
 
     // תור לשרת — לא שולחים ל-AI טקסט עם >30% ג'יבריש
     if (text.isNotEmpty && !isExtractedTextAcceptableForAi(text)) text = '';
@@ -281,6 +286,8 @@ class AiAutoTaggerService {
               _applyAiMetadata(file, metadata);
               file.isAiAnalyzed = true;
               file.aiStatus = null;
+              file.processingAiStatus = 'success';
+              file.dataSource = 'ai';
               _updateInIsar(file);
 
               final suggestionsRaw = result['suggestions'] as List<dynamic>? ?? [];
@@ -309,6 +316,7 @@ class AiAutoTaggerService {
         appLog('AiAutoTagger: 401 App Check — cooldown ${_authCooldown.inMinutes} min');
         for (final file in batch) {
           file.aiStatus = 'auth_failed_retry';
+          file.processingAiStatus = 'failed';
           _updateInIsar(file);
           if (!_disposed) _queue.add(file);
         }
@@ -317,6 +325,7 @@ class AiAutoTaggerService {
         appLog('AiAutoTagger: 403 — סימון pending_retry ל־AutoScan הבא');
         for (final file in batch) {
           file.aiStatus = 'pending_retry';
+          file.processingAiStatus = 'failed';
           _updateInIsar(file);
           if (!_disposed) _queue.add(file);
         }
@@ -325,6 +334,7 @@ class AiAutoTaggerService {
         appLog('AiAutoTagger: API error ${response.statusCode} — pending_retry');
         for (final file in batch) {
           file.aiStatus = 'pending_retry';
+          file.processingAiStatus = 'failed';
           _updateInIsar(file);
           if (!_disposed) _queue.add(file);
         }
@@ -341,6 +351,7 @@ class AiAutoTaggerService {
       appLog('[SCAN] Batch API failed (${batch.length} files). ${sanitizeError(e, st)}');
       for (final file in batch) {
         file.aiStatus = isAppCheckError ? 'auth_failed_retry' : 'pending_retry';
+        file.processingAiStatus = 'failed';
         _updateInIsar(file);
         if (!_disposed) _queue.add(file);
       }
